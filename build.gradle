@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'khi.pentecost'
-version = '0.1.0'
+version = '0.2.0'
 
 java {
     toolchain {
@@ -58,13 +58,24 @@ tasks.register('testmods') {
     dependsOn 'testmodFabricJar', 'testmodForgeJar', 'testmodQuiltJar'
 }
 
-// Loads vanilla 1.20.1 through the Pentecost class loader and starts the three test mods. No game window.
-tasks.register('selftest', JavaExec) {
-    dependsOn 'testmods'
-    javaLauncher = javaToolchains.launcherFor(java.toolchain)
-    classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'khi.pentecost.boot.PentecostMain'
-    args 'check', '--mods', layout.buildDirectory.dir('testmods').get().asFile.path, '--selftest'
-    workingDir = rootDir
-    jvmArgs '-Xmx3G'
+def pentecostExec = { String taskName, List<String> taskArgs ->
+    tasks.register(taskName, JavaExec) {
+        javaLauncher = javaToolchains.launcherFor(java.toolchain)
+        classpath = sourceSets.main.runtimeClasspath
+        mainClass = 'khi.pentecost.boot.PentecostMain'
+        args taskArgs
+        workingDir = rootDir
+        jvmArgs '-Xmx3G'
+    }
 }
+
+// Loads the converted game through the Pentecost class loader and starts the three test mods. No game window.
+pentecostExec('selftest', ['check', '--mods', layout.buildDirectory.dir('testmods').get().asFile.path, '--selftest'])
+tasks.named('selftest') { dependsOn 'testmods' }
+
+// Test suite. Example: gradle fetchMods -Pcount=25, then gradle verifyMods
+def modCount = (findProperty('count') ?: '25').toString()
+pentecostExec('fetchFabric', ['fetch', '--loader', 'fabric', '--count', modCount])
+pentecostExec('fetchForge', ['fetch', '--loader', 'forge', '--count', modCount])
+tasks.register('fetchMods') { dependsOn 'fetchFabric', 'fetchForge' }
+pentecostExec('verifyMods', ['verify', '--mods', file('cache/testmods/fabric').path, '--mods', file('cache/testmods/forge').path])

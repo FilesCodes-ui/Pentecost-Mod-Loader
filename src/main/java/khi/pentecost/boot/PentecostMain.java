@@ -7,20 +7,26 @@ import khi.pentecost.loader.GameClassLoader;
 import khi.pentecost.mods.ModDiscovery;
 import khi.pentecost.mods.ModInfo;
 import khi.pentecost.mods.ModRunner;
+import khi.pentecost.remap.RemapService;
+import khi.pentecost.testing.ModFetcher;
+import khi.pentecost.testing.RefVerifier;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Entry point.
- *   install          download Minecraft 1.20.1
- *   check [--mods D] read and start mods without opening the game
- *   launch [--mods D] start the game (default)
+ *   install                      download Minecraft 1.20.1
+ *   check  [--mods D]            read, convert, and start mods without opening the game
+ *   launch [--mods D]            start the game (default)
+ *   fetch  --loader L --count N  download the top N mods for a loader from Modrinth
+ *   verify [--mods D]            convert mods, check every game call, list missing loader classes
  */
 public final class PentecostMain {
     public static final String MINECRAFT = "1.20.1";
-    public static final String VERSION = "0.1.0";
+    public static final String VERSION = "0.2.0";
 
     private static List<ModInfo> mods = List.of();
     private static GameClassLoader loader;
@@ -29,27 +35,33 @@ public final class PentecostMain {
 
     public static void main(String[] args) {
         String command = "launch";
-        Path modsDir = null;
+        List<Path> modDirs = new ArrayList<>();
         boolean selftest = false;
+        String fetchLoader = "fabric";
+        int count = 20;
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
-                case "--mods" -> modsDir = Path.of(args[++i]);
+                case "--mods" -> modDirs.add(Path.of(args[++i]));
                 case "--selftest" -> selftest = true;
+                case "--loader" -> fetchLoader = args[++i];
+                case "--count" -> count = Integer.parseInt(args[++i]);
                 default -> command = args[i];
             }
         }
         Log.info("Pentecost " + VERSION + " for Minecraft " + MINECRAFT + ", Java " + System.getProperty("java.version"));
         int exit = 0;
         try {
-            if (modsDir == null) {
-                modsDir = Dirs.mods();
+            if (modDirs.isEmpty()) {
+                modDirs.add(Dirs.mods());
             }
             switch (command) {
                 case "install" -> MinecraftInstall.install(MINECRAFT, true);
-                case "check" -> exit = check(modsDir, selftest);
-                case "launch" -> launch(modsDir);
+                case "check" -> exit = check(modDirs, selftest);
+                case "launch" -> launch(modDirs);
+                case "fetch" -> ModFetcher.fetchTop(MINECRAFT, fetchLoader, count);
+                case "verify" -> verify(modDirs);
                 default -> {
-                    Log.error("Unknown command " + command + ". Use install, check, or launch.");
+                    Log.error("Unknown command " + command + ". Use install, check, launch, fetch, or verify.");
                     exit = 2;
                 }
             }
@@ -60,19 +72,32 @@ public final class PentecostMain {
         System.exit(exit);
     }
 
-    private static int check(Path modsDir, boolean selftest) throws Exception {
-        GameFiles game = MinecraftInstall.install(MINECRAFT, false);
-        mods = ModDiscovery.scan(modsDir);
+    /** Installs the game, converts it and the mods to readable names, and builds the class loader. */
+    private static GameFiles prepare(List<Path> modDirs, boolean assets) throws Exception {
+        GameFiles vanilla = MinecraftInstall.install(MINECRAFT, assets);
+        RemapService remap = new RemapService(vanilla);
+        GameFiles game = remap.game();
+        List<ModInfo> found = new ArrayList<>();
+        for (Path dir : modDirs) {
+            found.addAll(ModDiscovery.scan(dir));
+        }
+        mods = remap.mods(found);
+        return game;
+    }
+
+    private static int check(List<Path> modDirs, boolean selftest) throws Exception {
+        GameFiles game = prepare(modDirs, false);
         loader = GameClassLoader.create(game, mods);
-        Log.info("Found " + mods.size() + " mod(s) in " + modsDir);
+        Log.info("Found " + mods.size() + " mod(s)");
         for (ModInfo m : mods) {
             Log.info("  " + m.label());
         }
 
-        // Proves the vanilla jar and libraries resolve through the Pentecost class loader.
+        // Proves the converted game resolves through the Pentecost class loader under readable names.
         Class<?> main = Class.forName(game.mainClass(), false, loader);
-        boolean ours = main.getClassLoader() == loader;
-        Log.info("Minecraft main class " + main.getName() + " loaded by " + (ours ? "Pentecost" : "another loader"));
+        Class<?> minecraft = Class.forName("net.minecraft.client.Minecraft", false, loader);
+        boolean ours = main.getClassLoader() == loader && minecraft.getClassLoader() == loader;
+        Log.info("Loaded " + main.getName() + " and " + minecraft.getName() + " through " + (ours ? "Pentecost" : "another loader"));
 
         ModRunner runner = new ModRunner(loader, mods);
         runner.checkDependencies();
@@ -94,9 +119,24 @@ public final class PentecostMain {
         return ok ? 0 : 1;
     }
 
-    private static void launch(Path modsDir) throws Exception {
-        GameFiles game = MinecraftInstall.install(MINECRAFT, true);
-        mods = ModDiscovery.scan(modsDir);
+    private static void verify(List<Path> modDirs) throws Exception {
+        GameFiles game = prepare(modDirs, false);
+        RefVerifier verifier = new RefVerifier(game.clientJar());
+        Log.info("Game index holds " + verifier.gameClassCount() + " classes. Checking " + mods.size() + " mod(s)");
+        List<RefVerifier.ModResult> results = new ArrayList<>();
+        for (ModInfo m : mods) {
+            results.add(verifier.verify(m));
+        }
+        String report = RefVerifier.report(results);
+        Path file = Dirs.reports().resolve("verify.txt");
+        Files.writeString(file, report);
+        int total = report.indexOf("TOTAL");
+        System.out.println(report.substring(total, report.indexOf('\n', report.indexOf("LOADER API"))));
+        Log.info("Full report: " + file);
+    }
+
+    private static void launch(List<Path> modDirs) throws Exception {
+        GameFiles game = prepare(modDirs, true);
         loader = GameClassLoader.create(game, mods);
         Log.info("Starting Minecraft with " + mods.size() + " mod(s)");
 

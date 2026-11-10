@@ -59,10 +59,6 @@ public final class ModDiscovery {
 
     public static List<ModInfo> read(Path jar) throws IOException {
         try (JarFile jf = new JarFile(jar.toFile())) {
-            JarEntry forge = jf.getJarEntry("META-INF/mods.toml");
-            if (forge != null) {
-                return readForge(jar, jf, forge);
-            }
             JarEntry quilt = jf.getJarEntry("quilt.mod.json");
             if (quilt != null) {
                 return List.of(readQuilt(jar, jf, quilt));
@@ -70,6 +66,10 @@ public final class ModDiscovery {
             JarEntry fabric = jf.getJarEntry("fabric.mod.json");
             if (fabric != null) {
                 return List.of(readFabric(jar, jf, fabric));
+            }
+            JarEntry forge = jf.getJarEntry("META-INF/mods.toml");
+            if (forge != null) {
+                return readForge(jar, jf, forge);
             }
             return List.of();
         }
