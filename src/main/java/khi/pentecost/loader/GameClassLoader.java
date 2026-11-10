@@ -20,7 +20,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Loads Minecraft, its libraries, and every mod. Each class passes through the
- * transformer chain first. Also knows which mod a class came from, for crash blame.
+ * transformer chain first, then through Mixin. Also knows which mod a class came from, for crash blame.
  */
 public final class GameClassLoader extends URLClassLoader {
     static {
@@ -28,6 +28,7 @@ public final class GameClassLoader extends URLClassLoader {
     }
 
     private final List<ClassTransformer> transformers = new CopyOnWriteArrayList<>();
+    private volatile ClassTransformer mixin;
     private final Map<String, String> modByJarUrl = new HashMap<>();
 
     private GameClassLoader(URL[] urls, ClassLoader parent) {
@@ -37,9 +38,6 @@ public final class GameClassLoader extends URLClassLoader {
     public static GameClassLoader create(GameFiles game, List<ModInfo> mods) throws MalformedURLException {
         List<URL> urls = new ArrayList<>();
         urls.add(url(game.clientJar()));
-        for (Path lib : game.libraries()) {
-            urls.add(url(lib));
-        }
         Map<String, String> owners = new HashMap<>();
         for (ModInfo mod : mods) {
             URL u = url(mod.jar());
@@ -48,13 +46,21 @@ public final class GameClassLoader extends URLClassLoader {
             }
             owners.putIfAbsent(u.toString(), mod.id());
         }
+        for (Path lib : game.libraries()) {
+            urls.add(url(lib));
+        }
         GameClassLoader loader = new GameClassLoader(urls.toArray(new URL[0]), GameClassLoader.class.getClassLoader());
         loader.modByJarUrl.putAll(owners);
         return loader;
     }
 
+    /** Adds a transformer that runs before Mixin. */
     public void addTransformer(ClassTransformer t) {
         transformers.add(t);
+    }
+
+    public void setMixin(ClassTransformer t) {
+        this.mixin = t;
     }
 
     /** Returns the id of the mod whose jar holds this class, or null. */
@@ -66,17 +72,44 @@ public final class GameClassLoader extends URLClassLoader {
         return modByJarUrl.get(jarOf(res));
     }
 
+    /** Class bytes after every transformer except Mixin. Mixin reads target classes through this. */
+    public byte[] preMixinBytes(String name) throws IOException {
+        String path = name.replace('.', '/') + ".class";
+        URL own = findResource(path);
+        try (InputStream in = own != null ? own.openStream() : getResourceAsStream(path)) {
+            if (in == null) {
+                return null;
+            }
+            byte[] bytes = in.readAllBytes();
+            if (own != null) {
+                for (ClassTransformer t : transformers) {
+                    bytes = t.transform(name.replace('/', '.'), bytes);
+                }
+            }
+            return bytes;
+        }
+    }
+
     @Override
     protected Class<?> findClass(String name) throws ClassNotFoundException {
         String path = name.replace('.', '/') + ".class";
         URL res = findResource(path);
         if (res == null) {
-            throw new ClassNotFoundException(name);
+            ClassTransformer mx = mixin;
+            byte[] made = mx == null ? null : mx.transform(name, null);
+            if (made == null) {
+                throw new ClassNotFoundException(name);
+            }
+            return defineClass(name, made, 0, made.length, (CodeSource) null);
         }
         try (InputStream in = res.openStream()) {
             byte[] bytes = in.readAllBytes();
             for (ClassTransformer t : transformers) {
                 bytes = t.transform(name, bytes);
+            }
+            ClassTransformer mx = mixin;
+            if (mx != null) {
+                bytes = mx.transform(name, bytes);
             }
             int dot = name.lastIndexOf('.');
             if (dot > 0) {

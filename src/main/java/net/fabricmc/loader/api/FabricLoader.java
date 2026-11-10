@@ -1,0 +1,50 @@
+package net.fabricmc.loader.api;
+
+import net.fabricmc.api.EnvType;
+import net.fabricmc.loader.api.entrypoint.EntrypointContainer;
+
+import java.io.File;
+import java.nio.file.Path;
+import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
+import java.util.function.Consumer;
+
+/** Pentecost's own copy of this Fabric Loader API type. Calls land in Pentecost. No Fabric Loader code runs. */
+public interface FabricLoader {
+    static FabricLoader getInstance() {
+        return khi.pentecost.adapter.fabric.FabricLoaderImpl.INSTANCE;
+    }
+
+    <T> List<T> getEntrypoints(String key, Class<T> type);
+
+    <T> List<EntrypointContainer<T>> getEntrypointContainers(String key, Class<T> type);
+
+    <T> void invokeEntrypoints(String key, Class<T> type, Consumer<? super T> invoker);
+
+    ObjectShare getObjectShare();
+
+    MappingResolver getMappingResolver();
+
+    Optional<ModContainer> getModContainer(String id);
+
+    Collection<ModContainer> getAllMods();
+
+    boolean isModLoaded(String id);
+
+    boolean isDevelopmentEnvironment();
+
+    EnvType getEnvironmentType();
+
+    Object getGameInstance();
+
+    Path getGameDir();
+
+    File getGameDirectory();
+
+    Path getConfigDir();
+
+    File getConfigDirectory();
+
+    String[] getLaunchArguments(boolean sanitize);
+}

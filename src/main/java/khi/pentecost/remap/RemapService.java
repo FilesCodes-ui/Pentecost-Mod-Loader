@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.ZipEntry;
@@ -23,6 +24,8 @@ import java.util.zip.ZipFile;
  * so later launches skip all of this work. Mapping files load only when something needs converting.
  */
 public final class RemapService {
+    /** Bump when the conversion changes, so old cached mod jars are rebuilt. */
+    private static final String MOD_CACHE = "mods-v6";
     private static final String INTERMEDIARY =
             "https://maven.fabricmc.net/net/fabricmc/intermediary/%s/intermediary-%s-v2.jar";
     private static final String MCP_CONFIG_1_20_1 =
@@ -33,6 +36,7 @@ public final class RemapService {
     private Map<String, String[]> hierarchy;
     private Mappings.NameTable intermediary;
     private Mappings.NameTable srg;
+    private Mappings.NameTable merged;
 
     public RemapService(GameFiles vanilla) {
         this.vanilla = vanilla;
@@ -44,7 +48,7 @@ public final class RemapService {
         if (!Files.isRegularFile(out)) {
             long t = System.nanoTime();
             Log.info("Converting Minecraft to readable names (first launch only)");
-            JarRemapper.remap(vanilla.clientJar(), out, new GameRemapper(mojang(), hierarchy()));
+            JarRemapper.remap(vanilla.clientJar(), out, new GameRemapper(mojang(), hierarchy()), null);
             Log.info(String.format("Converted the game in %.1f s", (System.nanoTime() - t) / 1e9));
         }
         return new GameFiles(vanilla.version(), out, vanilla.clientMappings(), vanilla.libraries(),
@@ -54,30 +58,39 @@ public final class RemapService {
     /** Returns the mod list with each jar swapped for its readable-name copy. */
     public List<ModInfo> mods(List<ModInfo> mods) throws IOException {
         List<ModInfo> out = new ArrayList<>();
-        Path dir = Dirs.mk(Dirs.cache().resolve("mods-v2"));
+        Path dir = Dirs.mk(Dirs.cache().resolve(MOD_CACHE));
+        Map<String, Path> doneJars = new HashMap<>();
+        int converted = 0;
+        long t = System.nanoTime();
         for (ModInfo m : mods) {
-            String hash = Http.sha1(m.jar()).substring(0, 12);
-            Path dest = dir.resolve(hash + "-" + m.jar().getFileName());
-            if (!Files.isRegularFile(dest)) {
-                long t = System.nanoTime();
-                JarRemapper.remap(m.jar(), dest, new NameRemapper(modTable()));
-                Log.info(String.format("Converted %s in %.2f s", m.jar().getFileName(), (System.nanoTime() - t) / 1e9));
+            // Several Forge mods can share one jar. Convert each jar once.
+            Path dest = doneJars.get(m.jar().toString());
+            if (dest == null) {
+                String hash = Http.sha1(m.jar()).substring(0, 12);
+                dest = dir.resolve(hash + "-" + m.jar().getFileName());
+                if (!Files.isRegularFile(dest)) {
+                    Mappings.NameTable table = modTable();
+                    JarRemapper.remap(m.jar(), dest, new NameRemapper(table), new TextRemapper(table));
+                    converted++;
+                }
+                doneJars.put(m.jar().toString(), dest);
             }
-            out.add(new ModInfo(m.id(), m.name(), m.version(), m.loader(), dest,
-                    m.mainEntrypoints(), m.clientEntrypoints(), m.depends()));
+            out.add(m.withJar(dest));
+        }
+        if (converted > 0) {
+            Log.info(String.format("Converted %d mod jar(s) in %.1f s", converted, (System.nanoTime() - t) / 1e9));
         }
         return out;
     }
 
-    private Mappings.NameTable merged;
-
-    private Mappings.NameTable modTable() throws IOException {
+    /** One merged name table for every mod. Intermediary and SRG names never collide. */
+    public Mappings.NameTable modTable() throws IOException {
         if (merged == null) {
             Mappings.NameTable a = intermediary();
             Mappings.NameTable b = srg();
-            Map<String, String> methods = new java.util.HashMap<>(a.methods());
+            Map<String, String> methods = new HashMap<>(a.methods());
             methods.putAll(b.methods());
-            Map<String, String> fields = new java.util.HashMap<>(a.fields());
+            Map<String, String> fields = new HashMap<>(a.fields());
             fields.putAll(b.fields());
             merged = new Mappings.NameTable(a.classes(), methods, fields, a.conflicts() + b.conflicts());
         }
@@ -104,9 +117,6 @@ public final class RemapService {
             Path jar = Http.download(String.format(INTERMEDIARY, v, v),
                     Dirs.cache().resolve("mappings").resolve("intermediary-" + v + "-v2.jar"), null);
             intermediary = mojang().intermediary(readEntry(jar, "mappings/mappings.tiny"));
-            Log.info("Fabric names loaded: " + intermediary.classes().size() + " classes, "
-                    + intermediary.methods().size() + " methods, " + intermediary.fields().size()
-                    + " fields, " + intermediary.conflicts() + " conflicts");
         }
         return intermediary;
     }
@@ -119,8 +129,6 @@ public final class RemapService {
             Path zip = Http.download(MCP_CONFIG_1_20_1,
                     Dirs.cache().resolve("mappings").resolve("mcp_config-1.20.1.zip"), null);
             srg = mojang().srg(readEntry(zip, "config/joined.tsrg"));
-            Log.info("Forge names loaded: " + srg.methods().size() + " methods, " + srg.fields().size()
-                    + " fields, " + srg.conflicts() + " conflicts");
         }
         return srg;
     }

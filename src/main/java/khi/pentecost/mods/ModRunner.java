@@ -1,8 +1,10 @@
 package khi.pentecost.mods;
 
+import khi.pentecost.adapter.fabric.FabricLoaderImpl;
 import khi.pentecost.boot.Log;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.loader.api.entrypoint.PreLaunchEntrypoint;
 
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
@@ -14,8 +16,8 @@ import java.util.Set;
 /** Checks dependencies and starts every mod. One failing mod never stops the others. */
 public final class ModRunner {
     /** Ids the loader itself answers for. Library mods such as Fabric API stay normal jars. */
-    private static final Set<String> BUILT_IN =
-            Set.of("minecraft", "java", "forge", "fabricloader", "fabric-loader", "quilt_loader", "pentecost");
+    private static final Set<String> BUILT_IN = Set.of("minecraft", "java", "forge", "fabricloader",
+            "fabric-loader", "quilt_loader", "pentecost", "mixinextras");
 
     private final ClassLoader loader;
     private final List<ModInfo> mods;
@@ -33,6 +35,9 @@ public final class ModRunner {
         Set<String> present = new java.util.HashSet<>(BUILT_IN);
         for (ModInfo m : mods) {
             present.add(m.id());
+            if (m.raw() != null && m.raw().has("provides") && m.raw().get("provides").isJsonArray()) {
+                m.raw().getAsJsonArray("provides").forEach(e -> present.add(e.getAsString()));
+            }
         }
         for (ModInfo m : mods) {
             List<String> gone = m.depends().stream().filter(d -> !present.contains(d)).toList();
@@ -44,56 +49,79 @@ public final class ModRunner {
         }
     }
 
+    /** Runs Fabric and Quilt preLaunch entrypoints. These run before the game's own main method. */
+    public void runPreLaunch() {
+        for (ModInfo m : mods) {
+            if (missing.containsKey(m.id()) || m.loader() == LoaderKind.FORGE) {
+                continue;
+            }
+            for (String value : m.entrypoints("preLaunch")) {
+                try {
+                    PreLaunchEntrypoint e = FabricLoaderImpl.INSTANCE.create(value, PreLaunchEntrypoint.class);
+                    if (e != null) {
+                        e.onPreLaunch();
+                    }
+                } catch (Throwable t) {
+                    fail(m, t);
+                }
+            }
+        }
+    }
+
     public void runAll(boolean client) {
         for (ModInfo m : mods) {
-            if (missing.containsKey(m.id())) {
+            if (missing.containsKey(m.id()) || failures.containsKey(m.id()) || m.loader() == LoaderKind.LIBRARY) {
                 continue;
             }
             try {
                 run(m, client);
                 started.add(m.id());
             } catch (Throwable t) {
-                Throwable cause = t instanceof InvocationTargetException && t.getCause() != null ? t.getCause() : t;
-                failures.put(m.id(), cause);
-                Log.error(m.name() + " failed to start and was disabled: " + cause);
+                fail(m, t);
             }
+        }
+        Log.info("Mods started: " + started.size() + ", failed: " + failures.size()
+                + ", missing dependencies: " + missing.size());
+    }
+
+    private void fail(ModInfo m, Throwable t) {
+        Throwable cause = t instanceof InvocationTargetException && t.getCause() != null ? t.getCause() : t;
+        failures.put(m.id(), cause);
+        Log.error(m.name() + " failed to start and was disabled: " + cause);
+        StackTraceElement[] st = cause.getStackTrace();
+        for (int i = 0; i < Math.min(6, st.length); i++) {
+            Log.error("    at " + st[i]);
         }
     }
 
     private void run(ModInfo m, boolean client) throws Exception {
         switch (m.loader()) {
             case FORGE -> {
-                for (String cls : m.mainEntrypoints()) {
-                    construct(cls);
+                for (String cls : m.entrypoints("main")) {
+                    Class<?> c = Class.forName(cls, true, loader);
+                    var ctor = c.getDeclaredConstructor();
+                    ctor.setAccessible(true);
+                    ctor.newInstance();
                 }
             }
             case FABRIC, QUILT -> {
-                for (String cls : m.mainEntrypoints()) {
-                    Object o = construct(cls);
-                    if (o instanceof ModInitializer init) {
+                for (String value : m.entrypoints("main")) {
+                    ModInitializer init = FabricLoaderImpl.INSTANCE.create(value, ModInitializer.class);
+                    if (init != null) {
                         init.onInitialize();
                     }
                 }
                 if (client) {
-                    for (String cls : m.clientEntrypoints()) {
-                        Object o = construct(cls);
-                        if (o instanceof ClientModInitializer init) {
+                    for (String value : m.entrypoints("client")) {
+                        ClientModInitializer init = FabricLoaderImpl.INSTANCE.create(value, ClientModInitializer.class);
+                        if (init != null) {
                             init.onInitializeClient();
                         }
                     }
                 }
             }
+            default -> { }
         }
-    }
-
-    private Object construct(String className) throws Exception {
-        // Fabric allows "pkg.Class::member". Only the class part is supported so far.
-        int sep = className.indexOf("::");
-        String name = sep < 0 ? className : className.substring(0, sep);
-        Class<?> c = Class.forName(name, true, loader);
-        var ctor = c.getDeclaredConstructor();
-        ctor.setAccessible(true);
-        return ctor.newInstance();
     }
 
     public Map<String, Throwable> failures() { return failures; }

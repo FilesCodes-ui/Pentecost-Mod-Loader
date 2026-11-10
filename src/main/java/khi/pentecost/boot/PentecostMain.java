@@ -1,9 +1,13 @@
 package khi.pentecost.boot;
 
+import khi.pentecost.core.Hooks;
+import khi.pentecost.core.PentecostRuntime;
 import khi.pentecost.crash.CrashReport;
 import khi.pentecost.install.MinecraftInstall;
 import khi.pentecost.install.MinecraftInstall.GameFiles;
+import khi.pentecost.loader.AccessWidener;
 import khi.pentecost.loader.GameClassLoader;
+import khi.pentecost.mixin.MixinHost;
 import khi.pentecost.mods.ModDiscovery;
 import khi.pentecost.mods.ModInfo;
 import khi.pentecost.mods.ModRunner;
@@ -26,7 +30,7 @@ import java.util.List;
  */
 public final class PentecostMain {
     public static final String MINECRAFT = "1.20.1";
-    public static final String VERSION = "0.2.0";
+    public static final String VERSION = "0.3.0";
 
     private static List<ModInfo> mods = List.of();
     private static GameClassLoader loader;
@@ -72,7 +76,7 @@ public final class PentecostMain {
         System.exit(exit);
     }
 
-    /** Installs the game, converts it and the mods to readable names, and builds the class loader. */
+    /** Installs the game and converts it and the mods to readable names. */
     private static GameFiles prepare(List<Path> modDirs, boolean assets) throws Exception {
         GameFiles vanilla = MinecraftInstall.install(MINECRAFT, assets);
         RemapService remap = new RemapService(vanilla);
@@ -82,16 +86,40 @@ public final class PentecostMain {
             found.addAll(ModDiscovery.scan(dir));
         }
         mods = remap.mods(found);
+        PentecostRuntime.remap = remap;
+        PentecostRuntime.mods = mods;
+        PentecostRuntime.gameDir = Dirs.run();
         return game;
+    }
+
+    /** Builds the class loader with access wideners, the mod start hook, and Mixin. */
+    private static ModRunner boot(GameFiles game) throws Exception {
+        loader = GameClassLoader.create(game, mods);
+        PentecostRuntime.loader = loader;
+        Log.info("Found " + mods.size() + " mod(s)");
+        for (ModInfo m : mods) {
+            if (!m.jar().getFileName().toString().matches("[0-9a-f]{12}-.*") || mods.size() <= 12
+                    || !m.id().startsWith("fabric-") && m.loader() != khi.pentecost.mods.LoaderKind.LIBRARY) {
+                Log.info("  " + m.label());
+            }
+        }
+        ModRunner runner = new ModRunner(loader, mods);
+        runner.checkDependencies();
+        PentecostRuntime.runner = runner;
+        List<ModInfo> usable = mods.stream().filter(m -> !runner.missing().containsKey(m.id())).toList();
+
+        AccessWidener widener = AccessWidener.load(usable);
+        if (!widener.isEmpty()) {
+            loader.addTransformer(widener);
+        }
+        loader.addTransformer(Hooks.transformer());
+        MixinHost.start(loader, usable);
+        return runner;
     }
 
     private static int check(List<Path> modDirs, boolean selftest) throws Exception {
         GameFiles game = prepare(modDirs, false);
-        loader = GameClassLoader.create(game, mods);
-        Log.info("Found " + mods.size() + " mod(s)");
-        for (ModInfo m : mods) {
-            Log.info("  " + m.label());
-        }
+        ModRunner runner = boot(game);
 
         // Proves the converted game resolves through the Pentecost class loader under readable names.
         Class<?> main = Class.forName(game.mainClass(), false, loader);
@@ -99,8 +127,6 @@ public final class PentecostMain {
         boolean ours = main.getClassLoader() == loader && minecraft.getClassLoader() == loader;
         Log.info("Loaded " + main.getName() + " and " + minecraft.getName() + " through " + (ours ? "Pentecost" : "another loader"));
 
-        ModRunner runner = new ModRunner(loader, mods);
-        runner.checkDependencies();
         runner.runAll(false);
 
         StringBuilder report = new StringBuilder("Pentecost check\n");
@@ -109,7 +135,6 @@ public final class PentecostMain {
         report.append("missing dependencies: ").append(runner.missing()).append('\n');
         report.append("failed: ").append(runner.failures().keySet()).append('\n');
         Files.writeString(Dirs.reports().resolve("check.txt"), report);
-        Log.info(report.toString().trim().replace("\n", " | "));
 
         boolean ok = ours && runner.failures().isEmpty();
         if (selftest) {
@@ -137,15 +162,7 @@ public final class PentecostMain {
 
     private static void launch(List<Path> modDirs) throws Exception {
         GameFiles game = prepare(modDirs, true);
-        loader = GameClassLoader.create(game, mods);
-        Log.info("Starting Minecraft with " + mods.size() + " mod(s)");
-
-        ModRunner runner = new ModRunner(loader, mods);
-        runner.checkDependencies();
-        runner.runAll(true);
-
-        Thread.currentThread().setContextClassLoader(loader);
-        Class<?> main = Class.forName(game.mainClass(), true, loader);
+        ModRunner runner = boot(game);
         String[] gameArgs = {
                 "--username", "Dev",
                 "--version", "Pentecost-" + MINECRAFT,
@@ -157,6 +174,12 @@ public final class PentecostMain {
                 "--userType", "legacy",
                 "--versionType", "Pentecost"
         };
+        PentecostRuntime.launchArgs = gameArgs;
+
+        Thread.currentThread().setContextClassLoader(loader);
+        runner.runPreLaunch();
+        Log.info("Starting Minecraft");
+        Class<?> main = Class.forName(game.mainClass(), true, loader);
         main.getMethod("main", String[].class).invoke(null, (Object) gameArgs);
     }
 }

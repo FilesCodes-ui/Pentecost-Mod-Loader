@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'khi.pentecost'
-version = '0.2.0'
+version = '0.3.0'
 
 java {
     toolchain {
@@ -14,6 +14,7 @@ java {
 
 repositories {
     mavenCentral()
+    maven { url = 'https://maven.fabricmc.net/' }
 }
 
 sourceSets {
@@ -25,6 +26,13 @@ sourceSets {
 dependencies {
     implementation 'org.ow2.asm:asm:9.7.1'
     implementation 'org.ow2.asm:asm-commons:9.7.1'
+    implementation 'org.ow2.asm:asm-tree:9.7.1'
+    implementation 'org.ow2.asm:asm-analysis:9.7.1'
+    implementation 'org.ow2.asm:asm-util:9.7.1'
+    // The Mixin library (MIT). Pentecost hosts it. Forge and Fabric both ship a copy of it.
+    implementation 'net.fabricmc:sponge-mixin:0.15.4+mixin.0.8.7'
+    implementation 'io.github.llamalad7:mixinextras-fabric:0.4.1'
+    implementation 'com.google.guava:guava:31.1-jre'
     implementation 'com.google.code.gson:gson:2.11.0'
     implementation 'com.electronwill.night-config:toml:3.6.7'
 
@@ -39,7 +47,9 @@ application {
 }
 
 tasks.named('run') {
-    workingDir = rootDir
+    workingDir = file('run')
+    systemProperty 'pentecost.home', rootDir.path
+    doFirst { file('run').mkdirs() }
 }
 
 test {
@@ -64,14 +74,19 @@ def pentecostExec = { String taskName, List<String> taskArgs ->
         classpath = sourceSets.main.runtimeClasspath
         mainClass = 'khi.pentecost.boot.PentecostMain'
         args taskArgs
-        workingDir = rootDir
+        workingDir = file('run')
+        systemProperty 'pentecost.home', rootDir.path
         jvmArgs '-Xmx3G'
+        doFirst { file('run').mkdirs() }
     }
 }
 
 // Loads the converted game through the Pentecost class loader and starts the three test mods. No game window.
 pentecostExec('selftest', ['check', '--mods', layout.buildDirectory.dir('testmods').get().asFile.path, '--selftest'])
 tasks.named('selftest') { dependsOn 'testmods' }
+
+// Starts the game with the mods in cache/try. Put jars there to test them.
+pentecostExec('runTry', ['launch', '--mods', file('cache/try').path])
 
 // Test suite. Example: gradle fetchMods -Pcount=25, then gradle verifyMods
 def modCount = (findProperty('count') ?: '25').toString()

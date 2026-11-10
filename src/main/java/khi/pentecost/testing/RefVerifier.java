@@ -259,6 +259,13 @@ public final class RefVerifier {
             r.missingExamples.stream().sorted().limit(8).forEach(x -> sb.append("      ").append(x).append('\n'));
         }
 
+        sb.append("\nLOADER CLASSES EACH MOD NEEDS\n");
+        for (ModResult r : results) {
+            sb.append("  ## ").append(r.mod.name()).append(" (").append(r.mod.loader().label).append(") ")
+                    .append(r.mod.jar().getFileName()).append('\n');
+            r.loaderMissing.stream().sorted().forEach(x -> sb.append("      ").append(x).append('\n'));
+        }
+
         Map<String, Integer> byPackage = new TreeMap<>();
         for (String c : wanted.keySet()) {
             String[] p = c.split("/");

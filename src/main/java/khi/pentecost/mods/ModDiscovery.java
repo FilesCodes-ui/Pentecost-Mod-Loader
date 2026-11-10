@@ -6,7 +6,9 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import khi.pentecost.boot.Dirs;
 import khi.pentecost.boot.Log;
+import khi.pentecost.install.Http;
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
@@ -19,18 +21,26 @@ import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 import java.util.stream.Stream;
 
-/** Reads mods.toml, quilt.mod.json, and fabric.mod.json into one mod list. */
+/** Reads quilt.mod.json, fabric.mod.json, and mods.toml into one mod list. Unpacks jars nested inside mods. */
 public final class ModDiscovery {
     private static final String FORGE_MOD_ANNOTATION = "Lnet/minecraftforge/fml/common/Mod;";
+
+    private record Found(List<ModInfo> mods, List<String> nested) {}
 
     private ModDiscovery() {}
 
@@ -43,13 +53,37 @@ public final class ModDiscovery {
         try (Stream<Path> s = Files.list(modsDir)) {
             jars = s.filter(p -> p.getFileName().toString().endsWith(".jar")).sorted().toList();
         }
-        for (Path jar : jars) {
+        // Top-level jars first, then the jars nested inside them. The first copy of a mod id wins.
+        Deque<Path> todo = new ArrayDeque<>(jars);
+        Set<String> topLevel = new HashSet<>();
+        for (Path j : jars) {
+            topLevel.add(j.toString());
+        }
+        Set<String> ids = new HashSet<>();
+        while (!todo.isEmpty()) {
+            Path jar = todo.poll();
+            boolean top = topLevel.contains(jar.toString());
             try {
-                List<ModInfo> found = read(jar);
-                if (found.isEmpty()) {
-                    Log.warn(jar.getFileName() + " has no mods.toml, quilt.mod.json, or fabric.mod.json. Skipped.");
+                Found found = read(jar);
+                if (found.mods.isEmpty()) {
+                    if (top) {
+                        Log.warn(jar.getFileName() + " has no quilt.mod.json, fabric.mod.json, or mods.toml. Skipped.");
+                        continue;
+                    }
+                    String id = "lib_" + jar.getFileName().toString().replaceAll("[^A-Za-z0-9_.-]", "_");
+                    if (ids.add(id)) {
+                        mods.add(new ModInfo(id, jar.getFileName().toString(), "", LoaderKind.LIBRARY, jar,
+                                Map.of(), List.of(), List.of(), List.of(), null));
+                    }
                 }
-                mods.addAll(found);
+                for (ModInfo m : found.mods) {
+                    if (ids.add(m.id())) {
+                        mods.add(m);
+                    }
+                }
+                if (!found.nested.isEmpty()) {
+                    todo.addAll(extractNested(jar, found.nested));
+                }
             } catch (Exception e) {
                 Log.error("Cannot read " + jar.getFileName() + ": " + e);
             }
@@ -57,43 +91,76 @@ public final class ModDiscovery {
         return mods;
     }
 
-    public static List<ModInfo> read(Path jar) throws IOException {
+    private static List<Path> extractNested(Path jar, List<String> entries) throws IOException {
+        Path dir = Dirs.mk(Dirs.cache().resolve("nested").resolve(Http.sha1(jar).substring(0, 12)));
+        List<Path> out = new ArrayList<>();
         try (JarFile jf = new JarFile(jar.toFile())) {
+            for (String name : entries) {
+                JarEntry e = jf.getJarEntry(name);
+                if (e == null) {
+                    continue;
+                }
+                Path dest = dir.resolve(Path.of(name).getFileName().toString());
+                if (!Files.isRegularFile(dest) || Files.size(dest) != e.getSize()) {
+                    try (InputStream in = jf.getInputStream(e)) {
+                        Files.copy(in, dest, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    }
+                }
+                out.add(dest);
+            }
+        }
+        return out;
+    }
+
+    private static Found read(Path jar) throws IOException {
+        try (JarFile jf = new JarFile(jar.toFile())) {
+            // A jar with several metadata files: Quilt first, then Fabric, then Forge.
+            // Fabric jars often carry a stub mods.toml, so Forge comes last.
             JarEntry quilt = jf.getJarEntry("quilt.mod.json");
             if (quilt != null) {
-                return List.of(readQuilt(jar, jf, quilt));
+                return readQuilt(jar, jf, quilt);
             }
             JarEntry fabric = jf.getJarEntry("fabric.mod.json");
             if (fabric != null) {
-                return List.of(readFabric(jar, jf, fabric));
+                return readFabric(jar, jf, fabric);
             }
             JarEntry forge = jf.getJarEntry("META-INF/mods.toml");
             if (forge != null) {
                 return readForge(jar, jf, forge);
             }
-            return List.of();
+            return new Found(List.of(), List.of());
         }
     }
 
     // ---------------------------------------------------------------- Forge
 
-    private static List<ModInfo> readForge(Path jar, JarFile jf, JarEntry entry) throws IOException {
+    private static Found readForge(Path jar, JarFile jf, JarEntry entry) throws IOException {
         Config cfg;
         try (Reader r = new InputStreamReader(jf.getInputStream(entry), StandardCharsets.UTF_8)) {
             cfg = new TomlParser().parse(r);
         }
         Map<String, String> modClasses = findForgeModClasses(jf);
         String jarVersion = null;
+        List<String> mixins = new ArrayList<>();
         Manifest mf = jf.getManifest();
         if (mf != null) {
             jarVersion = mf.getMainAttributes().getValue("Implementation-Version");
+            String mc = mf.getMainAttributes().getValue("MixinConfigs");
+            if (mc != null) {
+                for (String s : mc.split(",")) {
+                    if (!s.isBlank()) {
+                        mixins.add(s.trim());
+                    }
+                }
+            }
         }
         List<ModInfo> out = new ArrayList<>();
         List<Config> mods = cfg.get("mods");
         if (mods == null) {
-            return out;
+            return new Found(out, List.of());
         }
         Config allDeps = cfg.get("dependencies");
+        boolean first = true;
         for (Config m : mods) {
             String id = m.get("modId");
             String version = String.valueOf(m.<Object>getOrElse("version", "unknown"));
@@ -106,23 +173,24 @@ public final class ModDiscovery {
                 List<Config> deps = allDeps.get(List.of(id));
                 if (deps != null) {
                     for (Config d : deps) {
-                        Object mandatory = d.get("mandatory");
-                        if (Boolean.TRUE.equals(mandatory)) {
+                        if (Boolean.TRUE.equals(d.get("mandatory"))) {
                             depends.add(d.get("modId"));
                         }
                     }
                 }
             }
             String cls = modClasses.get(id);
-            out.add(new ModInfo(id, name, version, LoaderKind.FORGE, jar,
-                    cls == null ? List.of() : List.of(cls), List.of(), List.copyOf(depends)));
+            Map<String, List<String>> eps = cls == null ? Map.of() : Map.of("main", List.of(cls));
+            out.add(new ModInfo(id, name, version, LoaderKind.FORGE, jar, eps, List.copyOf(depends),
+                    first ? List.copyOf(mixins) : List.of(), List.of(), null));
+            first = false;
         }
-        return out;
+        return new Found(out, List.of());
     }
 
     /** Finds classes carrying Forge's @Mod annotation. Returns mod id to class name. */
     private static Map<String, String> findForgeModClasses(JarFile jf) throws IOException {
-        Map<String, String> found = new java.util.HashMap<>();
+        Map<String, String> found = new HashMap<>();
         Enumeration<JarEntry> entries = jf.entries();
         while (entries.hasMoreElements()) {
             JarEntry e = entries.nextElement();
@@ -157,44 +225,79 @@ public final class ModDiscovery {
 
     // ---------------------------------------------------------------- Fabric
 
-    private static ModInfo readFabric(Path jar, JarFile jf, JarEntry entry) throws IOException {
+    private static Found readFabric(Path jar, JarFile jf, JarEntry entry) throws IOException {
         JsonObject o = json(jf, entry);
         String id = o.get("id").getAsString();
         String version = o.has("version") ? o.get("version").getAsString() : "unknown";
         String name = o.has("name") ? o.get("name").getAsString() : id;
-        List<String> main = new ArrayList<>();
-        List<String> client = new ArrayList<>();
-        if (o.has("entrypoints")) {
-            JsonObject eps = o.getAsJsonObject("entrypoints");
-            entrypoints(eps.get("main"), main);
-            entrypoints(eps.get("client"), client);
+        Map<String, List<String>> eps = new LinkedHashMap<>();
+        if (o.has("entrypoints") && o.get("entrypoints").isJsonObject()) {
+            for (Map.Entry<String, JsonElement> e : o.getAsJsonObject("entrypoints").entrySet()) {
+                List<String> list = new ArrayList<>();
+                entrypoints(e.getValue(), list);
+                eps.put(e.getKey(), List.copyOf(list));
+            }
         }
         List<String> depends = new ArrayList<>();
         if (o.has("depends") && o.get("depends").isJsonObject()) {
             depends.addAll(o.getAsJsonObject("depends").keySet());
         }
-        return new ModInfo(id, name, version, LoaderKind.FABRIC, jar,
-                List.copyOf(main), List.copyOf(client), List.copyOf(depends));
+        List<String> mixins = new ArrayList<>();
+        if (o.has("mixins") && o.get("mixins").isJsonArray()) {
+            for (JsonElement m : o.getAsJsonArray("mixins")) {
+                if (m.isJsonPrimitive()) {
+                    mixins.add(m.getAsString());
+                } else if (m.isJsonObject() && m.getAsJsonObject().has("config")) {
+                    JsonObject mo = m.getAsJsonObject();
+                    String env = mo.has("environment") ? mo.get("environment").getAsString() : "*";
+                    if (!env.equals("server")) {
+                        mixins.add(mo.get("config").getAsString());
+                    }
+                }
+            }
+        }
+        List<String> aw = o.has("accessWidener") ? List.of(o.get("accessWidener").getAsString()) : List.of();
+        List<String> nested = new ArrayList<>();
+        if (o.has("jars") && o.get("jars").isJsonArray()) {
+            for (JsonElement j : o.getAsJsonArray("jars")) {
+                if (j.isJsonObject() && j.getAsJsonObject().has("file")) {
+                    nested.add(j.getAsJsonObject().get("file").getAsString());
+                }
+            }
+        }
+        ModInfo mod = new ModInfo(id, name, version, LoaderKind.FABRIC, jar, eps, List.copyOf(depends),
+                List.copyOf(mixins), aw, o);
+        return new Found(List.of(mod), nested);
     }
 
     // ---------------------------------------------------------------- Quilt
 
-    private static ModInfo readQuilt(Path jar, JarFile jf, JarEntry entry) throws IOException {
-        JsonObject loader = json(jf, entry).getAsJsonObject("quilt_loader");
+    private static Found readQuilt(Path jar, JarFile jf, JarEntry entry) throws IOException {
+        JsonObject root = json(jf, entry);
+        JsonObject loader = root.getAsJsonObject("quilt_loader");
         String id = loader.get("id").getAsString();
         String version = loader.has("version") ? loader.get("version").getAsString() : "unknown";
         String name = id;
         if (loader.has("metadata") && loader.getAsJsonObject("metadata").has("name")) {
             name = loader.getAsJsonObject("metadata").get("name").getAsString();
         }
-        List<String> main = new ArrayList<>();
-        List<String> client = new ArrayList<>();
-        if (loader.has("entrypoints")) {
-            JsonObject eps = loader.getAsJsonObject("entrypoints");
-            entrypoints(eps.get("init"), main);
-            entrypoints(eps.get("main"), main);
-            entrypoints(eps.get("client_init"), client);
-            entrypoints(eps.get("client"), client);
+        Map<String, List<String>> eps = new LinkedHashMap<>();
+        if (loader.has("entrypoints") && loader.get("entrypoints").isJsonObject()) {
+            for (Map.Entry<String, JsonElement> e : loader.getAsJsonObject("entrypoints").entrySet()) {
+                List<String> list = new ArrayList<>();
+                entrypoints(e.getValue(), list);
+                // Quilt names its entrypoints init and client_init. Store them under the shared keys.
+                String key = switch (e.getKey()) {
+                    case "init" -> "main";
+                    case "client_init" -> "client";
+                    case "server_init" -> "server";
+                    case "pre_launch" -> "preLaunch";
+                    default -> e.getKey();
+                };
+                List<String> merged = new ArrayList<>(eps.getOrDefault(key, List.of()));
+                merged.addAll(list);
+                eps.put(key, List.copyOf(merged));
+            }
         }
         List<String> depends = new ArrayList<>();
         if (loader.has("depends") && loader.get("depends").isJsonArray()) {
@@ -210,8 +313,15 @@ public final class ModDiscovery {
                 }
             }
         }
-        return new ModInfo(id, name, version, LoaderKind.QUILT, jar,
-                List.copyOf(main), List.copyOf(client), List.copyOf(depends));
+        List<String> mixins = new ArrayList<>();
+        strings(root.get("mixin"), mixins);
+        List<String> aw = new ArrayList<>();
+        strings(root.get("access_widener"), aw);
+        List<String> nested = new ArrayList<>();
+        strings(loader.get("jars"), nested);
+        ModInfo mod = new ModInfo(id, name, version, LoaderKind.QUILT, jar, eps, List.copyOf(depends),
+                List.copyOf(mixins), List.copyOf(aw), root);
+        return new Found(List.of(mod), nested);
     }
 
     // ---------------------------------------------------------------- helpers
@@ -219,6 +329,21 @@ public final class ModDiscovery {
     private static JsonObject json(JarFile jf, JarEntry entry) throws IOException {
         try (Reader r = new InputStreamReader(jf.getInputStream(entry), StandardCharsets.UTF_8)) {
             return JsonParser.parseReader(r).getAsJsonObject();
+        }
+    }
+
+    private static void strings(JsonElement e, List<String> out) {
+        if (e == null || e.isJsonNull()) {
+            return;
+        }
+        if (e.isJsonPrimitive()) {
+            out.add(e.getAsString());
+        } else if (e.isJsonArray()) {
+            for (JsonElement x : e.getAsJsonArray()) {
+                if (x.isJsonPrimitive()) {
+                    out.add(x.getAsString());
+                }
+            }
         }
     }
 

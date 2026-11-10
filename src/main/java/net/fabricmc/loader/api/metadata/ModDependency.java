@@ -1,0 +1,42 @@
+package net.fabricmc.loader.api.metadata;
+
+import net.fabricmc.loader.api.Version;
+
+/** Pentecost's own copy of this Fabric Loader API type. Calls land in Pentecost. No Fabric Loader code runs. */
+public interface ModDependency {
+    Kind getKind();
+
+    String getModId();
+
+    boolean matches(Version version);
+
+    enum Kind {
+        DEPENDS("depends", true, false),
+        RECOMMENDS("recommends", true, true),
+        SUGGESTS("suggests", true, true),
+        CONFLICTS("conflicts", false, true),
+        BREAKS("breaks", false, false);
+
+        private final String key;
+        private final boolean positive;
+        private final boolean soft;
+
+        Kind(String key, boolean positive, boolean soft) {
+            this.key = key;
+            this.positive = positive;
+            this.soft = soft;
+        }
+
+        public String getKey() {
+            return key;
+        }
+
+        public boolean isPositive() {
+            return positive;
+        }
+
+        public boolean isSoft() {
+            return soft;
+        }
+    }
+}
