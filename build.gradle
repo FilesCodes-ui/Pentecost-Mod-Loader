@@ -1,0 +1,70 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'khi.pentecost'
+version = '0.1.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+sourceSets {
+    testmodFabric { compileClasspath += sourceSets.main.output }
+    testmodForge { compileClasspath += sourceSets.main.output }
+    testmodQuilt { }
+}
+
+dependencies {
+    implementation 'org.ow2.asm:asm:9.7.1'
+    implementation 'org.ow2.asm:asm-commons:9.7.1'
+    implementation 'com.google.code.gson:gson:2.11.0'
+    implementation 'com.electronwill.night-config:toml:3.6.7'
+
+    testImplementation platform('org.junit:junit-bom:5.10.3')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+application {
+    mainClass = 'khi.pentecost.boot.PentecostMain'
+    applicationDefaultJvmArgs = ['-Xmx4G']
+}
+
+tasks.named('run') {
+    workingDir = rootDir
+}
+
+test {
+    useJUnitPlatform()
+}
+
+['Fabric', 'Forge', 'Quilt'].each { n ->
+    tasks.register("testmod${n}Jar", Jar) {
+        archiveFileName = "pentecost-test-${n.toLowerCase()}.jar"
+        destinationDirectory = layout.buildDirectory.dir('testmods')
+        from sourceSets["testmod${n}"].output
+    }
+}
+
+tasks.register('testmods') {
+    dependsOn 'testmodFabricJar', 'testmodForgeJar', 'testmodQuiltJar'
+}
+
+// Loads vanilla 1.20.1 through the Pentecost class loader and starts the three test mods. No game window.
+tasks.register('selftest', JavaExec) {
+    dependsOn 'testmods'
+    javaLauncher = javaToolchains.launcherFor(java.toolchain)
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'khi.pentecost.boot.PentecostMain'
+    args 'check', '--mods', layout.buildDirectory.dir('testmods').get().asFile.path, '--selftest'
+    workingDir = rootDir
+    jvmArgs '-Xmx3G'
+}
