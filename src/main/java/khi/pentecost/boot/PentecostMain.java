@@ -182,6 +182,7 @@ public final class PentecostMain {
                             khi.pentecost.adapter.forge.ForgeFiles.VERSION.substring(MINECRAFT.length() + 1));
         }
         loader.addTransformer(Hooks.transformer());
+        loader.addTransformer(Hooks.packTransformer());
         if (forgeOn) {
             java.util.Set<String> softMods = new java.util.HashSet<>();
             for (ModInfo m : usable) {

@@ -30,6 +30,7 @@ public final class ModsScreens {
 
     /** Called once when the game starts. */
     public static void init() {
+        Hooks.packSources = ModPacks::extend;
         Hooks.screenRouter = o -> route((Screen) o);
         Hooks.screenFinalizer = (asked, shown) -> settle((Screen) asked, (Screen) shown);
     }

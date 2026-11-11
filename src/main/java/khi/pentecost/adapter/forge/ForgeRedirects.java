@@ -142,7 +142,20 @@ public final class ForgeRedirects {
                     if (!calls) {
                         return mv;
                     }
+                    boolean registryDoor = name.equals("net.minecraftforge.registries.NamespacedWrapper")
+                            && n.equals("registerMapping")
+                            && d.startsWith("(ILnet/minecraft/resources/ResourceKey;Ljava/lang/Object;");
                     return new MethodVisitor(Opcodes.ASM9, mv) {
+                        @Override
+                        public void visitCode() {
+                            super.visitCode();
+                            if (registryDoor) {
+                                super.visitVarInsn(Opcodes.ALOAD, 0);
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/forgeglue/LateRegistry",
+                                        "open", "(Ljava/lang/Object;)V", false);
+                            }
+                        }
+
                         @Override
                         public void visitMethodInsn(int op, String owner, String mn, String md, boolean itf) {
                             String[] to = CALLS.get(owner + "." + mn + md);

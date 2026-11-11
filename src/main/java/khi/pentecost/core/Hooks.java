@@ -30,6 +30,80 @@ public final class Hooks {
 
     private static Object asked;
 
+    /** Set by the game glue. Gets the pack sources of a new pack list and returns the ones to use. */
+    public static volatile java.util.function.UnaryOperator<Object> packSources;
+
+    private static final AtomicBoolean GLUE = new AtomicBoolean();
+
+    /** Starts Pentecost's in-game code once: screens, resource packs. */
+    private static void startGlue() {
+        if (System.getProperty("pentecost.gameglue") == null || PentecostRuntime.loader == null
+                || !GLUE.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            Class.forName("khi.pentecost.game.ModsScreens", true, PentecostRuntime.loader)
+                    .getMethod("init").invoke(null);
+        } catch (ReflectiveOperationException | LinkageError e) {
+            Log.error("Pentecost's in-game code did not start: " + e);
+        }
+    }
+
+    /** Called by the game at the top of the pack list constructor. */
+    public static Object packSources(Object sources) {
+        startGlue();
+        java.util.function.UnaryOperator<Object> p = packSources;
+        if (p == null) {
+            return sources;
+        }
+        try {
+            return p.apply(sources);
+        } catch (RuntimeException | LinkageError e) {
+            Log.error("Adding mod resource packs failed: " + e);
+            return sources;
+        }
+    }
+
+    private static final String PACKS = "net.minecraft.server.packs.repository.PackRepository";
+    private static final String SOURCES = "[Lnet/minecraft/server/packs/repository/RepositorySource;";
+
+    /** Routes the pack list constructor's sources through packSources. */
+    public static ClassTransformer packTransformer() {
+        return (name, bytes) -> {
+            if (!PACKS.equals(name)) {
+                return bytes;
+            }
+            ClassReader reader = new ClassReader(bytes);
+            ClassWriter writer = new ClassWriter(0);
+            reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
+                @Override
+                public MethodVisitor visitMethod(int access, String n, String d, String s, String[] e) {
+                    MethodVisitor mv = super.visitMethod(access, n, d, s, e);
+                    if (!n.equals("<init>") || !d.equals("(" + SOURCES + ")V")) {
+                        return mv;
+                    }
+                    return new MethodVisitor(Opcodes.ASM9, mv) {
+                        @Override
+                        public void visitCode() {
+                            super.visitCode();
+                            super.visitVarInsn(Opcodes.ALOAD, 1);
+                            super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks",
+                                    "packSources", "(Ljava/lang/Object;)Ljava/lang/Object;", false);
+                            super.visitTypeInsn(Opcodes.CHECKCAST, SOURCES);
+                            super.visitVarInsn(Opcodes.ASTORE, 1);
+                        }
+
+                        @Override
+                        public void visitMaxs(int maxStack, int maxLocals) {
+                            super.visitMaxs(Math.max(maxStack, 2), maxLocals);
+                        }
+                    };
+                }
+            }, 0);
+            return writer.toByteArray();
+        };
+    }
+
     /** Called by the game at the top of Minecraft.setScreen. */
     public static Object routeScreen(Object screen) {
         Object out = screen;
@@ -67,14 +141,7 @@ public final class Hooks {
             return;
         }
         FabricLoaderImpl.INSTANCE.setGameInstance(game);
-        if (System.getProperty("pentecost.gameglue") != null && PentecostRuntime.loader != null) {
-            try {
-                Class.forName("khi.pentecost.game.ModsScreens", true, PentecostRuntime.loader)
-                        .getMethod("init").invoke(null);
-            } catch (ReflectiveOperationException | LinkageError e) {
-                Log.error("Pentecost's in-game screens did not start: " + e);
-            }
-        }
+        startGlue();
         if (PentecostRuntime.runner != null) {
             Log.info("Game reached mod start. Starting mods");
             PentecostRuntime.runner.runAll(true);
