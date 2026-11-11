@@ -126,7 +126,8 @@ public final class PentecostMain {
         runner.checkDependencies();
         PentecostRuntime.runner = runner;
         java.util.Set<String> forgeCovers = forgeOn
-                ? java.util.Set.of("fabric-registry-sync-v0", "fabric-loot-tables-v1", "fabric-loot-api-v2") : java.util.Set.of();
+                ? java.util.Set.of("fabric-registry-sync-v0", "fabric-loot-tables-v1", "fabric-loot-api-v2",
+                "fabric-rendering-fluids-v1") : java.util.Set.of();
         PentecostRuntime.forgeCovers = forgeCovers;
         for (String id : forgeCovers) {
             if (mods.stream().anyMatch(m -> m.id().equals(id))) {
@@ -242,6 +243,13 @@ public final class PentecostMain {
                 "--userType", "legacy",
                 "--versionType", "Pentecost"
         };
+        String world = System.getenv("PENTECOST_WORLD");
+        if (world != null && !world.isBlank()) {
+            gameArgs = java.util.Arrays.copyOf(gameArgs, gameArgs.length + 2);
+            gameArgs[gameArgs.length - 2] = "--quickPlaySingleplayer";
+            gameArgs[gameArgs.length - 1] = world;
+            Log.info("Opening world: " + world);
+        }
         PentecostRuntime.launchArgs = gameArgs;
 
         Thread.currentThread().setContextClassLoader(loader);
