@@ -194,10 +194,17 @@ public final class ModDiscovery {
             }
             String cls = modClasses.get(id);
             Map<String, List<String>> eps = cls == null ? Map.of() : Map.of("main", List.of(cls));
-            JsonObject raw = null;
+            JsonObject raw = new JsonObject();
+            if (m.get("description") != null) {
+                raw.addProperty("description", String.valueOf(m.<Object>get("description")));
+            }
+            if (m.get("logoFile") != null) {
+                raw.addProperty("logoFile", String.valueOf(m.<Object>get("logoFile")));
+            } else if (cfg.get("logoFile") != null) {
+                raw.addProperty("logoFile", String.valueOf(cfg.<Object>get("logoFile")));
+            }
             Object provides = m.get("provides");
             if (provides instanceof List<?> list && !list.isEmpty()) {
-                raw = new JsonObject();
                 JsonArray arr = new JsonArray();
                 for (Object o : list) {
                     arr.add(String.valueOf(o));

@@ -104,6 +104,12 @@ public final class PentecostMain {
         List<Path> first = new ArrayList<>();
         List<Path> afterGame = new ArrayList<>();
         Path forgeJar = null;
+        String gameGlue = System.getProperty("pentecost.gameglue");
+        if (gameGlue != null) {
+            for (String dir : gameGlue.split(java.io.File.pathSeparator)) {
+                first.add(Path.of(dir));
+            }
+        }
         if (forge && !forgeOn) {
             Log.error("The Forge layer was asked for and is not installed. Run .tools\\forge-install.ps1 first.");
         }
@@ -175,6 +181,9 @@ public final class PentecostMain {
                 }
             }
             khi.pentecost.mixin.PentecostMixinService.softMods = softMods;
+            if (usable.stream().anyMatch(m -> m.id().equals("modmenu"))) {
+                khi.pentecost.adapter.fabric.ModMenuAdapter.oneModsButton();
+            }
             if (!softMods.isEmpty()) {
                 Log.info("Forge layer on: hooks from " + softMods.size()
                         + " Fabric/Quilt mod(s) skip a missing target. Forge mods and the bridge stay strict");

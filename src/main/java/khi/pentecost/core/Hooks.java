@@ -20,6 +20,24 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class Hooks {
     private static final String MINECRAFT = "net.minecraft.client.Minecraft";
     private static final AtomicBoolean STARTED = new AtomicBoolean();
+    private static final String SCREEN = "net/minecraft/client/gui/screens/Screen";
+
+    /** Set by the game glue. Gets each screen the game is about to show and returns the one to show. */
+    public static volatile java.util.function.UnaryOperator<Object> screenRouter;
+
+    /** Called by the game at the top of Minecraft.setScreen. */
+    public static Object routeScreen(Object screen) {
+        java.util.function.UnaryOperator<Object> r = screenRouter;
+        if (r == null || screen == null) {
+            return screen;
+        }
+        try {
+            return r.apply(screen);
+        } catch (RuntimeException | LinkageError e) {
+            Log.error("Screen routing failed: " + e);
+            return screen;
+        }
+    }
 
     private Hooks() {}
 
@@ -29,6 +47,14 @@ public final class Hooks {
             return;
         }
         FabricLoaderImpl.INSTANCE.setGameInstance(game);
+        if (System.getProperty("pentecost.gameglue") != null && PentecostRuntime.loader != null) {
+            try {
+                Class.forName("khi.pentecost.game.ModsScreens", true, PentecostRuntime.loader)
+                        .getMethod("init").invoke(null);
+            } catch (ReflectiveOperationException | LinkageError e) {
+                Log.error("Pentecost's in-game screens did not start: " + e);
+            }
+        }
         if (PentecostRuntime.runner != null) {
             Log.info("Game reached mod start. Starting mods");
             PentecostRuntime.runner.runAll(true);
@@ -48,6 +74,24 @@ public final class Hooks {
                 @Override
                 public MethodVisitor visitMethod(int access, String n, String d, String s, String[] e) {
                     MethodVisitor mv = super.visitMethod(access, n, d, s, e);
+                    if (n.equals("setScreen") && d.equals("(L" + SCREEN + ";)V")) {
+                        return new MethodVisitor(Opcodes.ASM9, mv) {
+                            @Override
+                            public void visitCode() {
+                                super.visitCode();
+                                super.visitVarInsn(Opcodes.ALOAD, 1);
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks",
+                                        "routeScreen", "(Ljava/lang/Object;)Ljava/lang/Object;", false);
+                                super.visitTypeInsn(Opcodes.CHECKCAST, SCREEN);
+                                super.visitVarInsn(Opcodes.ASTORE, 1);
+                            }
+
+                            @Override
+                            public void visitMaxs(int maxStack, int maxLocals) {
+                                super.visitMaxs(Math.max(maxStack, 2), maxLocals);
+                            }
+                        };
+                    }
                     if (!n.equals("<init>")) {
                         return mv;
                     }

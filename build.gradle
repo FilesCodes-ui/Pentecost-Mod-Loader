@@ -85,6 +85,18 @@ if (forgeReady) {
     }
 }
 
+// The game glue is Pentecost's own in-game code (screens). It compiles against the converted game jar.
+def gameNamed = fileTree('cache/remapped') { include 'client-*-named.jar'; exclude '*-forge-named.jar' }
+def gameReady = !gameNamed.isEmpty()
+if (gameReady) {
+    sourceSets {
+        gameglue {
+            compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath + gameNamed +
+                    fileTree('cache/libraries') { include '**/*.jar' }
+        }
+    }
+}
+
 def pentecostExec = { String taskName, List<String> taskArgs ->
     tasks.register(taskName, JavaExec) {
         javaLauncher = javaToolchains.launcherFor(java.toolchain)
@@ -99,6 +111,10 @@ def pentecostExec = { String taskName, List<String> taskArgs ->
                 '--add-opens', 'java.base/java.lang=ALL-UNNAMED',
                 '--add-opens', 'java.base/java.util=ALL-UNNAMED',
                 '--add-exports', 'java.base/sun.security.util=ALL-UNNAMED'
+        if (gameReady) {
+            dependsOn 'gameglueClasses'
+            systemProperty 'pentecost.gameglue', sourceSets.gameglue.output.classesDirs.asPath
+        }
         if (forgeReady) {
             classpath += fileTree(forgeLibs) { include 'cpw/mods/securejarhandler/**/*.jar' }
             dependsOn 'forgeglueClasses'
