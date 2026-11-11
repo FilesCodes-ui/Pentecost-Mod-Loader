@@ -78,6 +78,12 @@ public final class GameClassLoader extends URLClassLoader {
         this.mixin = t;
     }
 
+    /** Returns the id of the mod whose jar holds this file, or null. */
+    public String modOfResource(String path) {
+        URL res = findResource(path);
+        return res == null ? null : modByJarUrl.get(jarOf(res));
+    }
+
     /** Returns the id of the mod whose jar holds this class, or null. */
     public String modOf(String className) {
         URL res = findResource(className.replace('.', '/') + ".class");

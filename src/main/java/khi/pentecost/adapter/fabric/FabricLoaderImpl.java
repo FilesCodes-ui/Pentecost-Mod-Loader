@@ -158,6 +158,15 @@ public final class FabricLoaderImpl implements FabricLoader {
                 return Optional.of(container(m));
             }
         }
+        for (ModInfo m : PentecostRuntime.mods) {
+            if (m.raw() != null && m.raw().has("provides") && m.raw().get("provides").isJsonArray()) {
+                for (com.google.gson.JsonElement e : m.raw().getAsJsonArray("provides")) {
+                    if (e.isJsonPrimitive() && e.getAsString().equals(id)) {
+                        return Optional.of(container(m));
+                    }
+                }
+            }
+        }
         return Optional.empty();
     }
 

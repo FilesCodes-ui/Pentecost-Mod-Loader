@@ -194,8 +194,18 @@ public final class ModDiscovery {
             }
             String cls = modClasses.get(id);
             Map<String, List<String>> eps = cls == null ? Map.of() : Map.of("main", List.of(cls));
+            JsonObject raw = null;
+            Object provides = m.get("provides");
+            if (provides instanceof List<?> list && !list.isEmpty()) {
+                raw = new JsonObject();
+                JsonArray arr = new JsonArray();
+                for (Object o : list) {
+                    arr.add(String.valueOf(o));
+                }
+                raw.add("provides", arr);
+            }
             out.add(new ModInfo(id, name, version, LoaderKind.FORGE, jar, eps, List.copyOf(depends),
-                    first ? List.copyOf(mixins) : List.of(), List.of(), null));
+                    first ? List.copyOf(mixins) : List.of(), List.of(), raw));
             first = false;
         }
         return new Found(out, List.of());

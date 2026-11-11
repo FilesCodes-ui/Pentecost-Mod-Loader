@@ -87,6 +87,9 @@ public final class PentecostMain {
         for (Path dir : modDirs) {
             found.addAll(ModDiscovery.scan(dir));
         }
+        if (forge && new khi.pentecost.adapter.forge.ForgeFiles().installed()) {
+            found = khi.pentecost.adapter.forge.FabricBridge.apply(found, MINECRAFT);
+        }
         mods = remap.mods(found);
         PentecostRuntime.remap = remap;
         PentecostRuntime.mods = mods;
@@ -126,8 +129,7 @@ public final class PentecostMain {
         runner.checkDependencies();
         PentecostRuntime.runner = runner;
         java.util.Set<String> forgeCovers = forgeOn
-                ? java.util.Set.of("fabric-registry-sync-v0", "fabric-loot-tables-v1", "fabric-loot-api-v2",
-                "fabric-rendering-fluids-v1") : java.util.Set.of();
+                ? java.util.Set.of("fabric-loot-tables-v1") : java.util.Set.of();
         PentecostRuntime.forgeCovers = forgeCovers;
         for (String id : forgeCovers) {
             if (mods.stream().anyMatch(m -> m.id().equals(id))) {
@@ -165,8 +167,18 @@ public final class PentecostMain {
         }
         loader.addTransformer(Hooks.transformer());
         if (forgeOn) {
-            khi.pentecost.mixin.PentecostMixinService.softHooks = true;
-            Log.info("Forge layer on: a Fabric hook that misses its target is skipped, not fatal");
+            java.util.Set<String> softMods = new java.util.HashSet<>();
+            for (ModInfo m : usable) {
+                if (m.loader() == khi.pentecost.mods.LoaderKind.FABRIC
+                        || m.loader() == khi.pentecost.mods.LoaderKind.QUILT) {
+                    softMods.add(m.id());
+                }
+            }
+            khi.pentecost.mixin.PentecostMixinService.softMods = softMods;
+            if (!softMods.isEmpty()) {
+                Log.info("Forge layer on: hooks from " + softMods.size()
+                        + " Fabric/Quilt mod(s) skip a missing target. Forge mods and the bridge stay strict");
+            }
         }
         MixinHost.start(loader, usable);
         return runner;

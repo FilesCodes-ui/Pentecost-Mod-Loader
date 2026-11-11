@@ -82,11 +82,18 @@ public class PentecostMixinService extends MixinServiceAbstract implements IClas
         return new ContainerHandleVirtual(getName());
     }
 
-    /** When true, every mod hook may miss its target. Set when the Forge layer patches the game. */
-    public static volatile boolean softHooks;
+    /**
+     * Mods whose hooks may miss their target without stopping the game. On the Forge layer these are
+     * the Fabric and Quilt mods: they were written for the unpatched game. Forge mods stay strict.
+     */
+    public static volatile java.util.Set<String> softMods = java.util.Set.of();
+
+    private static boolean soft(String modId) {
+        return modId != null && softMods.contains(modId);
+    }
 
     public InputStream getResourceAsStream(String name) {
-        if (softHooks && name.endsWith(".json")) {
+        if (name.endsWith(".json") && soft(loader.modOfResource(name))) {
             try (InputStream in = loader.getResourceAsStream(name)) {
                 if (in == null) {
                     return null;
@@ -151,7 +158,7 @@ public class PentecostMixinService extends MixinServiceAbstract implements IClas
         }
         ClassNode node = new ClassNode();
         new ClassReader(bytes).accept(node, readerFlags);
-        if (softHooks && isMixin(node)) {
+        if (!softMods.isEmpty() && isMixin(node) && soft(loader.modOf(name.replace('/', '.')))) {
             for (org.objectweb.asm.tree.MethodNode m : node.methods) {
                 softRequire(m.visibleAnnotations);
                 softRequire(m.invisibleAnnotations);
