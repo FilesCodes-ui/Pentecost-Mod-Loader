@@ -126,7 +126,7 @@ public final class PentecostMain {
         runner.checkDependencies();
         PentecostRuntime.runner = runner;
         java.util.Set<String> forgeCovers = forgeOn
-                ? java.util.Set.of("fabric-registry-sync-v0") : java.util.Set.of();
+                ? java.util.Set.of("fabric-registry-sync-v0", "fabric-loot-tables-v1", "fabric-loot-api-v2") : java.util.Set.of();
         PentecostRuntime.forgeCovers = forgeCovers;
         for (String id : forgeCovers) {
             if (mods.stream().anyMatch(m -> m.id().equals(id))) {
