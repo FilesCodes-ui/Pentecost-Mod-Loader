@@ -116,6 +116,7 @@ tasks.named('selftest') { dependsOn 'testmods' }
 pentecostExec('runTry', ['launch', '--mods', file('cache/try').path])
 // The same, with Forge's real code loaded so Forge mods run.
 pentecostExec('runForge', ['launch', '--forge', '--mods', file('cache/try').path])
+pentecostExec('runPlay', ['launch', '--forge', '--mods', file('mods').path])
 
 // Test suite. Example: gradle fetchMods -Pcount=25, then gradle verifyMods
 def modCount = (findProperty('count') ?: '25').toString()

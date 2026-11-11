@@ -82,7 +82,36 @@ public class PentecostMixinService extends MixinServiceAbstract implements IClas
         return new ContainerHandleVirtual(getName());
     }
 
+    /** When true, every mod hook may miss its target. Set when the Forge layer patches the game. */
+    public static volatile boolean softHooks;
+
     public InputStream getResourceAsStream(String name) {
+        if (softHooks && name.endsWith(".json")) {
+            try (InputStream in = loader.getResourceAsStream(name)) {
+                if (in == null) {
+                    return null;
+                }
+                byte[] raw = in.readAllBytes();
+                try {
+                    com.google.gson.JsonElement e = com.google.gson.JsonParser.parseString(
+                            new String(raw, java.nio.charset.StandardCharsets.UTF_8));
+                    if (e.isJsonObject() && e.getAsJsonObject().has("package")) {
+                        com.google.gson.JsonObject cfg = e.getAsJsonObject();
+                        com.google.gson.JsonObject inj = cfg.has("injectors") && cfg.get("injectors").isJsonObject()
+                                ? cfg.getAsJsonObject("injectors") : new com.google.gson.JsonObject();
+                        inj.addProperty("defaultRequire", 0);
+                        cfg.add("injectors", inj);
+                        cfg.addProperty("required", false);
+                        raw = cfg.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                    }
+                } catch (RuntimeException notJson) {
+                    // Not a mixin config. Hand it over unchanged.
+                }
+                return new java.io.ByteArrayInputStream(raw);
+            } catch (IOException e) {
+                return null;
+            }
+        }
         return loader.getResourceAsStream(name);
     }
 
@@ -122,6 +151,58 @@ public class PentecostMixinService extends MixinServiceAbstract implements IClas
         }
         ClassNode node = new ClassNode();
         new ClassReader(bytes).accept(node, readerFlags);
+        if (softHooks && isMixin(node)) {
+            for (org.objectweb.asm.tree.MethodNode m : node.methods) {
+                softRequire(m.visibleAnnotations);
+                softRequire(m.invisibleAnnotations);
+            }
+        }
         return node;
+    }
+
+    private static boolean isMixin(ClassNode node) {
+        for (java.util.List<org.objectweb.asm.tree.AnnotationNode> list
+                : java.util.Arrays.asList(node.visibleAnnotations, node.invisibleAnnotations)) {
+            if (list != null) {
+                for (org.objectweb.asm.tree.AnnotationNode a : list) {
+                    if ("Lorg/spongepowered/asm/mixin/Mixin;".equals(a.desc)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /** Sets require = 0 on every injector annotation, so a missed target is a warning. */
+    private static void softRequire(java.util.List<org.objectweb.asm.tree.AnnotationNode> list) {
+        if (list == null) {
+            return;
+        }
+        for (org.objectweb.asm.tree.AnnotationNode a : list) {
+            if (!a.desc.startsWith("Lorg/spongepowered/asm/mixin/injection/")
+                    && !a.desc.startsWith("Lcom/llamalad7/mixinextras/")) {
+                continue;
+            }
+            java.util.List<Object> values = a.values == null ? new java.util.ArrayList<>() : new java.util.ArrayList<>(a.values);
+            for (int i = 0; i + 1 < values.size(); ) {
+                Object key = values.get(i);
+                if ("require".equals(key) || "allow".equals(key) || "expect".equals(key)) {
+                    values.remove(i + 1);
+                    values.remove(i);
+                } else {
+                    i += 2;
+                }
+            }
+            values.add("require");
+            values.add(0);
+            for (int i = 0; i + 1 < values.size(); i += 2) {
+                if ("locals".equals(values.get(i)) && values.get(i + 1) instanceof String[] en
+                        && en.length == 2 && !"NO_CAPTURE".equals(en[1]) && !"PRINT".equals(en[1])) {
+                    values.set(i + 1, new String[]{en[0], "CAPTURE_FAILSOFT"});
+                }
+            }
+            a.values = values;
+        }
     }
 }

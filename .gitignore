@@ -9,3 +9,5 @@ cache/
 *.iml
 .vscode/
 .tools/
+
+mods/

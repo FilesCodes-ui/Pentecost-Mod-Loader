@@ -125,7 +125,16 @@ public final class PentecostMain {
         ModRunner runner = new ModRunner(loader, mods);
         runner.checkDependencies();
         PentecostRuntime.runner = runner;
-        List<ModInfo> usable = mods.stream().filter(m -> !runner.missing().containsKey(m.id())).toList();
+        java.util.Set<String> forgeCovers = forgeOn
+                ? java.util.Set.of("fabric-registry-sync-v0") : java.util.Set.of();
+        PentecostRuntime.forgeCovers = forgeCovers;
+        for (String id : forgeCovers) {
+            if (mods.stream().anyMatch(m -> m.id().equals(id))) {
+                Log.info("Forge layer on: " + id + " stays loaded as a library, Forge handles its job");
+            }
+        }
+        List<ModInfo> usable = mods.stream()
+                .filter(m -> !runner.missing().containsKey(m.id()) && !forgeCovers.contains(m.id())).toList();
 
         AccessWidener widener = AccessWidener.load(usable);
         List<Path> forgeModJars = new ArrayList<>();
@@ -154,6 +163,10 @@ public final class PentecostMain {
                             khi.pentecost.adapter.forge.ForgeFiles.VERSION.substring(MINECRAFT.length() + 1));
         }
         loader.addTransformer(Hooks.transformer());
+        if (forgeOn) {
+            khi.pentecost.mixin.PentecostMixinService.softHooks = true;
+            Log.info("Forge layer on: a Fabric hook that misses its target is skipped, not fatal");
+        }
         MixinHost.start(loader, usable);
         return runner;
     }

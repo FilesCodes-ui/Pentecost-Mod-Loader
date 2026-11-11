@@ -21,4 +21,7 @@ public final class PentecostRuntime {
     public static volatile boolean forgeLayer;
 
     private PentecostRuntime() {}
+
+    /** Fabric API modules whose job Forge already does. Loaded as libraries, never started. */
+    public static java.util.Set<String> forgeCovers = java.util.Set.of();
 }

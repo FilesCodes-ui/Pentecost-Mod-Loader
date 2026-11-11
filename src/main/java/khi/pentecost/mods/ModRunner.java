@@ -76,6 +76,9 @@ public final class ModRunner {
             if (m.loader() == LoaderKind.FORGE && khi.pentecost.core.PentecostRuntime.forgeLayer) {
                 continue;
             }
+            if (khi.pentecost.core.PentecostRuntime.forgeCovers.contains(m.id())) {
+                continue;
+            }
             try {
                 run(m, client);
                 started.add(m.id());
