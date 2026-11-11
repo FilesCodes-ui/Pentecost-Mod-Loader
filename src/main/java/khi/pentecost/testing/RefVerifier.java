@@ -51,6 +51,22 @@ public final class RefVerifier {
     }
 
     private final Map<String, ClassInfo> game = new HashMap<>();
+    private final Set<String> provided = new HashSet<>();
+
+    /** Counts the classes in these jars as loader classes Pentecost provides. */
+    public void addProvided(List<Path> jars) throws IOException {
+        for (Path jar : jars) {
+            try (ZipFile z = new ZipFile(jar.toFile())) {
+                Enumeration<? extends ZipEntry> en = z.entries();
+                while (en.hasMoreElements()) {
+                    String n = en.nextElement().getName();
+                    if (n.endsWith(".class")) {
+                        provided.add(n.substring(0, n.length() - 6));
+                    }
+                }
+            }
+        }
+    }
 
     public RefVerifier(Path namedGameJar) throws IOException {
         try (ZipFile z = new ZipFile(namedGameJar.toFile())) {
@@ -202,7 +218,8 @@ public final class RefVerifier {
     }
 
     private void loader(ModResult r, String cls) {
-        boolean have = RefVerifier.class.getClassLoader().getResource(cls + ".class") != null;
+        boolean have = provided.contains(cls)
+                || RefVerifier.class.getClassLoader().getResource(cls + ".class") != null;
         (have ? r.loaderHave : r.loaderMissing).add(cls);
     }
 

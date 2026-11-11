@@ -93,4 +93,7 @@ def modCount = (findProperty('count') ?: '25').toString()
 pentecostExec('fetchFabric', ['fetch', '--loader', 'fabric', '--count', modCount])
 pentecostExec('fetchForge', ['fetch', '--loader', 'forge', '--count', modCount])
 tasks.register('fetchMods') { dependsOn 'fetchFabric', 'fetchForge' }
+// Checks the mods in cache/testmods/target, the pack Gabriel wants to run.
+pentecostExec('verifyTarget', ['verify', '--mods', file('cache/testmods/target').path])
+pentecostExec('verifyTargetForge', ['verify', '--forge', '--mods', file('cache/testmods/target').path])
 pentecostExec('verifyMods', ['verify', '--mods', file('cache/testmods/fabric').path, '--mods', file('cache/testmods/forge').path])

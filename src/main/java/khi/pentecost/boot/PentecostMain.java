@@ -34,6 +34,7 @@ public final class PentecostMain {
 
     private static List<ModInfo> mods = List.of();
     private static GameClassLoader loader;
+    private static boolean forge;
 
     private PentecostMain() {}
 
@@ -47,6 +48,7 @@ public final class PentecostMain {
             switch (args[i]) {
                 case "--mods" -> modDirs.add(Path.of(args[++i]));
                 case "--selftest" -> selftest = true;
+                case "--forge" -> forge = true;
                 case "--loader" -> fetchLoader = args[++i];
                 case "--count" -> count = Integer.parseInt(args[++i]);
                 default -> command = args[i];
@@ -146,7 +148,18 @@ public final class PentecostMain {
 
     private static void verify(List<Path> modDirs) throws Exception {
         GameFiles game = prepare(modDirs, false);
+        khi.pentecost.adapter.forge.ForgeFiles forgeFiles = new khi.pentecost.adapter.forge.ForgeFiles();
+        boolean useForge = forge && forgeFiles.installed();
+        if (useForge) {
+            game = forgeFiles.game(game, PentecostRuntime.remap);
+        }
         RefVerifier verifier = new RefVerifier(game.clientJar());
+        if (useForge) {
+            List<Path> jars = new ArrayList<>(forgeFiles.rawLibraries());
+            jars.add(forgeFiles.universal(PentecostRuntime.remap));
+            verifier.addProvided(jars);
+            Log.info("Counting Forge " + khi.pentecost.adapter.forge.ForgeFiles.VERSION + " as provided");
+        }
         Log.info("Game index holds " + verifier.gameClassCount() + " classes. Checking " + mods.size() + " mod(s)");
         List<RefVerifier.ModResult> results = new ArrayList<>();
         for (ModInfo m : mods) {
