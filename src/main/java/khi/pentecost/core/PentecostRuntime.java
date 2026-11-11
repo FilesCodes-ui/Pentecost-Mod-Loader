@@ -24,4 +24,11 @@ public final class PentecostRuntime {
 
     /** Fabric API modules whose job Forge already does. Loaded as libraries, never started. */
     public static java.util.Set<String> forgeCovers = java.util.Set.of();
+
+    /** Every mod found, including the ones the player turned off. */
+    public static java.util.List<khi.pentecost.mods.ModInfo> allMods = java.util.List.of();
+
+    /** What each loaded mod changes outside its own content. Mod id to features. */
+    public static java.util.Map<String, java.util.List<khi.pentecost.control.Features.Feature>> features =
+            java.util.Map.of();
 }

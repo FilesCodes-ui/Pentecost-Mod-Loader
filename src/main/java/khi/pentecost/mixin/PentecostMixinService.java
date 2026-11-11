@@ -88,12 +88,34 @@ public class PentecostMixinService extends MixinServiceAbstract implements IClas
      */
     public static volatile java.util.Set<String> softMods = java.util.Set.of();
 
+    /** Hooks the player turned off. Hook list file name to the entries to leave out. */
+    public static volatile java.util.Map<String, java.util.Set<String>> droppedMixins = java.util.Map.of();
+
+    private static void drop(com.google.gson.JsonObject cfg, java.util.Set<String> entries) {
+        if (entries == null) {
+            return;
+        }
+        for (String list : new String[]{"mixins", "client", "server"}) {
+            if (cfg.has(list) && cfg.get(list).isJsonArray()) {
+                com.google.gson.JsonArray kept = new com.google.gson.JsonArray();
+                for (com.google.gson.JsonElement e : cfg.getAsJsonArray(list)) {
+                    if (!entries.contains(e.getAsString())) {
+                        kept.add(e);
+                    }
+                }
+                cfg.add(list, kept);
+            }
+        }
+    }
+
     private static boolean soft(String modId) {
         return modId != null && softMods.contains(modId);
     }
 
     public InputStream getResourceAsStream(String name) {
-        if (name.endsWith(".json") && soft(loader.modOfResource(name))) {
+        java.util.Set<String> dropped = droppedMixins.get(name);
+        boolean softCfg = name.endsWith(".json") && soft(loader.modOfResource(name));
+        if (softCfg || dropped != null) {
             try (InputStream in = loader.getResourceAsStream(name)) {
                 if (in == null) {
                     return null;
@@ -106,9 +128,12 @@ public class PentecostMixinService extends MixinServiceAbstract implements IClas
                         com.google.gson.JsonObject cfg = e.getAsJsonObject();
                         com.google.gson.JsonObject inj = cfg.has("injectors") && cfg.get("injectors").isJsonObject()
                                 ? cfg.getAsJsonObject("injectors") : new com.google.gson.JsonObject();
-                        inj.addProperty("defaultRequire", 0);
-                        cfg.add("injectors", inj);
-                        cfg.addProperty("required", false);
+                        if (softCfg) {
+                            inj.addProperty("defaultRequire", 0);
+                            cfg.add("injectors", inj);
+                            cfg.addProperty("required", false);
+                        }
+                        drop(cfg, dropped);
                         raw = cfg.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
                     }
                 } catch (RuntimeException notJson) {

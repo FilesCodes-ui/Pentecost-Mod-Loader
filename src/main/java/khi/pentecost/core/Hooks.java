@@ -25,17 +25,37 @@ public final class Hooks {
     /** Set by the game glue. Gets each screen the game is about to show and returns the one to show. */
     public static volatile java.util.function.UnaryOperator<Object> screenRouter;
 
+    /** Set by the game glue. Gets the screen asked for and the screen about to show, returns the one to show. */
+    public static volatile java.util.function.BinaryOperator<Object> screenFinalizer;
+
+    private static Object asked;
+
     /** Called by the game at the top of Minecraft.setScreen. */
     public static Object routeScreen(Object screen) {
+        Object out = screen;
         java.util.function.UnaryOperator<Object> r = screenRouter;
-        if (r == null || screen == null) {
-            return screen;
+        if (r != null && screen != null) {
+            try {
+                out = r.apply(screen);
+            } catch (RuntimeException | LinkageError e) {
+                Log.error("Screen routing failed: " + e);
+            }
+        }
+        asked = out;
+        return out;
+    }
+
+    /** Called by the game in Minecraft.setScreen, right before the new screen becomes the current one. */
+    public static Object finalScreen(Object shown) {
+        java.util.function.BinaryOperator<Object> f = screenFinalizer;
+        if (f == null) {
+            return shown;
         }
         try {
-            return r.apply(screen);
+            return f.apply(asked, shown);
         } catch (RuntimeException | LinkageError e) {
-            Log.error("Screen routing failed: " + e);
-            return screen;
+            Log.error("Screen check failed: " + e);
+            return shown;
         }
     }
 
@@ -87,8 +107,21 @@ public final class Hooks {
                             }
 
                             @Override
+                            public void visitFieldInsn(int op, String owner, String fn, String fd) {
+                                if (op == Opcodes.PUTFIELD && owner.equals("net/minecraft/client/Minecraft")
+                                        && fd.equals("L" + SCREEN + ";")) {
+                                    super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks",
+                                            "finalScreen", "(Ljava/lang/Object;)Ljava/lang/Object;", false);
+                                    super.visitTypeInsn(Opcodes.CHECKCAST, SCREEN);
+                                    super.visitInsn(Opcodes.DUP);
+                                    super.visitVarInsn(Opcodes.ASTORE, 1);
+                                }
+                                super.visitFieldInsn(op, owner, fn, fd);
+                            }
+
+                            @Override
                             public void visitMaxs(int maxStack, int maxLocals) {
-                                super.visitMaxs(Math.max(maxStack, 2), maxLocals);
+                                super.visitMaxs(Math.max(maxStack, 4), maxLocals);
                             }
                         };
                     }

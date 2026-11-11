@@ -90,7 +90,17 @@ public final class PentecostMain {
         if (forge && new khi.pentecost.adapter.forge.ForgeFiles().installed()) {
             found = khi.pentecost.adapter.forge.FabricBridge.apply(found, MINECRAFT);
         }
-        mods = remap.mods(found);
+        khi.pentecost.control.Choices.load();
+        PentecostRuntime.allMods = List.copyOf(found);
+        List<ModInfo> on = new ArrayList<>();
+        for (ModInfo m : found) {
+            if (khi.pentecost.control.Choices.isModOff(m.id())) {
+                Log.info("Player choice: " + m.name() + " is turned off");
+            } else {
+                on.add(m);
+            }
+        }
+        mods = khi.pentecost.control.Features.apply(remap.mods(on));
         PentecostRuntime.remap = remap;
         PentecostRuntime.mods = mods;
         PentecostRuntime.gameDir = Dirs.run();
