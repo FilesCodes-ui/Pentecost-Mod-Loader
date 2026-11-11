@@ -25,7 +25,7 @@ import java.util.zip.ZipFile;
  */
 public final class RemapService {
     /** Bump when the conversion changes, so old cached mod jars are rebuilt. */
-    private static final String MOD_CACHE = "mods-v6";
+    private static final String MOD_CACHE = "mods-v7";
     private static final String INTERMEDIARY =
             "https://maven.fabricmc.net/net/fabricmc/intermediary/%s/intermediary-%s-v2.jar";
     private static final String MCP_CONFIG_1_20_1 =

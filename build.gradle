@@ -68,6 +68,23 @@ tasks.register('testmods') {
     dependsOn 'testmodFabricJar', 'testmodForgeJar', 'testmodQuiltJar'
 }
 
+// The Forge glue compiles against Forge's own jars, so it exists only after .tools/forge-install.ps1 ran.
+def forgeLibs = file('cache/forge-install/libraries')
+def forgeNamed = fileTree('cache/remapped') { include 'forge-*-universal-named.jar', 'client-*-forge-named.jar' }
+def forgeReady = forgeLibs.isDirectory() && !forgeNamed.isEmpty()
+if (forgeReady) {
+    sourceSets {
+        forgeglue {
+            compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath + forgeNamed +
+                    fileTree(forgeLibs) {
+                        include '**/*.jar'
+                        exclude 'net/minecraft/**', 'de/oceanlabs/**', 'org/spongepowered/**', 'org/ow2/**'
+                        exclude '**/*-client.jar', '**/*-universal.jar'
+                    } + fileTree('cache/libraries') { include '**/*.jar' }
+        }
+    }
+}
+
 def pentecostExec = { String taskName, List<String> taskArgs ->
     tasks.register(taskName, JavaExec) {
         javaLauncher = javaToolchains.launcherFor(java.toolchain)
@@ -76,7 +93,17 @@ def pentecostExec = { String taskName, List<String> taskArgs ->
         args taskArgs
         workingDir = file('run')
         systemProperty 'pentecost.home', rootDir.path
-        jvmArgs '-Xmx3G'
+        jvmArgs '-Xmx4G'
+        jvmArgs '--add-opens', 'java.base/java.lang.invoke=ALL-UNNAMED',
+                '--add-opens', 'java.base/java.util.jar=ALL-UNNAMED',
+                '--add-opens', 'java.base/java.lang=ALL-UNNAMED',
+                '--add-opens', 'java.base/java.util=ALL-UNNAMED',
+                '--add-exports', 'java.base/sun.security.util=ALL-UNNAMED'
+        if (forgeReady) {
+            classpath += fileTree(forgeLibs) { include 'cpw/mods/securejarhandler/**/*.jar' }
+            dependsOn 'forgeglueClasses'
+            systemProperty 'pentecost.forgeglue', sourceSets.forgeglue.output.classesDirs.asPath
+        }
         doFirst { file('run').mkdirs() }
     }
 }
@@ -87,6 +114,8 @@ tasks.named('selftest') { dependsOn 'testmods' }
 
 // Starts the game with the mods in cache/try. Put jars there to test them.
 pentecostExec('runTry', ['launch', '--mods', file('cache/try').path])
+// The same, with Forge's real code loaded so Forge mods run.
+pentecostExec('runForge', ['launch', '--forge', '--mods', file('cache/try').path])
 
 // Test suite. Example: gradle fetchMods -Pcount=25, then gradle verifyMods
 def modCount = (findProperty('count') ?: '25').toString()

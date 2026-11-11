@@ -189,7 +189,7 @@ public final class Mappings {
             }
             if (p.length >= 3 && p[1].startsWith("(")) {
                 String srg = p[2];
-                if (!srg.startsWith("m_")) {
+                if (!srg.startsWith("m_") && !srg.startsWith("f_")) {
                     continue;
                 }
                 Map<String, String> own = methods.get(cur);

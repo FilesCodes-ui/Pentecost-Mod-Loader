@@ -73,6 +73,9 @@ public final class ModRunner {
             if (missing.containsKey(m.id()) || failures.containsKey(m.id()) || m.loader() == LoaderKind.LIBRARY) {
                 continue;
             }
+            if (m.loader() == LoaderKind.FORGE && khi.pentecost.core.PentecostRuntime.forgeLayer) {
+                continue;
+            }
             try {
                 run(m, client);
                 started.add(m.id());

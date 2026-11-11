@@ -17,6 +17,8 @@ public final class PentecostRuntime {
     public static volatile Path gameDir;
     public static volatile String[] launchArgs = new String[0];
     public static volatile boolean client = true;
+    /** True when Forge's real code is loaded. Forge then starts Forge mods itself. */
+    public static volatile boolean forgeLayer;
 
     private PentecostRuntime() {}
 }

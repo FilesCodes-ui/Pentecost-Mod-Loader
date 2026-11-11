@@ -36,8 +36,23 @@ public final class GameClassLoader extends URLClassLoader {
     }
 
     public static GameClassLoader create(GameFiles game, List<ModInfo> mods) throws MalformedURLException {
+        return create(game, mods, List.of(), List.of());
+    }
+
+    /**
+     * @param first jars and folders searched before the game jar
+     * @param afterGame jars searched right after the game jar and before the mods
+     */
+    public static GameClassLoader create(GameFiles game, List<ModInfo> mods, List<Path> first, List<Path> afterGame)
+            throws MalformedURLException {
         List<URL> urls = new ArrayList<>();
+        for (Path p : first) {
+            urls.add(url(p));
+        }
         urls.add(url(game.clientJar()));
+        for (Path p : afterGame) {
+            urls.add(url(p));
+        }
         Map<String, String> owners = new HashMap<>();
         for (ModInfo mod : mods) {
             URL u = url(mod.jar());
@@ -116,7 +131,12 @@ public final class GameClassLoader extends URLClassLoader {
                 String pkg = name.substring(0, dot);
                 if (getDefinedPackage(pkg) == null) {
                     try {
-                        definePackage(pkg, null, null, null, null, null, null, null);
+                        java.util.jar.Manifest mf = manifestOf(jarOf(res));
+                        if (mf != null) {
+                            definePackage(pkg, mf, URI.create(jarOf(res)).toURL());
+                        } else {
+                            definePackage(pkg, null, null, null, null, null, null, null);
+                        }
                     } catch (IllegalArgumentException alreadyDefined) {
                         // Another thread defined the package first.
                     }
@@ -127,6 +147,22 @@ public final class GameClassLoader extends URLClassLoader {
         } catch (IOException e) {
             throw new ClassNotFoundException(name, e);
         }
+    }
+
+    private final Map<String, java.util.Optional<java.util.jar.Manifest>> manifests =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    private java.util.jar.Manifest manifestOf(String jarUrl) {
+        return manifests.computeIfAbsent(jarUrl, u -> {
+            if (!u.endsWith(".jar")) {
+                return java.util.Optional.empty();
+            }
+            try (java.util.jar.JarFile jf = new java.util.jar.JarFile(Path.of(URI.create(u)).toFile())) {
+                return java.util.Optional.ofNullable(jf.getManifest());
+            } catch (IOException | RuntimeException e) {
+                return java.util.Optional.empty();
+            }
+        }).orElse(null);
     }
 
     private static String jarOf(URL resource) {

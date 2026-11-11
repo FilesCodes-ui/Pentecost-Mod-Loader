@@ -2,6 +2,7 @@ package khi.pentecost.loader;
 
 import khi.pentecost.boot.Log;
 import khi.pentecost.mods.ModInfo;
+import khi.pentecost.remap.TextRemapper;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
@@ -10,32 +11,41 @@ import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 /**
- * Applies Fabric and Quilt access widener files. A mod uses one to open private game
- * members it needs. Without this the mod dies with an access error.
+ * Opens game members that mods ask for. Reads Fabric and Quilt access widener files
+ * and Forge access transformer files into one rule set. Without this a mod dies with an access error.
  */
 public final class AccessWidener implements ClassTransformer {
     private static final int ACCESSIBLE = 1;
     private static final int EXTENDABLE = 2;
     private static final int MUTABLE = 4;
+    private static final int PROTECTED = 8;
+    /** Set by Forge rules: a private method opened to the public stays overridable. */
+    private static final int KEEP_OPEN = 16;
 
     private static final class Rules {
         int classFlags;
+        int allMethods;
+        int allFields;
         final Map<String, Integer> methods = new HashMap<>();
         final Map<String, Integer> fields = new HashMap<>();
     }
 
     private final Map<String, Rules> rules = new HashMap<>();
-    private final java.util.Set<String> touched = new java.util.HashSet<>();
+    private final Set<String> touched = new HashSet<>();
 
     public static AccessWidener load(List<ModInfo> mods) {
         AccessWidener aw = new AccessWidener();
@@ -49,7 +59,7 @@ public final class AccessWidener implements ClassTransformer {
                         continue;
                     }
                     try (InputStream in = z.getInputStream(e)) {
-                        aw.read(new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8)));
+                        aw.readWidener(new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8)));
                         files++;
                     }
                 } catch (Exception ex) {
@@ -63,7 +73,37 @@ public final class AccessWidener implements ClassTransformer {
         return aw;
     }
 
-    private void read(BufferedReader r) throws java.io.IOException {
+    /** Reads META-INF/accesstransformer.cfg from each jar. Forge writes member names in SRG form. */
+    public void addAccessTransformers(List<Path> jars, TextRemapper text) {
+        int files = 0;
+        for (Path jar : jars) {
+            try (ZipFile z = new ZipFile(jar.toFile())) {
+                ZipEntry e = z.getEntry("META-INF/accesstransformer.cfg");
+                if (e == null) {
+                    continue;
+                }
+                try (InputStream in = z.getInputStream(e)) {
+                    readTransformer(new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8)), text);
+                    files++;
+                }
+            } catch (Exception ex) {
+                Log.error("Cannot read the access transformer of " + jar.getFileName() + ": " + ex);
+            }
+        }
+        if (files > 0) {
+            Log.info("Access transformers: " + files + " file(s), " + rules.size() + " game classes opened in total");
+        }
+    }
+
+    private Rules rulesFor(String cls) {
+        touched.add(cls);
+        for (int cut = cls.indexOf('$'); cut >= 0; cut = cls.indexOf('$', cut + 1)) {
+            touched.add(cls.substring(0, cut));
+        }
+        return rules.computeIfAbsent(cls, k -> new Rules());
+    }
+
+    private void readWidener(BufferedReader r) throws IOException {
         String line;
         boolean header = true;
         while ((line = r.readLine()) != null) {
@@ -95,11 +135,7 @@ public final class AccessWidener implements ClassTransformer {
             if (flag == 0) {
                 continue;
             }
-            Rules cr = rules.computeIfAbsent(p[2], k -> new Rules());
-            touched.add(p[2]);
-            for (int cut = p[2].indexOf('$'); cut >= 0; cut = p[2].indexOf('$', cut + 1)) {
-                touched.add(p[2].substring(0, cut));
-            }
+            Rules cr = rulesFor(p[2]);
             switch (p[1]) {
                 case "class" -> cr.classFlags |= flag;
                 case "method" -> {
@@ -116,6 +152,44 @@ public final class AccessWidener implements ClassTransformer {
                     }
                 }
                 default -> { }
+            }
+        }
+    }
+
+    private void readTransformer(BufferedReader r, TextRemapper text) throws IOException {
+        String line;
+        while ((line = r.readLine()) != null) {
+            int hash = line.indexOf('#');
+            if (hash >= 0) {
+                line = line.substring(0, hash);
+            }
+            line = text.remap(line.trim());
+            if (line.isEmpty()) {
+                continue;
+            }
+            String[] p = line.split("\\s+");
+            if (p.length < 2) {
+                continue;
+            }
+            String access = p[0];
+            int flag = KEEP_OPEN;
+            if (access.startsWith("public")) {
+                flag |= ACCESSIBLE;
+            } else if (access.startsWith("protected")) {
+                flag |= PROTECTED;
+            }
+            boolean definal = access.endsWith("-f");
+            Rules cr = rulesFor(p[1].replace('.', '/'));
+            if (p.length == 2) {
+                cr.classFlags |= flag | (definal ? EXTENDABLE : 0);
+            } else if (p[2].equals("*")) {
+                cr.allFields |= flag | (definal ? MUTABLE : 0);
+            } else if (p[2].startsWith("*(")) {
+                cr.allMethods |= flag | (definal ? EXTENDABLE : 0);
+            } else if (p[2].indexOf('(') >= 0) {
+                cr.methods.merge(p[2], flag | (definal ? EXTENDABLE : 0), (a, b) -> a | b);
+            } else {
+                cr.fields.merge(p[2], flag | (definal ? MUTABLE : 0), (a, b) -> a | b);
             }
         }
     }
@@ -148,19 +222,20 @@ public final class AccessWidener implements ClassTransformer {
 
             @Override
             public MethodVisitor visitMethod(int access, String name, String desc, String sig, String[] ex) {
-                Integer f = cr == null ? null : cr.methods.get(name + desc);
-                if (f != null) {
+                int f = cr == null ? 0 : cr.allMethods | cr.methods.getOrDefault(name + desc, 0);
+                if (f != 0 && !name.equals("<clinit>")) {
                     boolean wasPrivate = (access & Opcodes.ACC_PRIVATE) != 0;
                     if ((f & ACCESSIBLE) != 0) {
                         access = makePublic(access);
-                        if (wasPrivate && (access & Opcodes.ACC_STATIC) == 0 && !name.equals("<init>")) {
+                        if (wasPrivate && (f & KEEP_OPEN) == 0 && (access & Opcodes.ACC_STATIC) == 0
+                                && !name.equals("<init>")) {
                             access |= Opcodes.ACC_FINAL;
                         }
+                    } else if ((f & PROTECTED) != 0) {
+                        access = atLeastProtected(access);
                     }
                     if ((f & EXTENDABLE) != 0) {
-                        if ((access & Opcodes.ACC_PUBLIC) == 0) {
-                            access = (access & ~Opcodes.ACC_PRIVATE) | Opcodes.ACC_PROTECTED;
-                        }
+                        access = atLeastProtected(access);
                         access &= ~Opcodes.ACC_FINAL;
                     }
                 }
@@ -169,10 +244,12 @@ public final class AccessWidener implements ClassTransformer {
 
             @Override
             public FieldVisitor visitField(int access, String name, String desc, String sig, Object value) {
-                Integer f = cr == null ? null : cr.fields.get(name);
-                if (f != null) {
+                int f = cr == null ? 0 : cr.allFields | cr.fields.getOrDefault(name, 0);
+                if (f != 0) {
                     if ((f & ACCESSIBLE) != 0) {
                         access = makePublic(access);
+                    } else if ((f & PROTECTED) != 0) {
+                        access = atLeastProtected(access);
                     }
                     if ((f & MUTABLE) != 0) {
                         access &= ~Opcodes.ACC_FINAL;
@@ -185,7 +262,7 @@ public final class AccessWidener implements ClassTransformer {
     }
 
     private static int classAccess(int access, int flags) {
-        if ((flags & (ACCESSIBLE | EXTENDABLE)) != 0) {
+        if ((flags & (ACCESSIBLE | EXTENDABLE | PROTECTED)) != 0) {
             access = makePublic(access);
         }
         if ((flags & EXTENDABLE) != 0) {
@@ -196,5 +273,12 @@ public final class AccessWidener implements ClassTransformer {
 
     private static int makePublic(int access) {
         return (access & ~(Opcodes.ACC_PRIVATE | Opcodes.ACC_PROTECTED)) | Opcodes.ACC_PUBLIC;
+    }
+
+    private static int atLeastProtected(int access) {
+        if ((access & (Opcodes.ACC_PUBLIC | Opcodes.ACC_PROTECTED)) != 0) {
+            return access;
+        }
+        return (access & ~Opcodes.ACC_PRIVATE) | Opcodes.ACC_PROTECTED;
     }
 }

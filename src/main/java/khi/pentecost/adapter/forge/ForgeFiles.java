@@ -59,6 +59,25 @@ public final class ForgeFiles {
         return out;
     }
 
+    /** Every jar Forge needs at run time, except the jars Pentecost converts or replaces. */
+    public List<Path> runtimeLibraries() throws IOException {
+        List<Path> out = new ArrayList<>();
+        try (Stream<Path> s = Files.walk(libraries)) {
+            s.filter(p -> p.getFileName().toString().endsWith(".jar")).sorted().forEach(p -> {
+                String rel = libraries.relativize(p).toString().replace('\\', '/');
+                String name = p.getFileName().toString();
+                boolean skip = rel.startsWith("net/minecraft/") || rel.startsWith("de/oceanlabs/")
+                        || rel.startsWith("org/spongepowered/") || rel.startsWith("org/ow2/")
+                        || name.endsWith("-client.jar") || name.endsWith("-universal.jar")
+                        || name.matches(".*(installertools|jarsplitter|ForgeAutoRenamingTool|binarypatcher|srgutils|fmlearlydisplay).*");
+                if (!skip) {
+                    out.add(p);
+                }
+            });
+        }
+        return out;
+    }
+
     /** Forge's API jar, converted from SRG names to readable names. */
     public Path universal(RemapService remap) throws IOException {
         Path in = libraries.resolve("net/minecraftforge/forge/" + VERSION + "/forge-" + VERSION + "-universal.jar");
