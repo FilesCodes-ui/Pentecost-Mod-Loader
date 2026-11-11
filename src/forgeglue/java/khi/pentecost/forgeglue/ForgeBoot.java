@@ -124,6 +124,8 @@ public final class ForgeBoot {
         FMLLoader.backgroundScanHandler = new BackgroundScanHandler(usable);
         list.addForScanning(FMLLoader.backgroundScanHandler);
 
+        CoreMods.load(usable);
+
         // Forge shows an early loading window through this handler. The plain window path is enough here.
         Field provider = ImmediateWindowHandler.class.getDeclaredField("provider");
         provider.setAccessible(true);

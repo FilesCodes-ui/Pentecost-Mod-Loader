@@ -98,6 +98,9 @@ public final class ForgeRedirects {
         body("net.minecraftforge.fml.loading.FMLLoader",
                 "getNameFunction(Ljava/lang/String;)Ljava/util/Optional;", "nameFunction");
         body("net.minecraftforge.fml.loading.FMLLoader", "isSecureJarEnabled()Z", "false");
+        body("net.minecraftforge.fml.ModList", "isLoaded(Ljava/lang/String;)Z", "isModLoaded");
+        body("net.minecraftforge.coremod.api.ASMAPI", "mapMethod(Ljava/lang/String;)Ljava/lang/String;", "mapSrgName");
+        body("net.minecraftforge.coremod.api.ASMAPI", "mapField(Ljava/lang/String;)Ljava/lang/String;", "mapSrgName");
         body("net.minecraftforge.fml.loading.FMLLoader", "getLauncherInfo()Ljava/lang/String;", "getLauncherInfo");
         body("net.minecraftforge.fml.loading.FMLLoader", "modLauncherModList()Ljava/util/List;", "modLauncherModList");
 
@@ -107,8 +110,43 @@ public final class ForgeRedirects {
                 "forName", "(Ljava/lang/Module;Ljava/lang/String;)Ljava/lang/Class;");
         call("java/util/ServiceLoader.load(Ljava/lang/ModuleLayer;Ljava/lang/Class;)Ljava/util/ServiceLoader;",
                 "loadServices", "(Ljava/lang/ModuleLayer;Ljava/lang/Class;)Ljava/util/ServiceLoader;");
+        // Forge code reads shared settings from its launcher's board. There is no Forge launcher here.
+        callTo("cpw/mods/modlauncher/Launcher.blackboard()Lcpw/mods/modlauncher/api/TypesafeMap;",
+                "khi/pentecost/forgeglue/CoreMods", "blackboard",
+                "(Lcpw/mods/modlauncher/Launcher;)Lcpw/mods/modlauncher/api/TypesafeMap;");
         CALL_CLASSES.add("net.minecraftforge.fml.javafmlmod.FMLModContainer");
         CALL_CLASSES.add("net.minecraftforge.fml.lowcodemod.LowCodeModContainer");
+    }
+
+    /**
+     * Landing point of Forge's "is this mod loaded". Pentecost's mod list answers, so a Forge mod
+     * finds a Fabric or Quilt mod the same way it finds a Forge one.
+     */
+    public static boolean isModLoaded(String id) {
+        if ("minecraft".equals(id) || "forge".equals(id)) {
+            return true;
+        }
+        for (khi.pentecost.mods.ModInfo m : khi.pentecost.core.PentecostRuntime.mods) {
+            if (m.loader() == khi.pentecost.mods.LoaderKind.LIBRARY) {
+                continue;
+            }
+            if (m.id().equals(id)) {
+                return true;
+            }
+            if (m.raw() != null && m.raw().has("provides") && m.raw().get("provides").isJsonArray()) {
+                for (com.google.gson.JsonElement e : m.raw().getAsJsonArray("provides")) {
+                    if (e.isJsonPrimitive() && e.getAsString().equals(id)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /** Landing point of the coremod name lookups: a member name from Forge's game build to the readable name. */
+    public static String mapSrgName(String name) {
+        return nameFunction("srg").map(f -> f.apply(null, name)).orElse(name);
     }
 
     private static void body(String cls, String method, String kind) {
@@ -117,6 +155,10 @@ public final class ForgeRedirects {
 
     private static void call(String site, String name, String desc) {
         CALLS.put(site, new String[]{name, desc});
+    }
+
+    private static void callTo(String site, String owner, String name, String desc) {
+        CALLS.put(site, new String[]{name, desc, owner});
     }
 
     public static ClassTransformer transformer() {
@@ -145,10 +187,17 @@ public final class ForgeRedirects {
                     boolean registryDoor = name.equals("net.minecraftforge.registries.NamespacedWrapper")
                             && n.equals("registerMapping")
                             && d.startsWith("(ILnet/minecraft/resources/ResourceKey;Ljava/lang/Object;");
+                    boolean stepDoor = name.equals("net.minecraftforge.fml.ModLoader")
+                            && n.equals("dispatchAndHandleError");
                     return new MethodVisitor(Opcodes.ASM9, mv) {
                         @Override
                         public void visitCode() {
                             super.visitCode();
+                            if (stepDoor) {
+                                super.visitVarInsn(Opcodes.ALOAD, 1);
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks",
+                                        "forgeState", "(Ljava/lang/Object;)V", false);
+                            }
                             if (registryDoor) {
                                 super.visitVarInsn(Opcodes.ALOAD, 0);
                                 super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/forgeglue/LateRegistry",
@@ -160,7 +209,7 @@ public final class ForgeRedirects {
                         public void visitMethodInsn(int op, String owner, String mn, String md, boolean itf) {
                             String[] to = CALLS.get(owner + "." + mn + md);
                             if (to != null) {
-                                super.visitMethodInsn(Opcodes.INVOKESTATIC, SELF, to[0], to[1], false);
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, to.length > 2 ? to[2] : SELF, to[0], to[1], false);
                             } else {
                                 super.visitMethodInsn(op, owner, mn, md, itf);
                             }

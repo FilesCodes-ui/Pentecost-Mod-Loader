@@ -33,6 +33,29 @@ public final class Hooks {
     /** Set by the game glue. Gets the pack sources of a new pack list and returns the ones to use. */
     public static volatile java.util.function.UnaryOperator<Object> packSources;
 
+    private static final AtomicBoolean FABRIC_SIDE = new AtomicBoolean();
+    private static String forgeStep = "";
+
+    /**
+     * Called by Forge's mod loader at the start of each of its loading steps.
+     * The step after CONSTRUCT is where Pentecost starts the Fabric and Quilt mods:
+     * every Forge mod object exists, and the registries have not been filled yet.
+     */
+    public static void forgeState(Object state) {
+        String name;
+        try {
+            name = String.valueOf(state.getClass().getMethod("name").invoke(state));
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return;
+        }
+        boolean constructed = "CONSTRUCT".equals(forgeStep);
+        forgeStep = name;
+        if (constructed && PentecostRuntime.runner != null && FABRIC_SIDE.compareAndSet(false, true)) {
+            Log.info("Forge built its mods. Starting Fabric and Quilt mods");
+            PentecostRuntime.runner.runAll(true);
+        }
+    }
+
     private static final AtomicBoolean GLUE = new AtomicBoolean();
 
     /** Starts Pentecost's in-game code once: screens, resource packs. */
@@ -142,7 +165,7 @@ public final class Hooks {
         }
         FabricLoaderImpl.INSTANCE.setGameInstance(game);
         startGlue();
-        if (PentecostRuntime.runner != null) {
+        if (PentecostRuntime.runner != null && !PentecostRuntime.forgeLayer) {
             Log.info("Game reached mod start. Starting mods");
             PentecostRuntime.runner.runAll(true);
         }

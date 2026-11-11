@@ -81,7 +81,7 @@ public final class LaunchPlugins implements ClassTransformer {
     @Override
     public byte[] transform(String name, byte[] bytes) {
         // Classes the plug-ins themselves are made of load untouched.
-        if (busy.get() || name.startsWith("cpw.mods.") || name.startsWith("org.objectweb.")
+        if (busy.get() || name.startsWith("khi.pentecost.") || name.startsWith("cpw.mods.") || name.startsWith("org.objectweb.")
                 || name.startsWith("net.minecraftforge.eventbus.") || name.startsWith("org.apache.")
                 || name.startsWith("org.slf4j.") || name.startsWith("net.minecraftforge.accesstransformer.")) {
             return bytes;
@@ -90,6 +90,12 @@ public final class LaunchPlugins implements ClassTransformer {
             Type type = Type.getObjectType(name.replace('.', '/'));
             ClassNode node = null;
             int flags = 0;
+            if (CoreMods.has(name)) {
+                node = new ClassNode();
+                new ClassReader(bytes).accept(node, 0);
+                node = CoreMods.apply(name, node);
+                flags |= ILaunchPluginService.ComputeFlags.COMPUTE_FRAMES;
+            }
             if (events == null && !makingEngine.get()) {
                 makingEngine.set(true);
                 try {
@@ -102,8 +108,10 @@ public final class LaunchPlugins implements ClassTransformer {
                     && !name.startsWith("com.mojang.")
                     && (name.startsWith("net.minecraftforge.") || !name.startsWith("net.minecraft."))
                     && events.handlesClass(type)) {
-                node = new ClassNode();
-                new ClassReader(bytes).accept(node, 0);
+                if (node == null) {
+                    node = new ClassNode();
+                    new ClassReader(bytes).accept(node, 0);
+                }
                 // The event preparer adds straight-line members only, so it asks for no frame rebuild here.
                 if (events.processClass(node, type) != 0) {
                     flags |= ILaunchPluginService.ComputeFlags.SIMPLE_REWRITE;
