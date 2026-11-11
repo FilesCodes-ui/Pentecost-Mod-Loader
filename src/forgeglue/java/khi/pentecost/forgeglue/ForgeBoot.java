@@ -67,6 +67,21 @@ public final class ForgeBoot {
         languages.put("javafml", new FMLJavaModLanguageProvider());
         languages.put("lowcodefml", new LowCodeModLanguageProvider());
         languages.put("minecraft", new MinecraftModLanguageProvider());
+        java.util.Iterator<IModLanguageProvider> langs = java.util.ServiceLoader
+                .load(IModLanguageProvider.class, ForgeBoot.class.getClassLoader()).iterator();
+        for (int guard = 0; guard < 64; guard++) {
+            try {
+                if (!langs.hasNext()) {
+                    break;
+                }
+                IModLanguageProvider extra = langs.next();
+                if (languages.putIfAbsent(extra.name(), extra) == null) {
+                    System.out.println("[Pentecost] Mod language from a mod jar: " + extra.name());
+                }
+            } catch (Throwable notForUs) {
+                // A provider that cannot load here is not one Pentecost runs.
+            }
+        }
 
         List<ModFile> files = new ArrayList<>();
         ModFile minecraft = new ModFile(SecureJar.from(gameJar), new Provider(false), ForgeBoot::minecraftInfo);

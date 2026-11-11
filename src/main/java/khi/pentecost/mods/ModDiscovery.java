@@ -66,7 +66,7 @@ public final class ModDiscovery {
             try {
                 Found found = read(jar);
                 if (found.mods.isEmpty()) {
-                    if (top) {
+                    if (top && found.nested.isEmpty()) {
                         Log.warn(jar.getFileName() + " has no quilt.mod.json, fabric.mod.json, or mods.toml. Skipped.");
                         continue;
                     }
@@ -116,19 +116,32 @@ public final class ModDiscovery {
         try (JarFile jf = new JarFile(jar.toFile())) {
             // A jar with several metadata files: Quilt first, then Fabric, then Forge.
             // Fabric jars often carry a stub mods.toml, so Forge comes last.
+            List<String> jarjar = new ArrayList<>();
+            for (Enumeration<JarEntry> en = jf.entries(); en.hasMoreElements(); ) {
+                String n = en.nextElement().getName();
+                if (n.startsWith("META-INF/jarjar/") && n.endsWith(".jar")) {
+                    jarjar.add(n);
+                }
+            }
+            Found found;
             JarEntry quilt = jf.getJarEntry("quilt.mod.json");
-            if (quilt != null) {
-                return readQuilt(jar, jf, quilt);
-            }
             JarEntry fabric = jf.getJarEntry("fabric.mod.json");
-            if (fabric != null) {
-                return readFabric(jar, jf, fabric);
-            }
             JarEntry forge = jf.getJarEntry("META-INF/mods.toml");
-            if (forge != null) {
-                return readForge(jar, jf, forge);
+            if (quilt != null) {
+                found = readQuilt(jar, jf, quilt);
+            } else if (fabric != null) {
+                found = readFabric(jar, jf, fabric);
+            } else if (forge != null) {
+                found = readForge(jar, jf, forge);
+            } else {
+                found = new Found(List.of(), List.of());
             }
-            return new Found(List.of(), List.of());
+            if (jarjar.isEmpty()) {
+                return found;
+            }
+            List<String> nested = new ArrayList<>(found.nested());
+            nested.addAll(jarjar);
+            return new Found(found.mods(), List.copyOf(nested));
         }
     }
 

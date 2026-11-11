@@ -87,6 +87,9 @@ public final class GameClassLoader extends URLClassLoader {
         return modByJarUrl.get(jarOf(res));
     }
 
+    /** True on a thread that is reading class bytes for Mixin, not loading a class. */
+    public static final ThreadLocal<Boolean> PEEK = ThreadLocal.withInitial(() -> false);
+
     /** Class bytes after every transformer except Mixin. Mixin reads target classes through this. */
     public byte[] preMixinBytes(String name) throws IOException {
         String path = name.replace('.', '/') + ".class";
@@ -97,8 +100,13 @@ public final class GameClassLoader extends URLClassLoader {
             }
             byte[] bytes = in.readAllBytes();
             if (own != null) {
-                for (ClassTransformer t : transformers) {
-                    bytes = t.transform(name.replace('/', '.'), bytes);
+                PEEK.set(true);
+                try {
+                    for (ClassTransformer t : transformers) {
+                        bytes = t.transform(name.replace('/', '.'), bytes);
+                    }
+                } finally {
+                    PEEK.set(false);
                 }
             }
             return bytes;

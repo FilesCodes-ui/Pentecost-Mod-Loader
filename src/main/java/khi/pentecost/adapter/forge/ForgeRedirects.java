@@ -122,7 +122,9 @@ public final class ForgeRedirects {
     public static ClassTransformer transformer() {
         return (name, bytes) -> {
             Map<String, String> bodies = BODIES.get(name);
-            boolean calls = CALL_CLASSES.contains(name) || (name.startsWith("net.minecraftforge.") && !name.startsWith("net.minecraftforge.eventbus."));
+            boolean calls = CALL_CLASSES.contains(name)
+                    || (name.startsWith("net.minecraftforge.") && !name.startsWith("net.minecraftforge.eventbus."))
+                    || name.startsWith("thedarkcolour.kotlinforforge.");
             if (bodies == null && !calls) {
                 return bytes;
             }

@@ -98,7 +98,10 @@ public final class LaunchPlugins implements ClassTransformer {
                     makingEngine.set(false);
                 }
             }
-            if (events != null && !name.startsWith("com.mojang.") && (name.startsWith("net.minecraftforge.") || !name.startsWith("net.minecraft.")) && events.handlesClass(type)) {
+            if (events != null && !khi.pentecost.loader.GameClassLoader.PEEK.get()
+                    && !name.startsWith("com.mojang.")
+                    && (name.startsWith("net.minecraftforge.") || !name.startsWith("net.minecraft."))
+                    && events.handlesClass(type)) {
                 node = new ClassNode();
                 new ClassReader(bytes).accept(node, 0);
                 // The event preparer adds straight-line members only, so it asks for no frame rebuild here.
