@@ -187,12 +187,19 @@ public final class ForgeRedirects {
                     boolean registryDoor = name.equals("net.minecraftforge.registries.NamespacedWrapper")
                             && n.equals("registerMapping")
                             && d.startsWith("(ILnet/minecraft/resources/ResourceKey;Ljava/lang/Object;");
+                    boolean queueDoor = name.equals("net.minecraftforge.fml.DeferredWorkQueue")
+                            && n.equals("runTasks") && d.equals("()V");
                     boolean stepDoor = name.equals("net.minecraftforge.fml.ModLoader")
                             && n.equals("dispatchAndHandleError");
                     return new MethodVisitor(Opcodes.ASM9, mv) {
                         @Override
                         public void visitCode() {
                             super.visitCode();
+                            if (queueDoor) {
+                                super.visitVarInsn(Opcodes.ALOAD, 0);
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks",
+                                        "forgeDeferred", "(Ljava/lang/Object;)V", false);
+                            }
                             if (stepDoor) {
                                 super.visitVarInsn(Opcodes.ALOAD, 1);
                                 super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks",

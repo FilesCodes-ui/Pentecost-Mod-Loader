@@ -24,6 +24,8 @@ public final class ModRunner {
     private final Map<String, Throwable> failures = new LinkedHashMap<>();
     private final Map<String, List<String>> missing = new LinkedHashMap<>();
     private final List<String> started = new ArrayList<>();
+    /** Fabric and Quilt mods whose client side starts inside Forge's client setup step. */
+    private final Set<String> waiting = new java.util.LinkedHashSet<>();
 
     public ModRunner(ClassLoader loader, List<ModInfo> mods) {
         this.loader = loader;
@@ -80,14 +82,73 @@ public final class ModRunner {
                 continue;
             }
             try {
-                run(m, client);
+                boolean later = client && waitsForForge(m);
+                if (later) {
+                    waiting.add(m.id());
+                }
+                run(m, client && !later);
                 started.add(m.id());
             } catch (Throwable t) {
                 fail(m, t);
             }
         }
+        if (!waiting.isEmpty()) {
+            Log.info("Client side of " + String.join(", ", waiting)
+                    + " starts inside Forge's client setup: it works with a Forge mod");
+        }
         Log.info("Mods started: " + started.size() + ", failed: " + failures.size()
                 + ", missing dependencies: " + missing.size());
+    }
+
+    private static boolean plumbing(String id) {
+        return id.startsWith("fabric-") || id.startsWith("fabric_") || id.equals("mixinextras");
+    }
+
+    /**
+     * Startup order across loaders. A Fabric or Quilt mod that names a Forge mod in its own metadata
+     * works with that mod. Forge mods get ready in their client setup handlers, and Forge-side
+     * libraries close their own setup in the tasks queued behind those handlers.
+     * So that mod's client side starts between the two: the Forge mod is ready, the library is still open.
+     */
+    private boolean waitsForForge(ModInfo m) {
+        if (!khi.pentecost.core.PentecostRuntime.forgeLayer || m.entrypoints("client").isEmpty()
+                || (m.loader() != LoaderKind.FABRIC && m.loader() != LoaderKind.QUILT)) {
+            return false;
+        }
+        Set<String> named = new java.util.HashSet<>(m.depends());
+        if (m.raw() != null) {
+            for (String key : new String[]{"depends", "recommends", "suggests", "breaks", "conflicts"}) {
+                if (m.raw().has(key) && m.raw().get(key).isJsonObject()) {
+                    named.addAll(m.raw().getAsJsonObject(key).keySet());
+                }
+            }
+        }
+        for (ModInfo other : mods) {
+            if (other.loader() == LoaderKind.FORGE && !plumbing(other.id()) && named.contains(other.id())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Starts the client side of the mods that waited for Forge's client setup handlers. */
+    public void runWaitingClient() {
+        for (ModInfo m : mods) {
+            if (!waiting.remove(m.id()) || failures.containsKey(m.id())) {
+                continue;
+            }
+            try {
+                for (String value : m.entrypoints("client")) {
+                    ClientModInitializer init = FabricLoaderImpl.INSTANCE.create(value, ClientModInitializer.class);
+                    if (init != null) {
+                        init.onInitializeClient();
+                    }
+                }
+                Log.info("Client side of " + m.name() + " started");
+            } catch (Throwable t) {
+                fail(m, t);
+            }
+        }
     }
 
     private void fail(ModInfo m, Throwable t) {

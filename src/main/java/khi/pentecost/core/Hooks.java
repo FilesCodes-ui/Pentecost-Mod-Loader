@@ -56,6 +56,22 @@ public final class Hooks {
         }
     }
 
+    /** Called by Forge at the top of a step's queued-task run. */
+    public static void forgeDeferred(Object queue) {
+        if (PentecostRuntime.runner == null) {
+            return;
+        }
+        try {
+            java.lang.reflect.Field f = queue.getClass().getDeclaredField("modLoadingStage");
+            f.setAccessible(true);
+            if ("SIDED_SETUP".equals(String.valueOf(f.get(queue)))) {
+                PentecostRuntime.runner.runWaitingClient();
+            }
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            Log.error("Could not start the waiting mods: " + e);
+        }
+    }
+
     private static final AtomicBoolean GLUE = new AtomicBoolean();
 
     /** Starts Pentecost's in-game code once: screens, resource packs. */
