@@ -42,6 +42,7 @@ public final class PentecostTitleScreen extends TitleScreen {
 
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+        WindowMode.fixStaleSize(this);
         view.harvest(children());
         // The game's turning landscape, behind a dark veil.
         backdrop.render(partialTick, 1.0F);

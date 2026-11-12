@@ -66,6 +66,10 @@ public final class ModPacks {
         RepositorySource[] out = Arrays.copyOf(in, in.length + 1);
         out[in.length] = consumer -> {
             for (ModInfo m : mods) {
+                if (type == PackType.SERVER_DATA && khi.pentecost.core.Hooks.modFailed(m.id())) {
+                    Log.warn(m.name() + " failed to start, so its world data stays out");
+                    continue;
+                }
                 consumer.accept(Pack.create("pentecost/" + m.id(), Component.literal(m.name()), true,
                         name -> new FilePackResources(name, m.jar().toFile(), true),
                         new Pack.Info(Component.literal("Files of the mod " + m.name()),

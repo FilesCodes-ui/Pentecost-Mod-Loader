@@ -73,6 +73,13 @@ public final class ModsScreens {
             WindowMode.applySaved();
         }
         String test = System.getenv("PENTECOST_TEST_SCREEN");
+        if (!testedSettings && incoming instanceof TitleScreen && "newworld".equals(test)) {
+            testedSettings = true;
+            Minecraft mc = Minecraft.getInstance();
+            Log.info("Test: opening Create New World");
+            mc.tell(() -> net.minecraft.client.gui.screens.worldselection.CreateWorldScreen.openFresh(mc, mc.screen));
+            return incoming;
+        }
         if (!testedSettings && incoming instanceof TitleScreen && ("options".equals(test) || "video".equals(test))) {
             testedSettings = true;
             Minecraft mc = Minecraft.getInstance();

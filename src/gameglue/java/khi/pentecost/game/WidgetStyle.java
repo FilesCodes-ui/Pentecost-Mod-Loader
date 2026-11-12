@@ -69,10 +69,27 @@ final class WidgetStyle implements Hooks.Style {
             Ui.outline(g, x, y, x + w, y + h, b.active ? 0x47FFFFFF : 0x1AFFFFFF);
             text = b.active ? Ui.TEXT : Ui.FAINT;
         }
-        // The button draws its own label: mods put icons and custom text there (Create's menu button).
-        if (!ownLabel(b, g, font, text)) {
+        // A button with its own label code draws it (mods put icons there, like Create's menu button).
+        // Plain buttons get Pentecost's label: no drop shadow, so dark text on the hover bar stays crisp.
+        if (!drawsOwnLabel(b) || !ownLabel(b, g, font, text)) {
             label(g, font, b.getMessage().getString(), x, y, w, h, text);
         }
+    }
+
+    private static final java.util.Map<Class<?>, Boolean> OWN_LABEL = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** True when the button's class, or a parent below AbstractButton, has its own label code. */
+    private static boolean drawsOwnLabel(AbstractButton b) {
+        return OWN_LABEL.computeIfAbsent(b.getClass(), c -> {
+            for (Class<?> k = c; k != null && k != AbstractButton.class; k = k.getSuperclass()) {
+                for (java.lang.reflect.Method m : k.getDeclaredMethods()) {
+                    if (m.getName().equals("renderString") && m.getParameterCount() == 3) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        });
     }
 
     private static java.lang.reflect.Method renderString;
@@ -145,6 +162,7 @@ final class WidgetStyle implements Hooks.Style {
         if (!on() || !(graphics instanceof GuiGraphics g) || !(screen instanceof Screen s)) {
             return false;
         }
+        WindowMode.fixStaleSize(s);
         g.fill(0, 0, s.width, s.height, 0xFF0A0A0B);
         Ui.dither(g, s.width, s.height);
         return true;

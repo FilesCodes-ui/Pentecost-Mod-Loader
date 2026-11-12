@@ -54,6 +54,18 @@ final class WindowMode {
         }
     }
 
+    /**
+     * After the window changes size outside the game's own resize path (borderless at boot),
+     * a screen can keep its old size for a moment. Then the game's display is resized once more.
+     */
+    static void fixStaleSize(net.minecraft.client.gui.screens.Screen screen) {
+        Minecraft mc = Minecraft.getInstance();
+        Window w = mc.getWindow();
+        if (screen.width != w.getGuiScaledWidth() || screen.height != w.getGuiScaledHeight()) {
+            mc.resizeDisplay();
+        }
+    }
+
     static void set(String mode) {
         Settings.set(Settings.WINDOW, mode);
         apply(mode);
