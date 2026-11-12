@@ -37,6 +37,7 @@ public final class ModsScreens {
             PerfHud.frame();
             testPause();
         };
+        WidgetStyle.install();
         Hooks.screenRouter = o -> route((Screen) o);
         Hooks.overlayRouter = o -> o instanceof net.minecraft.client.gui.screens.LoadingOverlay lo
                 && khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.LOADING)
@@ -70,6 +71,15 @@ public final class ModsScreens {
         if (incoming instanceof TitleScreen) {
             khi.pentecost.core.Timeline.mark("Main menu");
             WindowMode.applySaved();
+        }
+        String test = System.getenv("PENTECOST_TEST_SCREEN");
+        if (!testedSettings && incoming instanceof TitleScreen && ("options".equals(test) || "video".equals(test))) {
+            testedSettings = true;
+            Minecraft mc = Minecraft.getInstance();
+            Log.info("Test: opening " + test);
+            Screen back = new PentecostTitleScreen();
+            return "video".equals(test) ? new net.minecraft.client.gui.screens.VideoSettingsScreen(back, mc.options)
+                    : new net.minecraft.client.gui.screens.OptionsScreen(back, mc.options);
         }
         if (!testedSettings && "settings".equals(System.getenv("PENTECOST_TEST_SCREEN")) && incoming instanceof TitleScreen) {
             testedSettings = true;

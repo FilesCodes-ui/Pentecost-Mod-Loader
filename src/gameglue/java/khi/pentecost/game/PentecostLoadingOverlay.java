@@ -135,10 +135,10 @@ final class PentecostLoadingOverlay extends Overlay {
         Runtime rt = Runtime.getRuntime();
         double used = (rt.totalMemory() - rt.freeMemory()) / 1073741824.0;
         double max = rt.maxMemory() / 1073741824.0;
-        String ram = String.format(java.util.Locale.ROOT, "RAM  %.1f of %.0f GB", used, max);
+        int percent = (int) Math.round(Math.min(1.0, used / Math.max(0.1, max)) * 100);
         int bx = 40;
         int by = vh - 40;
-        if (fontsReady) g.drawString(minecraft.font, ram, bx, by, muted, false);
+        Ui.pixelText(g, "RAM " + percent + "%", bx, by - 2, 1, muted);
         int segments = 16;
         int lit = (int) Math.round(Math.min(1.0, used / Math.max(0.1, max)) * segments);
         for (int s = 0; s < segments; s++) {

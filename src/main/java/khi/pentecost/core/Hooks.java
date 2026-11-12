@@ -201,6 +201,115 @@ public final class Hooks {
         };
     }
 
+    /** Pentecost's look for the game's standard widgets. Set by the game glue. */
+    public interface Style {
+        /** Draws a widget. True when drawn, so the game skips its own drawing. */
+        boolean widget(Object widget, Object graphics, int mouseX, int mouseY, float partialTick);
+
+        /** Draws a screen background. True when drawn. */
+        boolean background(Object screen, Object graphics);
+
+        /** Runs after a screen built its widgets. */
+        void inited(Object screen);
+    }
+
+    public static volatile Style style;
+
+    public static boolean styleWidget(Object widget, Object graphics, int mouseX, int mouseY, float partialTick) {
+        Style s = style;
+        return s != null && s.widget(widget, graphics, mouseX, mouseY, partialTick);
+    }
+
+    public static boolean styleBackground(Object screen, Object graphics) {
+        Style s = style;
+        return s != null && s.background(screen, graphics);
+    }
+
+    public static void screenInited(Object screen) {
+        Style s = style;
+        if (s != null) {
+            try {
+                s.inited(screen);
+            } catch (RuntimeException | LinkageError e) {
+                // A screen's own state is left as it is.
+            }
+        }
+    }
+
+    private static final java.util.Set<String> STYLED = java.util.Set.of(
+            "net.minecraft.client.gui.components.AbstractButton",
+            "net.minecraft.client.gui.components.AbstractSliderButton",
+            "net.minecraft.client.gui.components.Checkbox",
+            "net.minecraftforge.client.gui.widget.ExtendedButton");
+    private static final String GG = "Lnet/minecraft/client/gui/GuiGraphics;";
+
+    /** Lets Pentecost draw the game's standard widgets and screen backgrounds. */
+    public static ClassTransformer styleTransformer() {
+        return (name, bytes) -> {
+            boolean widget = STYLED.contains(name);
+            boolean screen = name.equals("net.minecraft.client.gui.screens.Screen");
+            if (!widget && !screen) {
+                return bytes;
+            }
+            ClassReader reader = new ClassReader(bytes);
+            ClassWriter writer = new ClassWriter(0);
+            reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
+                @Override
+                public MethodVisitor visitMethod(int access, String n, String d, String s, String[] e) {
+                    MethodVisitor mv = super.visitMethod(access, n, d, s, e);
+                    boolean draw = widget && n.equals("renderWidget") && d.equals("(" + GG + "IIF)V");
+                    boolean dirt = screen && n.equals("renderDirtBackground") && d.equals("(" + GG + ")V");
+                    boolean init = screen && n.equals("init") && d.equals("(Lnet/minecraft/client/Minecraft;II)V");
+                    if (!draw && !dirt && !init) {
+                        return mv;
+                    }
+                    return new MethodVisitor(Opcodes.ASM9, mv) {
+                        @Override
+                        public void visitCode() {
+                            super.visitCode();
+                            if (init) {
+                                return;
+                            }
+                            org.objectweb.asm.Label go = new org.objectweb.asm.Label();
+                            super.visitVarInsn(Opcodes.ALOAD, 0);
+                            super.visitVarInsn(Opcodes.ALOAD, 1);
+                            if (draw) {
+                                super.visitVarInsn(Opcodes.ILOAD, 2);
+                                super.visitVarInsn(Opcodes.ILOAD, 3);
+                                super.visitVarInsn(Opcodes.FLOAD, 4);
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks", "styleWidget",
+                                        "(Ljava/lang/Object;Ljava/lang/Object;IIF)Z", false);
+                            } else {
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks", "styleBackground",
+                                        "(Ljava/lang/Object;Ljava/lang/Object;)Z", false);
+                            }
+                            super.visitJumpInsn(Opcodes.IFEQ, go);
+                            super.visitInsn(Opcodes.RETURN);
+                            super.visitLabel(go);
+                            super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                        }
+
+                        @Override
+                        public void visitInsn(int opcode) {
+                            if (init && opcode == Opcodes.RETURN) {
+                                super.visitVarInsn(Opcodes.ALOAD, 0);
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks", "screenInited",
+                                        "(Ljava/lang/Object;)V", false);
+                            }
+                            super.visitInsn(opcode);
+                        }
+
+                        @Override
+                        public void visitMaxs(int maxStack, int maxLocals) {
+                            super.visitMaxs(Math.max(maxStack, 5), maxLocals);
+                        }
+                    };
+                }
+            }, 0);
+            return writer.toByteArray();
+        };
+    }
+
     /** Set by the game glue. Picks the loading screen to show. */
     public static volatile java.util.function.UnaryOperator<Object> overlayRouter;
 

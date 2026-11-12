@@ -1,0 +1,146 @@
+package khi.pentecost.game;
+
+import khi.pentecost.control.Settings;
+import khi.pentecost.core.Hooks;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.AbstractButton;
+import net.minecraft.client.gui.components.AbstractSelectionList;
+import net.minecraft.client.gui.components.AbstractSliderButton;
+import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.components.Checkbox;
+import net.minecraft.client.gui.components.events.GuiEventListener;
+import net.minecraft.client.gui.screens.Screen;
+
+import java.lang.reflect.Field;
+
+/**
+ * Pentecost's look for the game's standard parts: buttons, sliders, checkboxes, list and screen backgrounds.
+ * Every screen built from them changes at once, the game's and mods' alike.
+ * Parts that draw their own pictures (icon buttons, mod-made widgets) keep their look.
+ */
+final class WidgetStyle implements Hooks.Style {
+    private static Field sliderValue;
+    private static Field checkboxLabel;
+
+    static void install() {
+        Hooks.style = new WidgetStyle();
+    }
+
+    private static boolean on() {
+        return Settings.on(Settings.RESTYLE);
+    }
+
+    @Override
+    public boolean widget(Object widget, Object graphics, int mouseX, int mouseY, float partialTick) {
+        if (!on() || !(graphics instanceof GuiGraphics g) || !(widget instanceof AbstractWidget w)) {
+            return false;
+        }
+        try {
+            if (w instanceof AbstractSliderButton s) {
+                slider(g, s);
+            } else if (w instanceof Checkbox c) {
+                checkbox(g, c);
+            } else if (w instanceof AbstractButton b) {
+                button(g, b);
+            } else {
+                return false;
+            }
+            return true;
+        } catch (RuntimeException | ReflectiveOperationException e) {
+            return false;
+        }
+    }
+
+    private static void button(GuiGraphics g, AbstractButton b) {
+        Font font = Minecraft.getInstance().font;
+        int x = b.getX();
+        int y = b.getY();
+        int w = b.getWidth();
+        int h = b.getHeight();
+        boolean hover = b.active && b.isHoveredOrFocused();
+        int text;
+        if (hover) {
+            g.fill(x, y, x + w, y + h, Ui.TEXT);
+            text = Ui.BLACK;
+        } else {
+            g.fill(x, y, x + w, y + h, 0x8C0A0A0B);
+            Ui.outline(g, x, y, x + w, y + h, b.active ? 0x47FFFFFF : 0x1AFFFFFF);
+            text = b.active ? Ui.TEXT : Ui.FAINT;
+        }
+        label(g, font, b.getMessage().getString(), x, y, w, h, text);
+    }
+
+    private static void slider(GuiGraphics g, AbstractSliderButton s) throws ReflectiveOperationException {
+        if (sliderValue == null) {
+            Field f = AbstractSliderButton.class.getDeclaredField("value");
+            f.setAccessible(true);
+            sliderValue = f;
+        }
+        double value = Math.max(0, Math.min(1, sliderValue.getDouble(s)));
+        Font font = Minecraft.getInstance().font;
+        int x = s.getX();
+        int y = s.getY();
+        int w = s.getWidth();
+        int h = s.getHeight();
+        boolean hover = s.active && s.isHoveredOrFocused();
+        g.fill(x, y, x + w, y + h, 0x8C0A0A0B);
+        g.fill(x + 1, y + 1, x + 1 + (int) ((w - 2) * value), y + h - 1, hover ? 0x33FFFFFF : 0x1FFFFFFF);
+        Ui.outline(g, x, y, x + w, y + h, hover ? Ui.TEXT : s.active ? 0x47FFFFFF : 0x1AFFFFFF);
+        int hx = x + 1 + (int) ((w - 4) * value);
+        g.fill(hx, y + 1, hx + 2, y + h - 1, s.active ? Ui.TEXT : Ui.FAINT);
+        label(g, font, s.getMessage().getString(), x, y, w, h, s.active ? Ui.TEXT : Ui.FAINT);
+    }
+
+    private static void checkbox(GuiGraphics g, Checkbox c) throws ReflectiveOperationException {
+        if (checkboxLabel == null) {
+            Field f = Checkbox.class.getDeclaredField("showLabel");
+            f.setAccessible(true);
+            checkboxLabel = f;
+        }
+        Font font = Minecraft.getInstance().font;
+        int x = c.getX();
+        int y = c.getY();
+        int h = c.getHeight();
+        int size = 12;
+        int by = y + (h - size) / 2;
+        boolean hover = c.active && c.isHoveredOrFocused();
+        g.fill(x, by, x + size, by + size, 0x8C0A0A0B);
+        Ui.outline(g, x, by, x + size, by + size, hover ? Ui.TEXT : 0x66FFFFFF);
+        if (c.selected()) {
+            g.fill(x + 3, by + 3, x + size - 3, by + size - 3, Ui.TEXT);
+        }
+        if (checkboxLabel.getBoolean(c)) {
+            g.drawString(font, c.getMessage(), x + size + 6, y + (h - 8) / 2, c.active ? Ui.TEXT : Ui.FAINT, false);
+        }
+    }
+
+    private static void label(GuiGraphics g, Font font, String text, int x, int y, int w, int h, int color) {
+        String shown = font.width(text) > w - 8 ? font.plainSubstrByWidth(text, w - 14) + "..." : text;
+        g.drawString(font, shown, x + (w - font.width(shown)) / 2, y + (h - 8) / 2, color, false);
+    }
+
+    @Override
+    public boolean background(Object screen, Object graphics) {
+        if (!on() || !(graphics instanceof GuiGraphics g) || !(screen instanceof Screen s)) {
+            return false;
+        }
+        g.fill(0, 0, s.width, s.height, 0xFF0A0A0B);
+        Ui.dither(g, s.width, s.height);
+        return true;
+    }
+
+    @Override
+    public void inited(Object screen) {
+        if (!on() || !(screen instanceof Screen s)) {
+            return;
+        }
+        for (GuiEventListener child : s.children()) {
+            if (child instanceof AbstractSelectionList<?> list) {
+                list.setRenderBackground(false);
+                list.setRenderTopAndBottom(false);
+            }
+        }
+    }
+}

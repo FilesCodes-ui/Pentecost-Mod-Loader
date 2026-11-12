@@ -186,6 +186,17 @@ final class Ui {
         GLYPHS.put('S', new String[]{"01111", "10000", "10000", "01110", "00001", "00001", "11110"});
         GLYPHS.put('T', new String[]{"11111", "00100", "00100", "00100", "00100", "00100", "00100"});
         GLYPHS.put('U', new String[]{"10001", "10001", "10001", "10001", "10001", "10001", "01110"});
+        GLYPHS.put('0', new String[]{"01110", "10001", "10011", "10101", "11001", "10001", "01110"});
+        GLYPHS.put('1', new String[]{"00100", "01100", "00100", "00100", "00100", "00100", "01110"});
+        GLYPHS.put('2', new String[]{"01110", "10001", "00001", "00010", "00100", "01000", "11111"});
+        GLYPHS.put('3', new String[]{"11110", "00001", "00001", "01110", "00001", "00001", "11110"});
+        GLYPHS.put('4', new String[]{"00010", "00110", "01010", "10010", "11111", "00010", "00010"});
+        GLYPHS.put('5', new String[]{"11111", "10000", "11110", "00001", "00001", "10001", "01110"});
+        GLYPHS.put('6', new String[]{"00110", "01000", "10000", "11110", "10001", "10001", "01110"});
+        GLYPHS.put('7', new String[]{"11111", "00001", "00010", "00100", "01000", "01000", "01000"});
+        GLYPHS.put('8', new String[]{"01110", "10001", "10001", "01110", "10001", "10001", "01110"});
+        GLYPHS.put('9', new String[]{"01110", "10001", "10001", "01111", "00001", "00010", "01100"});
+        GLYPHS.put('%', new String[]{"11001", "11010", "00010", "00100", "01000", "01011", "10011"});
     }
 
     private static final Map<Character, boolean[][]> FINE = new HashMap<>();
@@ -361,6 +372,28 @@ final class Ui {
                     int dy = wave > 0.55 ? -1 : 0;
                     g.fill(x + c * px, y + (base + dy) * px, x + (c + 1) * px, y + (base + dy + 1) * px, shade);
                 }
+            }
+        });
+    }
+
+    /** Small pixel text in Pentecost's own letters, 5 by 7 pixels each. Works before the game's fonts load. */
+    static void pixelText(GuiGraphics g, String text, int x, int y, int px, int color) {
+        g.drawManaged(() -> {
+            int cx = x;
+            for (char ch : text.toUpperCase(Locale.ROOT).toCharArray()) {
+                String[] glyph = GLYPHS.get(ch);
+                if (glyph == null) {
+                    cx += 4 * px;
+                    continue;
+                }
+                for (int r = 0; r < 7; r++) {
+                    for (int c = 0; c < 5; c++) {
+                        if (glyph[r].charAt(c) == '1') {
+                            g.fill(cx + c * px, y + r * px, cx + (c + 1) * px, y + (r + 1) * px, color);
+                        }
+                    }
+                }
+                cx += 6 * px;
             }
         });
     }

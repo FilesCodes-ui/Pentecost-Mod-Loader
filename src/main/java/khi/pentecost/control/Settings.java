@@ -29,13 +29,16 @@ public final class Settings {
     public static final String PATTERN = "interface.pattern";
     /** Pentecost draws the loading screen. */
     public static final String LOADING = "interface.loading";
+    /** Pentecost's look for every screen's buttons, sliders, checkboxes and backgrounds. */
+    public static final String RESTYLE = "interface.restyle";
 
     private static final Map<String, String> DEFAULTS = Map.of(
             WINDOW, "windowed",
             MENUS, "true",
             GRAY_BUTTONS, "true",
             PATTERN, "true",
-            LOADING, "true");
+            LOADING, "true",
+            RESTYLE, "true");
 
     private static final Map<String, String> VALUES = new TreeMap<>();
     private static boolean loaded;

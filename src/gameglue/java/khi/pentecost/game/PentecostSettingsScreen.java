@@ -58,11 +58,13 @@ public final class PentecostSettingsScreen extends Screen {
                         null, () -> Settings.on(Settings.MENUS), () -> Settings.toggle(Settings.MENUS)),
                 new Row("Mod buttons in black and white", "Buttons mods add to the menus match the rest.", "Now",
                         null, () -> Settings.on(Settings.GRAY_BUTTONS), () -> Settings.toggle(Settings.GRAY_BUTTONS)),
+                new Row("Restyle every screen", "Buttons, sliders, checkboxes and backgrounds everywhere, mods' too.", "Now",
+                        null, () -> Settings.on(Settings.RESTYLE), () -> Settings.toggle(Settings.RESTYLE)),
                 new Row("Pentecost loading screen", "Logo, progress line, RAM gauge and time left while loading.", "Now",
                         null, () -> Settings.on(Settings.LOADING), () -> Settings.toggle(Settings.LOADING)),
                 new Row("Background pattern", "The slow dot pattern behind Pentecost's screens.", "Now",
                         null, () -> Settings.on(Settings.PATTERN), () -> Settings.toggle(Settings.PATTERN))),
-                List.of("Restyle every screen", "Overlay layout (F3 and F6)", "Boot splash style", "Text size")));
+                List.of("Overlay layout (F3 and F6)", "Boot splash style", "Text size")));
         pages.add(new Page("Performance", List.of(),
                 List.of("Launch cache", "Chunk building threads", "Far mob throttle", "Virtual threads on Java 25")));
         pages.add(new Page("Java", List.of(),
