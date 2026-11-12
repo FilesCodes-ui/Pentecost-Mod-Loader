@@ -67,10 +67,138 @@ public final class AccessWidener implements ClassTransformer {
                 }
             }
         }
+        int mutable = 0;
+        for (ModInfo m : mods) {
+            mutable += aw.readMutableShadows(m);
+        }
         if (files > 0) {
             Log.info("Access wideners: " + files + " file(s) open members in " + aw.rules.size() + " game classes");
         }
+        if (mutable > 0) {
+            Log.info("Mixins: " + mutable + " game field(s) opened for writing, as Fabric's Mixin does");
+        }
         return aw;
+    }
+
+    private static final String MIXIN = "Lorg/spongepowered/asm/mixin/Mixin;";
+    private static final String SHADOW = "Lorg/spongepowered/asm/mixin/Shadow;";
+    private static final String MUTABLE_ANN = "Lorg/spongepowered/asm/mixin/Mutable;";
+
+    /**
+     * Opens every game field a mod's mixin marks @Shadow @Mutable. Returns how many.
+     * Fabric's Mixin does this on its own. Forge's Mixin, which runs on the Forge layer, does not.
+     */
+    private int readMutableShadows(ModInfo m) {
+        if (m.mixins() == null || m.mixins().isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        try (ZipFile z = new ZipFile(m.jar().toFile())) {
+            for (String config : m.mixins()) {
+                ZipEntry ce = z.getEntry(config);
+                if (ce == null) {
+                    continue;
+                }
+                com.google.gson.JsonObject cfg;
+                try (InputStream in = z.getInputStream(ce)) {
+                    cfg = com.google.gson.JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8))
+                            .getAsJsonObject();
+                }
+                String pkg = cfg.has("package") ? cfg.get("package").getAsString() : "";
+                for (String list : new String[]{"mixins", "client", "server"}) {
+                    if (!cfg.has(list) || !cfg.get(list).isJsonArray()) {
+                        continue;
+                    }
+                    for (com.google.gson.JsonElement e : cfg.getAsJsonArray(list)) {
+                        String cls = (pkg.isEmpty() ? "" : pkg + ".") + e.getAsString();
+                        ZipEntry entry = z.getEntry(cls.replace('.', '/') + ".class");
+                        if (entry == null) {
+                            continue;
+                        }
+                        try (InputStream in = z.getInputStream(entry)) {
+                            count += mutableShadows(in.readAllBytes());
+                        }
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            Log.warn("Cannot read the mixins of " + m.name() + " for writable fields: " + ex);
+        }
+        return count;
+    }
+
+    private int mutableShadows(byte[] bytes) {
+        List<String> targets = new java.util.ArrayList<>();
+        List<String[]> fields = new java.util.ArrayList<>();
+        new ClassReader(bytes).accept(new ClassVisitor(Opcodes.ASM9) {
+            @Override
+            public org.objectweb.asm.AnnotationVisitor visitAnnotation(String desc, boolean visible) {
+                if (!MIXIN.equals(desc)) {
+                    return null;
+                }
+                return new org.objectweb.asm.AnnotationVisitor(Opcodes.ASM9) {
+                    @Override
+                    public org.objectweb.asm.AnnotationVisitor visitArray(String name) {
+                        return new org.objectweb.asm.AnnotationVisitor(Opcodes.ASM9) {
+                            @Override
+                            public void visit(String n, Object value) {
+                                if (value instanceof org.objectweb.asm.Type t) {
+                                    targets.add(t.getInternalName());
+                                } else if (value instanceof String str && "targets".equals(name)) {
+                                    targets.add(str.replace('.', '/'));
+                                }
+                            }
+                        };
+                    }
+                };
+            }
+
+            @Override
+            public FieldVisitor visitField(int access, String name, String desc, String sig, Object value) {
+                boolean[] flags = new boolean[2];
+                String[] prefix = {"shadow$"};
+                fields.add(new String[]{name, null});
+                int index = fields.size() - 1;
+                return new FieldVisitor(Opcodes.ASM9) {
+                    @Override
+                    public org.objectweb.asm.AnnotationVisitor visitAnnotation(String d, boolean v) {
+                        if (MUTABLE_ANN.equals(d)) {
+                            flags[1] = true;
+                        } else if (SHADOW.equals(d)) {
+                            flags[0] = true;
+                            return new org.objectweb.asm.AnnotationVisitor(Opcodes.ASM9) {
+                                @Override
+                                public void visit(String n, Object val) {
+                                    if ("prefix".equals(n) && val instanceof String p) {
+                                        prefix[0] = p;
+                                    }
+                                }
+                            };
+                        }
+                        return null;
+                    }
+
+                    @Override
+                    public void visitEnd() {
+                        if (flags[0] && flags[1]) {
+                            String n = name.startsWith(prefix[0]) ? name.substring(prefix[0].length()) : name;
+                            fields.set(index, new String[]{name, n});
+                        }
+                    }
+                };
+            }
+        }, ClassReader.SKIP_CODE);
+        int count = 0;
+        for (String[] f : fields) {
+            if (f[1] == null) {
+                continue;
+            }
+            for (String target : targets) {
+                rulesFor(target).fields.merge(f[1], MUTABLE, (a, b) -> a | b);
+                count++;
+            }
+        }
+        return count;
     }
 
     /** Reads META-INF/accesstransformer.cfg from each jar. Forge writes member names in SRG form. */
