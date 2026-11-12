@@ -18,6 +18,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Fabric starts mods at the same point, so mods see the state they expect.
  */
 public final class Hooks {
+    /** Mods that failed to start. Their event hooks return at once. */
+    private static final java.util.Set<String> FAILED = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    public static void markFailed(String modId) {
+        FAILED.add(modId);
+    }
+
+    /** Called at the top of every mod event hook. True when that mod failed to start. */
+    public static boolean modFailed(String modId) {
+        return !FAILED.isEmpty() && FAILED.contains(modId);
+    }
+
     private static final String MINECRAFT = "net.minecraft.client.Minecraft";
     private static final AtomicBoolean STARTED = new AtomicBoolean();
     private static final String SCREEN = "net/minecraft/client/gui/screens/Screen";

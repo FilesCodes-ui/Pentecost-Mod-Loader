@@ -140,6 +140,7 @@ public final class GameClassLoader extends URLClassLoader {
             if (mx != null) {
                 bytes = mx.transform(name, bytes);
             }
+            bytes = DefaultConflicts.transform(this, name, bytes);
             int dot = name.lastIndexOf('.');
             if (dot > 0) {
                 String pkg = name.substring(0, dot);

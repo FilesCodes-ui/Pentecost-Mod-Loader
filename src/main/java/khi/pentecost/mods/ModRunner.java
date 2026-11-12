@@ -154,10 +154,20 @@ public final class ModRunner {
     private void fail(ModInfo m, Throwable t) {
         Throwable cause = t instanceof InvocationTargetException && t.getCause() != null ? t.getCause() : t;
         failures.put(m.id(), cause);
+        khi.pentecost.core.Hooks.markFailed(m.id());
         Log.error(m.name() + " failed to start and was disabled: " + cause);
         StackTraceElement[] st = cause.getStackTrace();
         for (int i = 0; i < Math.min(6, st.length); i++) {
             Log.error("    at " + st[i]);
+        }
+        // The root reason is usually a few causes down. Show each with the lines that name it.
+        int depth = 0;
+        for (Throwable c = cause.getCause(); c != null && c != cause && depth < 5; c = c.getCause(), depth++) {
+            Log.error("  Caused by: " + c);
+            StackTraceElement[] cs = c.getStackTrace();
+            for (int i = 0; i < Math.min(5, cs.length); i++) {
+                Log.error("    at " + cs[i]);
+            }
         }
     }
 
