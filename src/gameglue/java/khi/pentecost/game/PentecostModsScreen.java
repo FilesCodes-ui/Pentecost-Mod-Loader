@@ -281,9 +281,9 @@ public final class PentecostModsScreen extends Screen {
     }
 
     private void drawIcon(GuiGraphics g, ModInfo m, int x, int y, int size) {
-        Optional<Icon> icon = icon(m);
+        Optional<Ui.Gray> icon = Ui.grayIcon(m.id());
         if (icon.isPresent()) {
-            Icon i = icon.get();
+            Ui.Gray i = icon.get();
             int w = size;
             int h = size;
             if (i.width() > i.height()) {
@@ -362,6 +362,7 @@ public final class PentecostModsScreen extends Screen {
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         measure();
         g.fill(0, 0, width, height, minecraft.level == null ? BG : BG_WORLD);
+        Ui.dither(g, width, height);
         g.pose().pushPose();
         g.pose().scale(ui, ui, 1);
         draw(g, (int) (mouseX / ui), (int) (mouseY / ui), partialTick);
@@ -374,7 +375,7 @@ public final class PentecostModsScreen extends Screen {
         hits.clear();
 
         // Header.
-        text(g, "Mods", MARGIN, 18, TEXT, 2f);
+        Ui.wordmark(g, "MODS", MARGIN, 12, 2, TEXT);
         List<ModInfo> all = allMods();
         long off = all.stream().filter(m -> Choices.isModOff(m.id())).count();
         String summary = all.size() + " installed" + (off > 0 ? "   " + off + " off" : "");
