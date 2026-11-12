@@ -45,7 +45,8 @@ public final class PentecostTitleScreen extends TitleScreen {
         view.harvest(children());
         // The game's turning landscape, behind a dark veil.
         backdrop.render(partialTick, 1.0F);
-        g.fill(0, 0, width, height, 0xDC0A0A0B);
+        g.fill(0, 0, width, height, 0xE00A0A0B);
+        Ui.dither(g, width, height);
         int mods = 0;
         for (ModInfo m : PentecostRuntime.mods) {
             String id = m.id();
@@ -54,7 +55,7 @@ public final class PentecostTitleScreen extends TitleScreen {
                 mods++;
             }
         }
-        view.draw(this, g, mouseX, mouseY, partialTick, "Minecraft",
+        view.draw(this, g, mouseX, mouseY, partialTick, "MINECRAFT", "On Pentecost",
                 List.of("Pentecost " + PentecostMain.VERSION + "   " + SharedConstants.getCurrentVersion().getName()
                         + "   " + mods + " mods", "Copyright Mojang AB. Do not distribute!"),
                 MAIN, LINKS);

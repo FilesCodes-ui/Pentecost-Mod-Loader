@@ -35,8 +35,21 @@ public final class PentecostPauseScreen extends PauseScreen {
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         view.harvest(children());
-        g.fill(0, 0, width, height, 0xC00A0A0B);
-        view.draw(this, g, mouseX, mouseY, partialTick, "Paused", List.of(), menu ? MAIN : List.of(), menu ? LINKS : Map.of());
+        g.fill(0, 0, width, height, 0xC80A0A0B);
+        Ui.dither(g, width, height);
+        view.draw(this, g, mouseX, mouseY, partialTick, "PAUSED", place(), List.of(),
+                menu ? MAIN : List.of(), menu ? LINKS : Map.of());
+    }
+
+    /** The world or server being played, for the quiet line under the wordmark. */
+    private String place() {
+        if (minecraft == null) {
+            return "";
+        }
+        if (minecraft.getSingleplayerServer() != null) {
+            return minecraft.getSingleplayerServer().getWorldData().getLevelName();
+        }
+        return minecraft.getCurrentServer() != null ? minecraft.getCurrentServer().name : "";
     }
 
     @Override

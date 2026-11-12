@@ -16,16 +16,17 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
- * One of Pentecost's menus, drawn over a game menu.
+ * One of Pentecost's menus, drawn over a game menu, in the boot splash style:
+ * a slanted pixel wordmark, a quiet line under it, entries that turn into a white bar on hover.
  *
  * The game's screen still builds its buttons, and mods still add theirs. This view hides those widgets,
  * keeps hold of them, and draws its own layout. A click here presses the original button,
  * so every action does exactly what it did before, whoever put it there.
  *
- * Buttons from mods go to one row, in black and white. Each mod's button has a switch in the Mods screen.
+ * Buttons from mods go to one row, drawn by the mods themselves and turned black and white.
+ * Each mod's button has a switch in the Mods screen.
  */
 final class MenuView {
     /** The Mods entry. It always exists and opens Pentecost's Mods screen. */
@@ -39,6 +40,7 @@ final class MenuView {
     private final Map<String, AbstractButton> found = new LinkedHashMap<>();
     private final List<ModButton> fromMods = new ArrayList<>();
     private final List<Hit> hits = new ArrayList<>();
+    private int lastHover = -1;
 
     /** where: "title" or "pause". Used for the per-mod button switches. */
     MenuView(String where) {
@@ -48,6 +50,7 @@ final class MenuView {
     void reset() {
         found.clear();
         fromMods.clear();
+        GrayButtons.clear();
     }
 
     /** Takes over every widget that is still showing. Runs each frame, since mods add widgets late. */
@@ -80,11 +83,12 @@ final class MenuView {
     }
 
     /**
-     * Draws the menu. main lists the entries in order, by the translation key of the game's button.
+     * Draws the menu. word: the wordmark. under: the quiet line under it.
+     * main lists the entries in order, by the translation key of the game's button.
      * links maps keys of small extra actions to the text to show.
      */
-    void draw(Screen screen, GuiGraphics g, int mouseX, int mouseY, float partialTick, String title, List<String> lines,
-              List<String> main, Map<String, String> links) {
+    void draw(Screen screen, GuiGraphics g, int mouseX, int mouseY, float partialTick, String word, String under,
+              List<String> lines, List<String> main, Map<String, String> links) {
         Minecraft mc = Minecraft.getInstance();
         Font font = mc.font;
         float ui = Ui.scale(mc);
@@ -97,10 +101,24 @@ final class MenuView {
         g.pose().scale(ui, ui, 1);
 
         int x = 56;
-        int y = Math.max(40, vh * 22 / 100);
-        Ui.text(g, font, title, x, y, Ui.TEXT, 3f);
-        y += 56;
+        int y = Math.max(36, vh * 18 / 100);
 
+        // Wordmark, the quiet line, a hairline.
+        int px = vh >= 300 ? 2 : 1;
+        Ui.wordmark(g, word, x, y, px, Ui.TEXT);
+        int markWidth = Ui.wordmarkWidth(word, px);
+        y += 14 * px + 10;
+        if (!under.isEmpty()) {
+            g.drawString(font, under.toUpperCase(java.util.Locale.ROOT), x, y, Ui.MUTED, false);
+            y += 13;
+        }
+        int barWidth = Math.max(200, markWidth);
+        g.fill(x, y, x + barWidth, y + 1, Ui.LINE);
+        y += 14;
+
+        // Entries.
+        int index = 0;
+        int hovered = -1;
         for (String key : main) {
             AbstractButton source = found.get(key);
             String label;
@@ -116,20 +134,27 @@ final class MenuView {
             } else {
                 continue;
             }
-            int w = Math.max(160, (int) (font.width(label) * 1.5f) + 24);
-            boolean hover = enabled && Ui.over(mx, my, x - 12, y - 5, w, 22);
+            index++;
+            boolean hover = enabled && Ui.over(mx, my, x - 8, y, barWidth + 8, 20);
             if (hover) {
-                g.fill(x - 12, y - 5, x - 12 + w, y + 17, Ui.HOVER);
-                g.fill(x - 12, y - 5, x - 11, y + 17, Ui.TEXT);
+                hovered = index;
+                g.fill(x - 8, y, x + barWidth, y + 20, Ui.TEXT);
             }
-            Ui.text(g, font, label, x, y, !enabled ? Ui.FAINT : hover ? Ui.TEXT : Ui.SOFT, 1.5f);
+            int color = !enabled ? Ui.FAINT : hover ? Ui.BLACK : Ui.SOFT;
+            Ui.text(g, font, (hover ? "> " : "") + label, x + (hover ? 0 : 0), y + 4, color, 1.5f);
+            String number = index < 10 ? "0" + index : String.valueOf(index);
+            g.drawString(font, number, x + barWidth - 8 - font.width(number), y + 6,
+                    hover ? Ui.BLACK : Ui.FAINT, false);
             if (enabled) {
-                hits.add(new Hit(x - 12, y - 5, w, 22, action));
+                hits.add(new Hit(x - 8, y, barWidth + 8, 20, action));
             }
-            y += 24;
+            y += 22;
+        }
+        if (hovered != lastHover) {
+            lastHover = hovered;
         }
 
-        // Buttons from mods: one row, black and white.
+        // Buttons from mods: one row, each mod's own button in black and white.
         List<ModButton> shown = new ArrayList<>();
         for (ModButton b : fromMods) {
             if (Choices.isEnabled(b.modId(), "button:" + where)) {
@@ -144,27 +169,16 @@ final class MenuView {
             int rowHeight = 20;
             String tip = null;
             for (ModButton b : shown) {
-                // The mod's own button, drawn as the mod made it: its icon, its label, its look.
                 AbstractButton source = b.source();
                 int bw = source.getWidth();
                 int bh = source.getHeight();
-                boolean hover = Ui.over(mx, my, bx, y, bw, bh);
-                if (hover) {
+                if (Ui.over(mx, my, bx, y, bw, bh)) {
                     tip = b.label();
                 }
-                int oldX = source.getX();
-                int oldY = source.getY();
-                source.setX(bx);
-                source.setY(y);
-                source.visible = true;
-                try {
-                    source.render(g, mx, my, partialTick);
-                } catch (RuntimeException e) {
+                if (System.getenv("PENTECOST_TEST_NOGRAY") == null) {
+                    GrayButtons.draw(g, source, bx, y, mx, my, partialTick, ui);
+                } else {
                     Ui.outline(g, bx, y, bx + bw, y + bh, Ui.FAINT);
-                } finally {
-                    source.visible = false;
-                    source.setX(oldX);
-                    source.setY(oldY);
                 }
                 hits.add(new Hit(bx, y, bw, bh, source::onPress));
                 bx += bw + 6;
@@ -175,26 +189,32 @@ final class MenuView {
             }
         }
 
-        // Small extra actions, bottom left.
-        int lx = x;
-        int ly = vh - 30;
+        // Bottom right: quiet facts, then small extra actions.
+        int fy = vh - 22 - lines.size() * 11;
+        for (String line : lines) {
+            g.drawString(font, line, vw - 40 - font.width(line), fy, Ui.FAINT, false);
+            fy += 11;
+        }
+        List<Map.Entry<String, String>> shownLinks = new ArrayList<>();
+        int linksWidth = 0;
         for (Map.Entry<String, String> link : links.entrySet()) {
-            AbstractButton source = found.get(link.getKey());
-            if (source == null) {
-                continue;
+            if (found.get(link.getKey()) != null) {
+                shownLinks.add(link);
+                linksWidth += font.width(link.getValue()) + 14;
             }
+        }
+        int lx = vw - 40 - Math.max(0, linksWidth - 14);
+        int ly = vh - 22;
+        for (Map.Entry<String, String> link : shownLinks) {
+            AbstractButton source = found.get(link.getKey());
             int w = font.width(link.getValue());
             boolean hover = Ui.over(mx, my, lx - 3, ly - 3, w + 6, 14);
-            g.drawString(font, link.getValue(), lx, ly, hover ? Ui.TEXT : Ui.FAINT, false);
+            if (hover) {
+                g.fill(lx - 3, ly - 3, lx + w + 3, ly + 11, Ui.TEXT);
+            }
+            g.drawString(font, link.getValue(), lx, ly, hover ? Ui.BLACK : Ui.MUTED, false);
             hits.add(new Hit(lx - 3, ly - 3, w + 6, 14, source::onPress));
-            lx += w + 16;
-        }
-
-        // Quiet facts, bottom right.
-        int fy = vh - 30 - (lines.size() - 1) * 11;
-        for (String line : lines) {
-            g.drawString(font, line, vw - 56 - font.width(line), fy, Ui.FAINT, false);
-            fy += 11;
+            lx += w + 14;
         }
         g.pose().popPose();
     }

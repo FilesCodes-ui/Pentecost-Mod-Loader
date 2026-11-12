@@ -167,4 +167,145 @@ final class Ui {
             }
         });
     }
+
+    // ---------------------------------------------------------------- wordmark
+
+    private static final Map<Character, String[]> GLYPHS = new HashMap<>();
+    static {
+        GLYPHS.put('A', new String[]{"01110", "10001", "10001", "11111", "10001", "10001", "10001"});
+        GLYPHS.put('C', new String[]{"01111", "10000", "10000", "10000", "10000", "10000", "01111"});
+        GLYPHS.put('D', new String[]{"11110", "10001", "10001", "10001", "10001", "10001", "11110"});
+        GLYPHS.put('E', new String[]{"11111", "10000", "10000", "11110", "10000", "10000", "11111"});
+        GLYPHS.put('F', new String[]{"11111", "10000", "10000", "11110", "10000", "10000", "10000"});
+        GLYPHS.put('I', new String[]{"11111", "00100", "00100", "00100", "00100", "00100", "11111"});
+        GLYPHS.put('M', new String[]{"10001", "11011", "10101", "10101", "10001", "10001", "10001"});
+        GLYPHS.put('N', new String[]{"10001", "11001", "10101", "10101", "10011", "10001", "10001"});
+        GLYPHS.put('O', new String[]{"01110", "10001", "10001", "10001", "10001", "10001", "01110"});
+        GLYPHS.put('P', new String[]{"11110", "10001", "10001", "11110", "10000", "10000", "10000"});
+        GLYPHS.put('R', new String[]{"11110", "10001", "10001", "11110", "10100", "10010", "10001"});
+        GLYPHS.put('S', new String[]{"01111", "10000", "10000", "01110", "00001", "00001", "11110"});
+        GLYPHS.put('T', new String[]{"11111", "00100", "00100", "00100", "00100", "00100", "00100"});
+        GLYPHS.put('U', new String[]{"10001", "10001", "10001", "10001", "10001", "10001", "01110"});
+    }
+
+    private static final Map<Character, boolean[][]> FINE = new HashMap<>();
+
+    /**
+     * A letter at twice the resolution: each pixel becomes four, and inside corners get filled,
+     * so diagonals and curves come out smooth while the letter stays pixel art.
+     */
+    private static boolean[][] fine(char ch) {
+        return FINE.computeIfAbsent(ch, c -> {
+            String[] g = GLYPHS.get(c);
+            if (g == null) {
+                return null;
+            }
+            boolean[][] f = new boolean[14][10];
+            for (int r = 0; r < 7; r++) {
+                for (int col = 0; col < 5; col++) {
+                    if (g[r].charAt(col) == '1') {
+                        f[r * 2][col * 2] = f[r * 2][col * 2 + 1] = f[r * 2 + 1][col * 2] = f[r * 2 + 1][col * 2 + 1] = true;
+                    }
+                }
+            }
+            for (int r = 0; r < 7; r++) {
+                for (int col = 0; col < 5; col++) {
+                    if (on(g, r, col)) {
+                        continue;
+                    }
+                    for (int dr = -1; dr <= 1; dr += 2) {
+                        for (int dc = -1; dc <= 1; dc += 2) {
+                            if (on(g, r + dr, col) && on(g, r, col + dc)) {
+                                f[r * 2 + (dr > 0 ? 1 : 0)][col * 2 + (dc > 0 ? 1 : 0)] = true;
+                            }
+                        }
+                    }
+                }
+            }
+            return f;
+        });
+    }
+
+    private static boolean on(String[] g, int r, int c) {
+        return r >= 0 && r < 7 && c >= 0 && c < 5 && g[r].charAt(c) == '1';
+    }
+
+    /** Width of a word in wordmark letters, at px screen units per fine pixel. */
+    static int wordmarkWidth(String word, int px) {
+        return Math.max(0, word.length() * 12 - 2 + 4) * px;
+    }
+
+    /**
+     * Draws a word in Pentecost's thick, slanted pixel letters, the same letters as the boot splash.
+     * px: size of one fine pixel. A letter is 10 by 14 fine pixels.
+     */
+    static void wordmark(GuiGraphics g, String word, int x, int y, int px, int color) {
+        g.drawManaged(() -> {
+            int cx = x;
+            for (char ch : word.toUpperCase(Locale.ROOT).toCharArray()) {
+                boolean[][] f = fine(ch);
+                if (f != null) {
+                    for (int r = 0; r < 14; r++) {
+                        int shift = (13 - r) / 3;
+                        int run = -1;
+                        for (int c = 0; c <= 10; c++) {
+                            boolean lit = c < 10 && f[r][c];
+                            if (lit && run < 0) {
+                                run = c;
+                            } else if (!lit && run >= 0) {
+                                g.fill(cx + (run + shift) * px, y + r * px, cx + (c + shift) * px, y + (r + 1) * px, color);
+                                run = -1;
+                            }
+                        }
+                    }
+                }
+                cx += 12 * px;
+            }
+        });
+    }
+
+    // ---------------------------------------------------------------- background
+
+    private static final int[][] BAYER = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
+    private static DynamicTexture dither;
+    private static ResourceLocation ditherId;
+    private static int ditherCols;
+    private static int ditherRows;
+    private static int ditherFrame;
+
+    /**
+     * The boot splash's dithered backdrop: a slow pattern of light pixels, strongest on the right,
+     * away from the menu text. Drawn in plain GUI space over the whole screen.
+     */
+    static void dither(GuiGraphics g, int width, int height) {
+        Minecraft mc = Minecraft.getInstance();
+        int cell = 3;
+        int cols = Math.max(1, (width + cell - 1) / cell);
+        int rows = Math.max(1, (height + cell - 1) / cell);
+        if (dither == null || cols != ditherCols || rows != ditherRows) {
+            if (ditherId != null) {
+                mc.getTextureManager().release(ditherId);
+            }
+            dither = new DynamicTexture(cols, rows, true);
+            ditherId = mc.getTextureManager().register("pentecost_dither", dither);
+            ditherCols = cols;
+            ditherRows = rows;
+            ditherFrame = 0;
+        }
+        NativeImage image = dither.getPixels();
+        if (image != null && ditherFrame++ % 2 == 0) {
+            double t = net.minecraft.Util.getMillis() * 0.0012;
+            for (int y = 0; y < rows; y++) {
+                for (int x = 0; x < cols; x++) {
+                    double v = Math.pow((double) x / cols, 1.8) * 0.55 + 0.06 * Math.sin(x * 0.5 + y * 0.3 - t);
+                    image.setPixelRGBA(x, y, v * 16 > BAYER[y & 3][x & 3] ? 0x1CFFFFFF : 0);
+                }
+            }
+            dither.upload();
+        }
+        com.mojang.blaze3d.systems.RenderSystem.enableBlend();
+        com.mojang.blaze3d.systems.RenderSystem.defaultBlendFunc();
+        g.blit(ditherId, 0, 0, cols * cell, rows * cell, 0f, 0f, cols, rows, cols, rows);
+        com.mojang.blaze3d.systems.RenderSystem.disableBlend();
+    }
 }
