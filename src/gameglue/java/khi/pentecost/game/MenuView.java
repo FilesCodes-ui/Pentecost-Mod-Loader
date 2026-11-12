@@ -105,10 +105,12 @@ final class MenuView {
         int x = 56;
         int y = Math.max(36, vh * 18 / 100);
 
-        // Wordmark, the quiet line, a hairline.
+        // Logo, wordmark, the quiet line, a hairline.
         int px = vh >= 300 ? 2 : 1;
-        Ui.wordmark(g, word, x, y, px, Ui.TEXT);
-        int markWidth = Ui.wordmarkWidth(word, px);
+        Ui.logo(g, x, y - px, px, Ui.TEXT);
+        int wx = x + (Ui.LOGO_W + 5) * px;
+        Ui.wordmark(g, word, wx, y, px, Ui.TEXT);
+        int markWidth = wx - x + Ui.wordmarkWidth(word, px);
         y += 14 * px + 10;
         if (!under.isEmpty()) {
             g.drawString(font, under.toUpperCase(java.util.Locale.ROOT), x, y, Ui.MUTED, false);

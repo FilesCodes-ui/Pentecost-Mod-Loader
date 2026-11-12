@@ -38,6 +38,9 @@ public final class ModsScreens {
             testPause();
         };
         Hooks.screenRouter = o -> route((Screen) o);
+        Hooks.overlayRouter = o -> o instanceof net.minecraft.client.gui.screens.LoadingOverlay lo
+                && khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.LOADING)
+                ? PentecostLoadingOverlay.replace(lo) : o;
         Hooks.screenFinalizer = (asked, shown) -> settle((Screen) asked, (Screen) shown);
     }
 

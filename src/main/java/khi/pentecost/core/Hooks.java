@@ -201,6 +201,24 @@ public final class Hooks {
         };
     }
 
+    /** Set by the game glue. Picks the loading screen to show. */
+    public static volatile java.util.function.UnaryOperator<Object> overlayRouter;
+
+    /** Called by the game at the top of Minecraft.setOverlay. */
+    public static Object routeOverlay(Object overlay) {
+        java.util.function.UnaryOperator<Object> r = overlayRouter;
+        if (r == null || overlay == null) {
+            return overlay;
+        }
+        try {
+            Object out = r.apply(overlay);
+            return out != null ? out : overlay;
+        } catch (RuntimeException | LinkageError e) {
+            Log.error("Loading screen routing failed: " + e);
+            return overlay;
+        }
+    }
+
     /** Called by the game at the top of Minecraft.setScreen. */
     public static Object routeScreen(Object screen) {
         Object out = screen;
@@ -259,6 +277,19 @@ public final class Hooks {
                 @Override
                 public MethodVisitor visitMethod(int access, String n, String d, String s, String[] e) {
                     MethodVisitor mv = super.visitMethod(access, n, d, s, e);
+                    if (n.equals("setOverlay") && d.equals("(Lnet/minecraft/client/gui/screens/Overlay;)V")) {
+                        return new MethodVisitor(Opcodes.ASM9, mv) {
+                            @Override
+                            public void visitCode() {
+                                super.visitCode();
+                                super.visitVarInsn(Opcodes.ALOAD, 1);
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks",
+                                        "routeOverlay", "(Ljava/lang/Object;)Ljava/lang/Object;", false);
+                                super.visitTypeInsn(Opcodes.CHECKCAST, "net/minecraft/client/gui/screens/Overlay");
+                                super.visitVarInsn(Opcodes.ASTORE, 1);
+                            }
+                        };
+                    }
                     if (n.equals("setScreen") && d.equals("(L" + SCREEN + ";)V")) {
                         return new MethodVisitor(Opcodes.ASM9, mv) {
                             @Override

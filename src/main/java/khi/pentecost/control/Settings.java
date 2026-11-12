@@ -27,12 +27,15 @@ public final class Settings {
     public static final String GRAY_BUTTONS = "interface.grayButtons";
     /** The slow dot pattern behind Pentecost's screens. */
     public static final String PATTERN = "interface.pattern";
+    /** Pentecost draws the loading screen. */
+    public static final String LOADING = "interface.loading";
 
     private static final Map<String, String> DEFAULTS = Map.of(
             WINDOW, "windowed",
             MENUS, "true",
             GRAY_BUTTONS, "true",
-            PATTERN, "true");
+            PATTERN, "true",
+            LOADING, "true");
 
     private static final Map<String, String> VALUES = new TreeMap<>();
     private static boolean loaded;
