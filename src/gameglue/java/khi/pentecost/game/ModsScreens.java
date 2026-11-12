@@ -26,6 +26,7 @@ public final class ModsScreens {
             "com.terraformersmc.modmenu.gui.ModsScreen");
 
     private static boolean tested;
+    private static boolean testedSettings;
 
     private ModsScreens() {}
 
@@ -65,6 +66,12 @@ public final class ModsScreens {
         String name = incoming.getClass().getName();
         if (incoming instanceof TitleScreen) {
             khi.pentecost.core.Timeline.mark("Main menu");
+            WindowMode.applySaved();
+        }
+        if (!testedSettings && "settings".equals(System.getenv("PENTECOST_TEST_SCREEN")) && incoming instanceof TitleScreen) {
+            testedSettings = true;
+            Log.info("Test: opening Pentecost settings");
+            return new PentecostSettingsScreen(new PentecostTitleScreen());
         }
         // Test switch: PENTECOST_TEST_SCREEN=mods opens the list once the main menu shows.
         if (!tested && "mods".equals(System.getenv("PENTECOST_TEST_SCREEN")) && incoming instanceof TitleScreen) {
@@ -76,7 +83,7 @@ public final class ModsScreens {
             return new PentecostModsScreen(Minecraft.getInstance().screen);
         }
         // The game's own menus get Pentecost's layout. Mods still see the game's menu underneath.
-        if (!Choices.isOff("pentecost", "menus")) {
+        if (khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.MENUS)) {
             if (incoming.getClass() == TitleScreen.class) {
                 return new PentecostTitleScreen();
             }

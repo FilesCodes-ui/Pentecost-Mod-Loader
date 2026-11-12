@@ -278,6 +278,9 @@ final class Ui {
      * away from the menu text. Drawn in plain GUI space over the whole screen.
      */
     static void dither(GuiGraphics g, int width, int height) {
+        if (!khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.PATTERN)) {
+            return;
+        }
         Minecraft mc = Minecraft.getInstance();
         int cell = 3;
         int cols = Math.max(1, (width + cell - 1) / cell);

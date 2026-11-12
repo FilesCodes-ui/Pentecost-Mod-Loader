@@ -31,6 +31,8 @@ import java.util.Map;
 final class MenuView {
     /** The Mods entry. It always exists and opens Pentecost's Mods screen. */
     static final String MODS = "pentecost.mods";
+    /** The Pentecost entry. Opens Pentecost's settings. */
+    static final String SETTINGS = "pentecost.settings";
 
     private record ModButton(String modId, String label, AbstractButton source) {}
 
@@ -127,6 +129,9 @@ final class MenuView {
             if (key.equals(MODS)) {
                 label = "Mods";
                 action = () -> mc.setScreen(new PentecostModsScreen(screen));
+            } else if (key.equals(SETTINGS)) {
+                label = "Pentecost";
+                action = () -> mc.setScreen(new PentecostSettingsScreen(screen));
             } else if (source != null) {
                 label = clean(source.getMessage().getString());
                 enabled = source.active;
@@ -175,10 +180,22 @@ final class MenuView {
                 if (Ui.over(mx, my, bx, y, bw, bh)) {
                     tip = b.label();
                 }
-                if (System.getenv("PENTECOST_TEST_NOGRAY") == null) {
+                if (System.getenv("PENTECOST_TEST_NOGRAY") == null
+                        && khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.GRAY_BUTTONS)) {
                     GrayButtons.draw(g, source, bx, y, mx, my, partialTick, ui);
                 } else {
-                    Ui.outline(g, bx, y, bx + bw, y + bh, Ui.FAINT);
+                    int ox = source.getX();
+                    int oy = source.getY();
+                    source.setX(bx);
+                    source.setY(y);
+                    source.visible = true;
+                    try {
+                        source.render(g, mx, my, partialTick);
+                    } finally {
+                        source.visible = false;
+                        source.setX(ox);
+                        source.setY(oy);
+                    }
                 }
                 hits.add(new Hit(bx, y, bw, bh, source::onPress));
                 bx += bw + 6;
