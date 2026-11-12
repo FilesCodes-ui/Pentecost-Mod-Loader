@@ -83,7 +83,7 @@ final class MenuView {
      * Draws the menu. main lists the entries in order, by the translation key of the game's button.
      * links maps keys of small extra actions to the text to show.
      */
-    void draw(Screen screen, GuiGraphics g, int mouseX, int mouseY, String title, List<String> lines,
+    void draw(Screen screen, GuiGraphics g, int mouseX, int mouseY, float partialTick, String title, List<String> lines,
               List<String> main, Map<String, String> links) {
         Minecraft mc = Minecraft.getInstance();
         Font font = mc.font;
@@ -141,28 +141,37 @@ final class MenuView {
             g.drawString(font, "FROM MODS", x, y, Ui.FAINT, false);
             y += 13;
             int bx = x;
+            int rowHeight = 20;
             String tip = null;
             for (ModButton b : shown) {
-                boolean hover = Ui.over(mx, my, bx, y, 24, 24);
+                // The mod's own button, drawn as the mod made it: its icon, its label, its look.
+                AbstractButton source = b.source();
+                int bw = source.getWidth();
+                int bh = source.getHeight();
+                boolean hover = Ui.over(mx, my, bx, y, bw, bh);
                 if (hover) {
-                    g.fill(bx, y, bx + 24, y + 24, Ui.HOVER);
                     tip = b.label();
                 }
-                Ui.outline(g, bx, y, bx + 24, y + 24, hover ? Ui.TEXT : Ui.FAINT);
-                Optional<Ui.Gray> icon = Ui.grayIcon(b.modId());
-                if (icon.isPresent()) {
-                    Ui.Gray i = icon.get();
-                    g.blit(i.texture(), bx + 4, y + 4, 16, 16, 0f, 0f, i.width(), i.height(), i.width(), i.height());
-                } else {
-                    String letter = b.label().isEmpty() ? "?" : b.label().substring(0, 1).toUpperCase();
-                    g.drawString(font, letter, bx + 12 - font.width(letter) / 2, y + 8, Ui.MUTED, false);
+                int oldX = source.getX();
+                int oldY = source.getY();
+                source.setX(bx);
+                source.setY(y);
+                source.visible = true;
+                try {
+                    source.render(g, mx, my, partialTick);
+                } catch (RuntimeException e) {
+                    Ui.outline(g, bx, y, bx + bw, y + bh, Ui.FAINT);
+                } finally {
+                    source.visible = false;
+                    source.setX(oldX);
+                    source.setY(oldY);
                 }
-                AbstractButton source = b.source();
-                hits.add(new Hit(bx, y, 24, 24, source::onPress));
-                bx += 30;
+                hits.add(new Hit(bx, y, bw, bh, source::onPress));
+                bx += bw + 6;
+                rowHeight = Math.max(rowHeight, bh);
             }
-            if (tip != null) {
-                g.drawString(font, tip, bx + 4, y + 8, Ui.MUTED, false);
+            if (tip != null && !tip.isEmpty()) {
+                g.drawString(font, tip, bx + 4, y + rowHeight / 2 - 4, Ui.MUTED, false);
             }
         }
 

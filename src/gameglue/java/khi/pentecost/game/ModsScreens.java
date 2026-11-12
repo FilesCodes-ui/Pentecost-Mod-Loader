@@ -102,6 +102,33 @@ public final class ModsScreens {
         }
     }
 
+    /**
+     * A mod's screen opened directly, not as a swap. If it once replaced one of the game's menus
+     * and the player turned that off, the game's menu shows instead.
+     */
+    private static Screen reopened(Screen shown) {
+        String name = shown.getClass().getName();
+        if (name.startsWith("net.minecraft.") || name.startsWith("khi.pentecost.") || PentecostRuntime.loader == null) {
+            return shown;
+        }
+        String owner = PentecostRuntime.loader.modOf(name);
+        if (owner == null) {
+            return shown;
+        }
+        for (java.util.Map.Entry<String, String> e : Choices.seenScreens(owner).entrySet()) {
+            if (!e.getValue().equals(name) || !Choices.isOff(owner, "screen:" + e.getKey())) {
+                continue;
+            }
+            if (e.getKey().equals(TitleScreen.class.getName())) {
+                return route(new TitleScreen());
+            }
+            if (e.getKey().equals(PauseScreen.class.getName())) {
+                return route(new PauseScreen(true));
+            }
+        }
+        return shown;
+    }
+
     /** The game's class name for a screen, so Pentecost's menus count as the game's own. */
     private static String vanillaName(Screen s) {
         if (s instanceof PentecostTitleScreen) {
@@ -118,7 +145,10 @@ public final class ModsScreens {
      * They differ when a mod swapped one for the other.
      */
     public static Screen settle(Screen asked, Screen shown) {
-        if (shown == null || shown == asked) {
+        if (shown != null && shown == asked) {
+            return reopened(shown);
+        }
+        if (shown == null) {
             return shown;
         }
         Minecraft mc = Minecraft.getInstance();

@@ -54,7 +54,7 @@ public final class PentecostTitleScreen extends TitleScreen {
                 mods++;
             }
         }
-        view.draw(this, g, mouseX, mouseY, "Minecraft",
+        view.draw(this, g, mouseX, mouseY, partialTick, "Minecraft",
                 List.of("Pentecost " + PentecostMain.VERSION + "   " + SharedConstants.getCurrentVersion().getName()
                         + "   " + mods + " mods", "Copyright Mojang AB. Do not distribute!"),
                 MAIN, LINKS);
