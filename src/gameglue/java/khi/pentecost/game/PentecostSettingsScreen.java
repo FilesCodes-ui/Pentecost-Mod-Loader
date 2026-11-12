@@ -176,8 +176,7 @@ public final class PentecostSettingsScreen extends Screen {
             boolean on = r.on().getAsBoolean();
             int sx = right - 24;
             int sy = y + 10;
-            Ui.outline(g, sx, sy, sx + 24, sy + 11, on ? Ui.TEXT : Ui.FAINT);
-            g.fill(on ? sx + 14 : sx + 2, sy + 2, on ? sx + 22 : sx + 10, sy + 9, on ? Ui.TEXT : Ui.FAINT);
+            Ui.toggle(g, "settings:" + r.title(), sx, sy, on);
             right = sx - 10;
         } else if (r.value() != null) {
             String v = r.value().get();

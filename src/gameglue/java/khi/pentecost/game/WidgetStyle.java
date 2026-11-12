@@ -69,7 +69,26 @@ final class WidgetStyle implements Hooks.Style {
             Ui.outline(g, x, y, x + w, y + h, b.active ? 0x47FFFFFF : 0x1AFFFFFF);
             text = b.active ? Ui.TEXT : Ui.FAINT;
         }
-        label(g, font, b.getMessage().getString(), x, y, w, h, text);
+        // The button draws its own label: mods put icons and custom text there (Create's menu button).
+        if (!ownLabel(b, g, font, text)) {
+            label(g, font, b.getMessage().getString(), x, y, w, h, text);
+        }
+    }
+
+    private static java.lang.reflect.Method renderString;
+
+    private static boolean ownLabel(AbstractButton b, GuiGraphics g, Font font, int color) {
+        try {
+            if (renderString == null) {
+                java.lang.reflect.Method m = AbstractButton.class.getDeclaredMethod("renderString", GuiGraphics.class, Font.class, int.class);
+                m.setAccessible(true);
+                renderString = m;
+            }
+            renderString.invoke(b, g, font, color);
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return false;
+        }
     }
 
     private static void slider(GuiGraphics g, AbstractSliderButton s) throws ReflectiveOperationException {
@@ -129,6 +148,34 @@ final class WidgetStyle implements Hooks.Style {
         g.fill(0, 0, s.width, s.height, 0xFF0A0A0B);
         Ui.dither(g, s.width, s.height);
         return true;
+    }
+
+    private static Object shownScreen;
+    private static long shownAt;
+
+    /** Screens fade in from dark over a short moment when they open. */
+    @Override
+    public void drawn(Object screen, Object graphics) {
+        if (!on() || !(graphics instanceof GuiGraphics g) || !(screen instanceof Screen s)) {
+            return;
+        }
+        long now = net.minecraft.Util.getMillis();
+        if (screen != shownScreen) {
+            shownScreen = screen;
+            shownAt = now;
+        }
+        float t = (now - shownAt) / 180f;
+        if (t >= 1f) {
+            return;
+        }
+        float ease = 1f - (1f - t) * (1f - t) * (1f - t);
+        int a = (int) ((1f - ease) * 200);
+        if (a > 0) {
+            g.pose().pushPose();
+            g.pose().translate(0, 0, 400);
+            g.fill(0, 0, s.width, s.height, (a << 24) | 0x0A0A0B);
+            g.pose().popPose();
+        }
     }
 
     @Override

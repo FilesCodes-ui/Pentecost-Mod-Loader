@@ -397,4 +397,38 @@ final class Ui {
             }
         });
     }
+
+    private static final Map<String, float[]> SWITCHES = new HashMap<>();
+
+    /**
+     * A switch that slides. key: anything unique to this switch, so its position carries over between frames.
+     * Box is 24 by 11.
+     */
+    static void toggle(GuiGraphics g, String key, int x, int y, boolean on) {
+        float[] state = SWITCHES.computeIfAbsent(key, k -> new float[]{on ? 1f : 0f, net.minecraft.Util.getMillis()});
+        long now = net.minecraft.Util.getMillis();
+        float dt = Math.min(0.1f, (now - state[1]) / 1000f);
+        state[1] = now;
+        float target = on ? 1f : 0f;
+        state[0] += (target - state[0]) * Math.min(1f, dt * 18f);
+        if (Math.abs(target - state[0]) < 0.01f) {
+            state[0] = target;
+        }
+        float p = state[0];
+        int border = mix(FAINT, TEXT, p);
+        outline(g, x, y, x + 24, y + 11, border);
+        int knob = x + 2 + Math.round(12 * p);
+        g.fill(knob, y + 2, knob + 8, y + 9, border);
+    }
+
+    /** Blends two colors, t from 0 (a) to 1 (b). */
+    static int mix(int a, int b, float t) {
+        int r = 0;
+        for (int shift = 0; shift <= 24; shift += 8) {
+            int ca = (a >>> shift) & 0xFF;
+            int cb = (b >>> shift) & 0xFF;
+            r |= (Math.round(ca + (cb - ca) * t) & 0xFF) << shift;
+        }
+        return r;
+    }
 }

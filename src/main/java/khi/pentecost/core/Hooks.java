@@ -211,6 +211,20 @@ public final class Hooks {
 
         /** Runs after a screen built its widgets. */
         void inited(Object screen);
+
+        /** Runs after a screen drew itself, for transitions. */
+        void drawn(Object screen, Object graphics);
+    }
+
+    public static void screenDrawn(Object screen, Object graphics) {
+        Style s = style;
+        if (s != null) {
+            try {
+                s.drawn(screen, graphics);
+            } catch (RuntimeException | LinkageError e) {
+                // A missed fade is harmless.
+            }
+        }
     }
 
     public static volatile Style style;
@@ -260,14 +274,15 @@ public final class Hooks {
                     boolean draw = widget && n.equals("renderWidget") && d.equals("(" + GG + "IIF)V");
                     boolean dirt = screen && n.equals("renderDirtBackground") && d.equals("(" + GG + ")V");
                     boolean init = screen && n.equals("init") && d.equals("(Lnet/minecraft/client/Minecraft;II)V");
-                    if (!draw && !dirt && !init) {
+                    boolean shown = screen && n.equals("renderWithTooltip") && d.equals("(" + GG + "IIF)V");
+                    if (!draw && !dirt && !init && !shown) {
                         return mv;
                     }
                     return new MethodVisitor(Opcodes.ASM9, mv) {
                         @Override
                         public void visitCode() {
                             super.visitCode();
-                            if (init) {
+                            if (init || shown) {
                                 return;
                             }
                             org.objectweb.asm.Label go = new org.objectweb.asm.Label();
@@ -295,6 +310,12 @@ public final class Hooks {
                                 super.visitVarInsn(Opcodes.ALOAD, 0);
                                 super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks", "screenInited",
                                         "(Ljava/lang/Object;)V", false);
+                            }
+                            if (shown && opcode == Opcodes.RETURN) {
+                                super.visitVarInsn(Opcodes.ALOAD, 0);
+                                super.visitVarInsn(Opcodes.ALOAD, 1);
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks", "screenDrawn",
+                                        "(Ljava/lang/Object;Ljava/lang/Object;)V", false);
                             }
                             super.visitInsn(opcode);
                         }

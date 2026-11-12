@@ -562,7 +562,7 @@ public final class PentecostModsScreen extends Screen {
         }
         text(g, font.plainSubstrByWidth(title, w - 40), x + 4, y + 5, on ? TEXT : MUTED);
         text(g, font.plainSubstrByWidth(note, w - 40), x + 4, y + 16, FAINT);
-        toggle(g, x + w - 26, y + 9, on);
+        Ui.toggle(g, "mods:" + (selected == null ? "" : selected.id()) + ":" + title, x + w - 26, y + 9, on);
         g.fill(x, y + 28, x + w, y + 29, LINE);
         hit(x, y, w, 28, clip, action);
         return y + 29;
