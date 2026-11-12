@@ -45,7 +45,7 @@ public final class PentecostTitleScreen extends TitleScreen {
         view.harvest(children());
         // The game's turning landscape, behind a dark veil.
         backdrop.render(partialTick, 1.0F);
-        g.fill(0, 0, width, height, 0x9C0A0A0B);
+        g.fill(0, 0, width, height, 0x580A0A0B);
         Ui.dither(g, width, height);
         int mods = 0;
         for (ModInfo m : PentecostRuntime.mods) {
