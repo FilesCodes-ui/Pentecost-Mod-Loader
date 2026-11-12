@@ -214,6 +214,29 @@ public final class Hooks {
 
         /** Runs after a screen drew itself, for transitions. */
         void drawn(Object screen, Object graphics);
+
+        /** Draws a tooltip's box. True when drawn. */
+        boolean tooltip(Object graphics, int x, int y, int width, int height, int z);
+    }
+
+    public static boolean styleTooltip(Object graphics, int x, int y, int width, int height, int z) {
+        Style s = style;
+        return s != null && s.tooltip(graphics, x, y, width, height, z);
+    }
+
+    private static final byte[] DIRT = "renderDirtBackground".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+    private static boolean mentions(byte[] bytes, byte[] text) {
+        outer:
+        for (int i = 0; i + text.length <= bytes.length; i++) {
+            for (int j = 0; j < text.length; j++) {
+                if (bytes[i + j] != text[j]) {
+                    continue outer;
+                }
+            }
+            return true;
+        }
+        return false;
     }
 
     public static void screenDrawn(Object screen, Object graphics) {
@@ -254,7 +277,9 @@ public final class Hooks {
             "net.minecraft.client.gui.components.AbstractButton",
             "net.minecraft.client.gui.components.AbstractSliderButton",
             "net.minecraft.client.gui.components.Checkbox",
-            "net.minecraftforge.client.gui.widget.ExtendedButton");
+            "net.minecraftforge.client.gui.widget.ExtendedButton",
+            "net.minecraft.client.gui.components.TabButton",
+            "net.minecraft.client.gui.components.EditBox");
     private static final String GG = "Lnet/minecraft/client/gui/GuiGraphics;";
 
     /** Lets Pentecost draw the game's standard widgets and screen backgrounds. */
@@ -262,7 +287,10 @@ public final class Hooks {
         return (name, bytes) -> {
             boolean widget = STYLED.contains(name);
             boolean screen = name.equals("net.minecraft.client.gui.screens.Screen");
-            if (!widget && !screen) {
+            boolean tip = name.equals("net.minecraft.client.gui.screens.inventory.tooltip.TooltipRenderUtil");
+            // Any screen that draws its own background (Create World does) gets the hook too.
+            boolean ownDirt = !screen && bytes != null && mentions(bytes, DIRT);
+            if (!widget && !screen && !tip && !ownDirt) {
                 return bytes;
             }
             ClassReader reader = new ClassReader(bytes);
@@ -272,10 +300,13 @@ public final class Hooks {
                 public MethodVisitor visitMethod(int access, String n, String d, String s, String[] e) {
                     MethodVisitor mv = super.visitMethod(access, n, d, s, e);
                     boolean draw = widget && n.equals("renderWidget") && d.equals("(" + GG + "IIF)V");
-                    boolean dirt = screen && n.equals("renderDirtBackground") && d.equals("(" + GG + ")V");
+                    boolean dirt = (screen || ownDirt) && n.equals("renderDirtBackground") && d.equals("(" + GG + ")V")
+                            && (access & Opcodes.ACC_ABSTRACT) == 0;
+                    boolean tooltip = tip && n.equals("renderTooltipBackground") && (access & Opcodes.ACC_STATIC) != 0
+                            && d.startsWith("(" + GG + "IIIII");
                     boolean init = screen && n.equals("init") && d.equals("(Lnet/minecraft/client/Minecraft;II)V");
                     boolean shown = screen && n.equals("renderWithTooltip") && d.equals("(" + GG + "IIF)V");
-                    if (!draw && !dirt && !init && !shown) {
+                    if (!draw && !dirt && !init && !shown && !tooltip) {
                         return mv;
                     }
                     return new MethodVisitor(Opcodes.ASM9, mv) {
@@ -286,6 +317,19 @@ public final class Hooks {
                                 return;
                             }
                             org.objectweb.asm.Label go = new org.objectweb.asm.Label();
+                            if (tooltip) {
+                                super.visitVarInsn(Opcodes.ALOAD, 0);
+                                for (int i = 1; i <= 5; i++) {
+                                    super.visitVarInsn(Opcodes.ILOAD, i);
+                                }
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks", "styleTooltip",
+                                        "(Ljava/lang/Object;IIIII)Z", false);
+                                super.visitJumpInsn(Opcodes.IFEQ, go);
+                                super.visitInsn(Opcodes.RETURN);
+                                super.visitLabel(go);
+                                super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                                return;
+                            }
                             super.visitVarInsn(Opcodes.ALOAD, 0);
                             super.visitVarInsn(Opcodes.ALOAD, 1);
                             if (draw) {
@@ -322,7 +366,7 @@ public final class Hooks {
 
                         @Override
                         public void visitMaxs(int maxStack, int maxLocals) {
-                            super.visitMaxs(Math.max(maxStack, 5), maxLocals);
+                            super.visitMaxs(Math.max(maxStack, 6), maxLocals);
                         }
                     };
                 }

@@ -38,7 +38,11 @@ final class WidgetStyle implements Hooks.Style {
             return false;
         }
         try {
-            if (w instanceof AbstractSliderButton s) {
+            if (w instanceof net.minecraft.client.gui.components.TabButton t) {
+                tab(g, t);
+            } else if (w instanceof net.minecraft.client.gui.components.EditBox e) {
+                return editBox(g, e, mouseX, mouseY, partialTick);
+            } else if (w instanceof AbstractSliderButton s) {
                 slider(g, s);
             } else if (w instanceof Checkbox c) {
                 checkbox(g, c);
@@ -150,6 +154,86 @@ final class WidgetStyle implements Hooks.Style {
         if (checkboxLabel.getBoolean(c)) {
             g.drawString(font, c.getMessage(), x + size + 6, y + (h - 8) / 2, c.active ? Ui.TEXT : Ui.FAINT, false);
         }
+    }
+
+    /** A tab: quiet text, a white line under the chosen one. */
+    private static void tab(GuiGraphics g, net.minecraft.client.gui.components.TabButton t) {
+        Font font = Minecraft.getInstance().font;
+        int x = t.getX();
+        int y = t.getY();
+        int w = t.getWidth();
+        int h = t.getHeight();
+        boolean picked = t.isSelected();
+        if (!picked && t.isHoveredOrFocused()) {
+            g.fill(x, y, x + w, y + h, Ui.HOVER);
+        }
+        String text = t.getMessage().getString();
+        int tw = font.width(text);
+        int tx = x + (w - tw) / 2;
+        int ty = y + (h - 8) / 2;
+        g.drawString(font, text, tx, ty, picked ? Ui.TEXT : Ui.MUTED, false);
+        if (picked) {
+            g.fill(tx, ty + 11, tx + tw, ty + 12, Ui.TEXT);
+        }
+    }
+
+    private static final ThreadLocal<Boolean> INSIDE_EDIT = ThreadLocal.withInitial(() -> false);
+    private static Field bordered;
+
+    /**
+     * A text box: Pentecost's frame, then the box draws its own text and cursor inside it.
+     * Returns false when the box has no frame of its own; then it is left as it is.
+     */
+    private static boolean editBox(GuiGraphics g, net.minecraft.client.gui.components.EditBox e, int mx, int my, float pt)
+            throws ReflectiveOperationException {
+        if (INSIDE_EDIT.get()) {
+            return false;
+        }
+        if (bordered == null) {
+            Field f = net.minecraft.client.gui.components.EditBox.class.getDeclaredField("bordered");
+            f.setAccessible(true);
+            bordered = f;
+        }
+        if (!bordered.getBoolean(e)) {
+            return false;
+        }
+        int x = e.getX();
+        int y = e.getY();
+        int w = e.getWidth();
+        int h = e.getHeight();
+        g.fill(x, y, x + w, y + h, 0xCC0A0A0B);
+        Ui.outline(g, x, y, x + w, y + h, e.isFocused() ? Ui.TEXT : 0x47FFFFFF);
+        INSIDE_EDIT.set(true);
+        bordered.setBoolean(e, false);
+        g.pose().pushPose();
+        g.pose().translate(4, (h - 8) / 2f, 0);
+        try {
+            e.renderWidget(g, mx - 4, my - (h - 8) / 2, pt);
+        } finally {
+            g.pose().popPose();
+            bordered.setBoolean(e, true);
+            INSIDE_EDIT.set(false);
+        }
+        return true;
+    }
+
+    /** Tooltips: a dark box with a thin light line, in place of the purple frame. */
+    @Override
+    public boolean tooltip(Object graphics, int x, int y, int width, int height, int z) {
+        if (!on() || !(graphics instanceof GuiGraphics g)) {
+            return false;
+        }
+        int x1 = x - 4;
+        int y1 = y - 4;
+        int x2 = x + width + 4;
+        int y2 = y + height + 4;
+        g.fill(x1, y1, x2, y2, z, 0xF00A0A0B);
+        int line = 0x59FFFFFF;
+        g.fill(x1, y1, x2, y1 + 1, z, line);
+        g.fill(x1, y2 - 1, x2, y2, z, line);
+        g.fill(x1, y1 + 1, x1 + 1, y2 - 1, z, line);
+        g.fill(x2 - 1, y1 + 1, x2, y2 - 1, z, line);
+        return true;
     }
 
     private static void label(GuiGraphics g, Font font, String text, int x, int y, int w, int h, int color) {
