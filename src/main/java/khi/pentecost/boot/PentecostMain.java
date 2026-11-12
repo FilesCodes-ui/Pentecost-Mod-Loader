@@ -107,6 +107,12 @@ public final class PentecostMain {
         return game;
     }
 
+    /** A jar's library name without Pentecost's cache prefix and without its version. */
+    private static String artifact(Path jar) {
+        String n = jar.getFileName().toString().replaceFirst("^[0-9a-f]{12}-", "").replaceFirst("\\.jar$", "");
+        return n.replaceFirst("-[0-9][^-]*(-[A-Za-z0-9.+]+)*$", "").toLowerCase(java.util.Locale.ROOT);
+    }
+
     /** Builds the class loader with access wideners, the mod start hook, and Mixin. */
     private static ModRunner boot(GameFiles game) throws Exception {
         khi.pentecost.adapter.forge.ForgeFiles forgeFiles = new khi.pentecost.adapter.forge.ForgeFiles();
@@ -129,7 +135,17 @@ public final class PentecostMain {
                 first.add(Path.of(dir));
             }
             afterGame.add(forgeJar);
-            afterGame.addAll(forgeFiles.runtimeLibraries());
+            java.util.Set<String> modLibraries = new java.util.HashSet<>();
+            for (ModInfo m : mods) {
+                modLibraries.add(artifact(m.jar()));
+            }
+            for (Path lib : forgeFiles.runtimeLibraries()) {
+                if (modLibraries.contains(artifact(lib))) {
+                    Log.info("Library " + lib.getFileName() + " from Forge steps aside: a mod brings its own copy");
+                } else {
+                    afterGame.add(lib);
+                }
+            }
             PentecostRuntime.forgeLayer = true;
         }
         loader = GameClassLoader.create(game, mods, first, afterGame);
