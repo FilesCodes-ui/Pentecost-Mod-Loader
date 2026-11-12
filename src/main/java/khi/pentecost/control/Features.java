@@ -129,6 +129,11 @@ public final class Features {
     /** Everything known about one mod: what the scan found, and the screens it was seen replacing. */
     public static List<Feature> forMod(String modId) {
         List<Feature> out = new ArrayList<>(PentecostRuntime.features.getOrDefault(modId, List.of()));
+        for (String where : Choices.seenButtons(modId)) {
+            out.add(0, new Feature(modId, "button:" + where,
+                    "Button on the " + (where.equals("title") ? "main menu" : where + " menu"),
+                    "Shows its button in the From mods row. Applies right away.", false, false, List.of()));
+        }
         for (String vanilla : Choices.seenScreens(modId).keySet()) {
             out.add(0, new Feature(modId, "screen:" + vanilla, "Replaces " + screenName(vanilla),
                     "Shows its own screen in place of the game's. Applies right away.", false, false, List.of()));

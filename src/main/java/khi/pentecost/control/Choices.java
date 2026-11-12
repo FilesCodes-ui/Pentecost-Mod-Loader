@@ -28,6 +28,8 @@ public final class Choices {
     private static final Map<String, Set<String>> FEATURES_OFF = new TreeMap<>();
     /** Mod id, then the vanilla screen class it replaced, then the mod's screen class. */
     private static final Map<String, Map<String, String>> SEEN_SCREENS = new TreeMap<>();
+    /** Mod id, then the menus ("title", "pause") where the mod put a button. */
+    private static final Map<String, Set<String>> SEEN_BUTTONS = new TreeMap<>();
     private static Set<String> atLaunch = Set.of();
     private static boolean loaded;
 
@@ -54,6 +56,13 @@ public final class Choices {
                         Set<String> keys = new TreeSet<>();
                         e.getValue().getAsJsonArray().forEach(k -> keys.add(k.getAsString()));
                         FEATURES_OFF.put(e.getKey(), keys);
+                    }
+                }
+                if (root.has("seenButtons")) {
+                    for (Map.Entry<String, JsonElement> e : root.getAsJsonObject("seenButtons").entrySet()) {
+                        Set<String> places = new TreeSet<>();
+                        e.getValue().getAsJsonArray().forEach(k -> places.add(k.getAsString()));
+                        SEEN_BUTTONS.put(e.getKey(), places);
                     }
                 }
                 if (root.has("seenScreens")) {
@@ -91,6 +100,13 @@ public final class Choices {
             seen.add(mod, o);
         });
         root.add("seenScreens", seen);
+        JsonObject buttons = new JsonObject();
+        SEEN_BUTTONS.forEach((mod, places) -> {
+            JsonArray arr = new JsonArray();
+            places.forEach(arr::add);
+            buttons.add(mod, arr);
+        });
+        root.add("seenButtons", buttons);
         try {
             Files.writeString(file(), new GsonBuilder().setPrettyPrinting().create().toJson(root), StandardCharsets.UTF_8);
         } catch (IOException e) {
@@ -135,12 +151,31 @@ public final class Choices {
         return m == null ? Map.of() : new TreeMap<>(m);
     }
 
+    /** Records that a mod put a button on one of Pentecost's menus ("title" or "pause"). */
+    public static synchronized void seeButton(String modId, String where) {
+        if (SEEN_BUTTONS.computeIfAbsent(modId, k -> new TreeSet<>()).add(where)) {
+            Log.info(modId + " adds a button to the " + (where.equals("title") ? "main" : where) + " menu."
+                    + " The player can hide it in the Mods screen");
+            save();
+        }
+    }
+
+    public static synchronized Set<String> seenButtons(String modId) {
+        Set<String> s = SEEN_BUTTONS.get(modId);
+        return s == null ? Set.of() : new TreeSet<>(s);
+    }
+
+    /** True unless the player turned this one off. */
+    public static synchronized boolean isEnabled(String modId, String key) {
+        return !isOff(modId, key);
+    }
+
     /** Every choice that only takes effect on the next launch. Screen swaps apply right away, so they are left out. */
     private static Set<String> restartState() {
         Set<String> out = new HashSet<>();
         MODS_OFF.forEach(m -> out.add("mod:" + m));
         FEATURES_OFF.forEach((mod, keys) -> keys.forEach(k -> {
-            if (!k.startsWith("screen:")) {
+            if (!k.startsWith("screen:") && !k.startsWith("button:")) {
                 out.add("feature:" + mod + "/" + k);
             }
         }));

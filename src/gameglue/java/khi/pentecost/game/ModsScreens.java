@@ -5,6 +5,7 @@ import khi.pentecost.control.Choices;
 import khi.pentecost.core.Hooks;
 import khi.pentecost.core.PentecostRuntime;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.PauseScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
 
@@ -31,9 +32,32 @@ public final class ModsScreens {
     /** Called once when the game starts. */
     public static void init() {
         Hooks.packSources = ModPacks::extend;
-        Hooks.frame = PerfHud::frame;
+        Hooks.frame = () -> {
+            PerfHud.frame();
+            testPause();
+        };
         Hooks.screenRouter = o -> route((Screen) o);
         Hooks.screenFinalizer = (asked, shown) -> settle((Screen) asked, (Screen) shown);
+    }
+
+    private static int pauseWait = -1;
+
+    /** Test switch: PENTECOST_TEST_SCREEN=pause opens the pause menu about two seconds into a world. */
+    private static void testPause() {
+        if (pauseWait == -2 || !"pause".equals(System.getenv("PENTECOST_TEST_SCREEN"))) {
+            return;
+        }
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null || mc.screen != null) {
+            return;
+        }
+        if (pauseWait < 0) {
+            pauseWait = 120;
+        } else if (--pauseWait == 0) {
+            pauseWait = -2;
+            Log.info("Test: opening the pause menu");
+            mc.pauseGame(false);
+        }
     }
 
     /** The game calls this first for every screen it is asked to show. */
@@ -51,7 +75,42 @@ public final class ModsScreens {
         if (OTHER_MODS_SCREENS.contains(name)) {
             return new PentecostModsScreen(Minecraft.getInstance().screen);
         }
+        // The game's own menus get Pentecost's layout. Mods still see the game's menu underneath.
+        if (!Choices.isOff("pentecost", "menus")) {
+            if (incoming.getClass() == TitleScreen.class) {
+                return new PentecostTitleScreen();
+            }
+            if (incoming.getClass() == PauseScreen.class) {
+                return new PentecostPauseScreen(showsMenu((PauseScreen) incoming));
+            }
+        }
         return incoming;
+    }
+
+    private static java.lang.reflect.Field showPauseMenu;
+
+    /** False for the small pause screen (F3+Esc), which shows only the title. */
+    private static boolean showsMenu(PauseScreen screen) {
+        try {
+            if (showPauseMenu == null) {
+                showPauseMenu = PauseScreen.class.getDeclaredField("showPauseMenu");
+                showPauseMenu.setAccessible(true);
+            }
+            return showPauseMenu.getBoolean(screen);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return true;
+        }
+    }
+
+    /** The game's class name for a screen, so Pentecost's menus count as the game's own. */
+    private static String vanillaName(Screen s) {
+        if (s instanceof PentecostTitleScreen) {
+            return TitleScreen.class.getName();
+        }
+        if (s instanceof PentecostPauseScreen) {
+            return PauseScreen.class.getName();
+        }
+        return s.getClass().getName();
     }
 
     /**
@@ -64,7 +123,7 @@ public final class ModsScreens {
         }
         Minecraft mc = Minecraft.getInstance();
         // With no world open, asking for "no screen" means the main menu.
-        String askedName = asked != null ? asked.getClass().getName()
+        String askedName = asked != null ? vanillaName(asked)
                 : mc.level == null ? TitleScreen.class.getName() : null;
         String shownName = shown.getClass().getName();
         if (askedName == null || !askedName.startsWith("net.minecraft.")
@@ -79,6 +138,6 @@ public final class ModsScreens {
         if (!Choices.isOff(owner, "screen:" + askedName)) {
             return shown;
         }
-        return asked != null ? asked : new TitleScreen();
+        return asked != null ? asked : route(new TitleScreen());
     }
 }
