@@ -281,9 +281,9 @@ public final class PentecostModsScreen extends Screen {
     }
 
     private void drawIcon(GuiGraphics g, ModInfo m, int x, int y, int size) {
-        Optional<Ui.Gray> icon = Ui.grayIcon(m.id());
+        Optional<Icon> icon = icon(m);
         if (icon.isPresent()) {
-            Ui.Gray i = icon.get();
+            Icon i = icon.get();
             int w = size;
             int h = size;
             if (i.width() > i.height()) {

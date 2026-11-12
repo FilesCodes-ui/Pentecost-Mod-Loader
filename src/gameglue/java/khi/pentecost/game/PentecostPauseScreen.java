@@ -35,7 +35,7 @@ public final class PentecostPauseScreen extends PauseScreen {
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         view.harvest(children());
-        g.fill(0, 0, width, height, 0xC80A0A0B);
+        g.fill(0, 0, width, height, 0x800A0A0B);
         Ui.dither(g, width, height);
         view.draw(this, g, mouseX, mouseY, partialTick, "PAUSED", place(), List.of(),
                 menu ? MAIN : List.of(), menu ? LINKS : Map.of());

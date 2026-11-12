@@ -297,8 +297,8 @@ final class Ui {
             double t = net.minecraft.Util.getMillis() * 0.0012;
             for (int y = 0; y < rows; y++) {
                 for (int x = 0; x < cols; x++) {
-                    double v = Math.pow((double) x / cols, 1.8) * 0.55 + 0.06 * Math.sin(x * 0.5 + y * 0.3 - t);
-                    image.setPixelRGBA(x, y, v * 16 > BAYER[y & 3][x & 3] ? 0x1CFFFFFF : 0);
+                    double v = Math.pow((double) x / cols, 2.2) * 0.40 + 0.05 * Math.sin(x * 0.5 + y * 0.3 - t);
+                    image.setPixelRGBA(x, y, v * 16 > BAYER[y & 3][x & 3] ? 0x10FFFFFF : 0);
                 }
             }
             dither.upload();
