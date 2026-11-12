@@ -51,8 +51,10 @@ public final class Hooks {
         boolean constructed = "CONSTRUCT".equals(forgeStep);
         forgeStep = name;
         if (constructed && PentecostRuntime.runner != null && FABRIC_SIDE.compareAndSet(false, true)) {
+            Timeline.mark("Forge mods built");
             Log.info("Forge built its mods. Starting Fabric and Quilt mods");
             PentecostRuntime.runner.runAll(true);
+            Timeline.mark("Fabric and Quilt mods started");
         }
     }
 
@@ -70,6 +72,50 @@ public final class Hooks {
         } catch (ReflectiveOperationException | RuntimeException e) {
             Log.error("Could not start the waiting mods: " + e);
         }
+    }
+
+    /** Set by the game glue. Runs once per frame, after the game drew its HUD. */
+    public static volatile Runnable frame;
+
+    /** Called by the game right after it drew its HUD. */
+    public static void hud() {
+        Runnable r = frame;
+        if (r != null) {
+            try {
+                r.run();
+            } catch (RuntimeException | LinkageError e) {
+                frame = null;
+                Log.error("Pentecost's HUD failed and was turned off: " + e);
+            }
+        }
+    }
+
+    /** Adds the per-frame call behind the game's own HUD draw. */
+    public static ClassTransformer hudTransformer() {
+        return (name, bytes) -> {
+            if (!"net.minecraft.client.renderer.GameRenderer".equals(name)) {
+                return bytes;
+            }
+            ClassReader reader = new ClassReader(bytes);
+            ClassWriter writer = new ClassWriter(0);
+            reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
+                @Override
+                public MethodVisitor visitMethod(int access, String n, String d, String s, String[] e) {
+                    return new MethodVisitor(Opcodes.ASM9, super.visitMethod(access, n, d, s, e)) {
+                        @Override
+                        public void visitMethodInsn(int op, String owner, String mn, String md, boolean itf) {
+                            super.visitMethodInsn(op, owner, mn, md, itf);
+                            if (owner.equals("net/minecraft/client/gui/Gui") && mn.equals("render")
+                                    && md.equals("(Lnet/minecraft/client/gui/GuiGraphics;F)V")) {
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks",
+                                        "hud", "()V", false);
+                            }
+                        }
+                    };
+                }
+            }, 0);
+            return writer.toByteArray();
+        };
     }
 
     private static final AtomicBoolean GLUE = new AtomicBoolean();
@@ -180,6 +226,7 @@ public final class Hooks {
             return;
         }
         FabricLoaderImpl.INSTANCE.setGameInstance(game);
+        Timeline.mark("Game object created");
         startGlue();
         if (PentecostRuntime.runner != null && !PentecostRuntime.forgeLayer) {
             Log.info("Game reached mod start. Starting mods");

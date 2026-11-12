@@ -31,6 +31,7 @@ public final class ModsScreens {
     /** Called once when the game starts. */
     public static void init() {
         Hooks.packSources = ModPacks::extend;
+        Hooks.frame = PerfHud::frame;
         Hooks.screenRouter = o -> route((Screen) o);
         Hooks.screenFinalizer = (asked, shown) -> settle((Screen) asked, (Screen) shown);
     }
@@ -38,6 +39,9 @@ public final class ModsScreens {
     /** The game calls this first for every screen it is asked to show. */
     public static Screen route(Screen incoming) {
         String name = incoming.getClass().getName();
+        if (incoming instanceof TitleScreen) {
+            khi.pentecost.core.Timeline.mark("Main menu");
+        }
         // Test switch: PENTECOST_TEST_SCREEN=mods opens the list once the main menu shows.
         if (!tested && "mods".equals(System.getenv("PENTECOST_TEST_SCREEN")) && incoming instanceof TitleScreen) {
             tested = true;

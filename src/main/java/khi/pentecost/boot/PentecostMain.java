@@ -199,6 +199,7 @@ public final class PentecostMain {
         }
         loader.addTransformer(Hooks.transformer());
         loader.addTransformer(Hooks.packTransformer());
+        loader.addTransformer(Hooks.hudTransformer());
         if (forgeOn) {
             java.util.Set<String> softMods = new java.util.HashSet<>();
             for (ModInfo m : usable) {
@@ -299,6 +300,7 @@ public final class PentecostMain {
             Log.info("Opening world: " + world);
         }
         PentecostRuntime.launchArgs = gameArgs;
+        khi.pentecost.core.Timeline.mark("Loader ready, game starting");
 
         Thread.currentThread().setContextClassLoader(loader);
         runner.runPreLaunch();

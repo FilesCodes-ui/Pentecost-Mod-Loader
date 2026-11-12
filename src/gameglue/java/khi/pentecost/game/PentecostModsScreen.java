@@ -77,6 +77,7 @@ public final class PentecostModsScreen extends Screen {
     private int listMax;
     private int detailMax;
     private int listWidth;
+    private String exportNote;
     /** The screen draws at its own size, about two screen pixels per pixel, whatever the GUI scale is. */
     private float ui = 1f;
     private int vw;
@@ -465,6 +466,18 @@ public final class PentecostModsScreen extends Screen {
             text(g, "Restart to apply " + pending + " change" + (pending == 1 ? "" : "s"), rx, footer + 15, TEXT);
         }
         button(g, "Done", width - MARGIN - 64, footer + 10, 64, mx, my, null, this::onClose);
+        button(g, "Export pack", width - MARGIN - 64 - 8 - 84, footer + 10, 84, mx, my, null, () -> {
+            try {
+                java.nio.file.Path zip = khi.pentecost.control.PackExport.export();
+                exportNote = "Saved " + zip.getFileName();
+                net.minecraft.Util.getPlatform().openFile(zip.getParent().toFile());
+            } catch (java.io.IOException | RuntimeException e) {
+                exportNote = "Export failed: " + e.getMessage();
+            }
+        });
+        if (exportNote != null && pending == 0) {
+            text(g, font.plainSubstrByWidth(exportNote, width - MARGIN - 180 - rx), rx, footer + 15, MUTED);
+        }
 
         super.render(g, mx, my, partialTick);
     }
