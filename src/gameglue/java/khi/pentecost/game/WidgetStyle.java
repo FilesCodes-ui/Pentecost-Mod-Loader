@@ -240,7 +240,7 @@ final class WidgetStyle implements Hooks.Style {
             } else {
                 Field f = findField(source.getClass(), "debugOverlay");
                 Object overlay = f.get(source);
-                overlay.getClass().getMethod("update").invoke(overlay);
+                call(overlay.getClass(), overlay, "update");
                 java.util.ArrayList<String> l = new java.util.ArrayList<>((java.util.List<String>) call(overlay.getClass(), overlay, "getLeft"));
                 java.util.ArrayList<String> r = new java.util.ArrayList<>((java.util.List<String>) call(overlay.getClass(), overlay, "getRight"));
                 java.util.List<String> baseL = new java.util.ArrayList<>(l);
@@ -262,9 +262,19 @@ final class WidgetStyle implements Hooks.Style {
             DebugView.draw(g, left, right, fromMods);
             return true;
         } catch (ReflectiveOperationException | RuntimeException e) {
+            if (!debugFailed) {
+                debugFailed = true;
+                khi.pentecost.boot.Log.error("Pentecost F3 screen failed, showing the game's own: " + e);
+                Throwable c = e.getCause();
+                if (c != null) {
+                    khi.pentecost.boot.Log.error("  Caused by: " + c);
+                }
+            }
             return false;
         }
     }
+
+    private static boolean debugFailed;
 
     private static Object call(Class<?> owner, Object target, String method) throws ReflectiveOperationException {
         java.lang.reflect.Method m = owner.getDeclaredMethod(method);
@@ -375,15 +385,35 @@ final class WidgetStyle implements Hooks.Style {
         }
     }
 
+    private static final String[] DIRT = {"textures/gui/options_background.png", "textures/gui/light_dirt_background.png"};
+    private static boolean darkDirt;
+
+    /**
+     * Lists and some screens tile the dirt picture behind themselves. While the restyle is on,
+     * Pentecost swaps those pictures for near-black ones, so every list keeps a solid background.
+     */
     @Override
     public void inited(Object screen) {
-        if (!on() || !(screen instanceof Screen s)) {
+        Minecraft mc = Minecraft.getInstance();
+        boolean want = on();
+        if (want == darkDirt) {
             return;
         }
-        for (GuiEventListener child : s.children()) {
-            if (child instanceof AbstractSelectionList<?> list) {
-                list.setRenderBackground(false);
-                list.setRenderTopAndBottom(false);
+        darkDirt = want;
+        for (String path : DIRT) {
+            net.minecraft.resources.ResourceLocation id = new net.minecraft.resources.ResourceLocation("minecraft", path);
+            if (want) {
+                com.mojang.blaze3d.platform.NativeImage img = new com.mojang.blaze3d.platform.NativeImage(16, 16, false);
+                for (int y = 0; y < 16; y++) {
+                    for (int x = 0; x < 16; x++) {
+                        // Near black, with a faint dot pattern. Pixels are stored ABGR.
+                        int v = ((x * 7 + y * 13) % 11 == 0) ? 0x3A : 0x2C;
+                        img.setPixelRGBA(x, y, 0xFF000000 | (v + 2) << 16 | v << 8 | v);
+                    }
+                }
+                mc.getTextureManager().register(id, new net.minecraft.client.renderer.texture.DynamicTexture(img));
+            } else {
+                mc.getTextureManager().release(id);
             }
         }
     }

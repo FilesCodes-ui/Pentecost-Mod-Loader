@@ -54,7 +54,7 @@ public final class ModsScreens {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null || mc.screen != null) {
+        if (mc.level == null || (mc.screen != null && !"f3".equals(test))) {
             return;
         }
         if (pauseWait < 0) {

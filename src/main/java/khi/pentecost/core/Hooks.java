@@ -222,7 +222,13 @@ public final class Hooks {
         boolean debug(Object source, Object graphics);
     }
 
+    private static boolean debugSeen;
+
     public static boolean styleDebug(Object source, Object graphics) {
+        if (!debugSeen) {
+            debugSeen = true;
+            Log.info("F3 hook reached through " + source.getClass().getSimpleName());
+        }
         Style s = style;
         try {
             return s != null && s.debug(source, graphics);
