@@ -71,6 +71,16 @@ public final class ModsScreens {
         }
     }
 
+    private static Screen videoParent(Screen video) {
+        try {
+            java.lang.reflect.Field f = net.minecraft.client.gui.screens.OptionsSubScreen.class.getDeclaredField("lastScreen");
+            f.setAccessible(true);
+            return (Screen) f.get(video);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return Minecraft.getInstance().screen;
+        }
+    }
+
     /** The game calls this first for every screen it is asked to show. */
     public static Screen route(Screen incoming) {
         String name = incoming.getClass().getName();
@@ -90,9 +100,10 @@ public final class ModsScreens {
             testedSettings = true;
             Minecraft mc = Minecraft.getInstance();
             Log.info("Test: opening " + test);
-            Screen back = new PentecostTitleScreen();
-            return "video".equals(test) ? new net.minecraft.client.gui.screens.VideoSettingsScreen(back, mc.options)
-                    : new net.minecraft.client.gui.screens.OptionsScreen(back, mc.options);
+            boolean video = "video".equals(test);
+            mc.tell(() -> mc.setScreen(video ? new net.minecraft.client.gui.screens.VideoSettingsScreen(mc.screen, mc.options)
+                    : new net.minecraft.client.gui.screens.OptionsScreen(mc.screen, mc.options)));
+            return incoming;
         }
         if (!testedSettings && "settings".equals(System.getenv("PENTECOST_TEST_SCREEN")) && incoming instanceof TitleScreen) {
             testedSettings = true;
@@ -104,6 +115,12 @@ public final class ModsScreens {
             tested = true;
             Log.info("Test: opening the mods screen");
             return new PentecostModsScreen(incoming);
+        }
+        // Embeddium's video settings open as the Video page of Pentecost's settings.
+        if (name.equals(ExternalOptions.EMBEDDIUM_SCREEN) && !ExternalOptions.bypass
+                && khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.RESTYLE)) {
+            Screen back = ExternalOptions.parentOf(incoming);
+            return new PentecostSettingsScreen(back != null ? back : Minecraft.getInstance().screen, "Video");
         }
         if (OTHER_MODS_SCREENS.contains(name)) {
             return new PentecostModsScreen(Minecraft.getInstance().screen);
@@ -178,6 +195,19 @@ public final class ModsScreens {
      * They differ when a mod swapped one for the other.
      */
     public static Screen settle(Screen asked, Screen shown) {
+        if (System.getenv("PENTECOST_TEST_SCREEN") != null) {
+            Log.info("Test: screen asked " + (asked == null ? "none" : asked.getClass().getName()) + ", shown "
+                    + (shown == null ? "none" : shown.getClass().getName()));
+        }
+        // Embeddium swaps in its own video settings through Forge's screen event. Pentecost's Video page wins.
+        boolean embeddiumScreen = shown != null && shown.getClass().getName().equals(ExternalOptions.EMBEDDIUM_SCREEN);
+        boolean gameVideo = shown != null && shown.getClass() == net.minecraft.client.gui.screens.VideoSettingsScreen.class
+                && ExternalOptions.hasEmbeddium();
+        if ((embeddiumScreen || gameVideo) && !ExternalOptions.bypass
+                && khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.RESTYLE)) {
+            Screen back = embeddiumScreen ? ExternalOptions.parentOf(shown) : videoParent(shown);
+            return new PentecostSettingsScreen(back, "Video");
+        }
         if (shown != null && shown == asked) {
             return reopened(shown);
         }
