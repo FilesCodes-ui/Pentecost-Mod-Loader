@@ -92,12 +92,47 @@ public final class Hooks {
         Log.info("Forge built its mods and registries. Starting Fabric and Quilt mods");
         holdTicks = true;
         try {
-            openRegistries(() -> PentecostRuntime.runner.runAll(true));
+            openRegistries(() -> {
+                PentecostRuntime.runner.runAll(true);
+                replayBridgeRegistration();
+            });
             loadPortingLibConfigs();
+            addFabricMobStats();
         } finally {
             holdTicks = false;
         }
         Timeline.mark("Fabric and Quilt mods started");
+    }
+
+    /** Runs Forge's registration step again for the Fabric API bridge (see LateRegistry.replayBridgeRegistration). */
+    private static void replayBridgeRegistration() {
+        if (!PentecostRuntime.forgeLayer || "1".equals(System.getenv("PENTECOST_FABRIC_EARLY"))) {
+            return;
+        }
+        try {
+            Object n = Class.forName("khi.pentecost.forgeglue.LateRegistry", true, PentecostRuntime.loader)
+                    .getMethod("replayBridgeRegistration").invoke(null);
+            Log.info("Handed Fabric mods' bridge registrations to Forge (" + n + " registries)");
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            Throwable why = e instanceof java.lang.reflect.InvocationTargetException && e.getCause() != null ? e.getCause() : e;
+            Log.warn("Could not hand Fabric mods' bridge registrations to Forge: " + why);
+        }
+    }
+
+    /** Hands Fabric mobs' default stats to Forge (see LateRegistry.addFabricAttributes). */
+    private static void addFabricMobStats() {
+        if (!PentecostRuntime.forgeLayer) {
+            return;
+        }
+        try {
+            Object n = Class.forName("khi.pentecost.forgeglue.LateRegistry", true, PentecostRuntime.loader)
+                    .getMethod("addFabricAttributes").invoke(null);
+            if (n instanceof Integer count && count > 0) {
+                Log.info("Gave Forge the default stats of " + count + " mobs from Fabric mods");
+            }
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            Log.warn("Could not hand Fabric mob stats to Forge: " + e);
+        }
     }
 
     /**

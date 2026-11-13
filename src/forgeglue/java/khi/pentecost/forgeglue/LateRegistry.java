@@ -107,6 +107,91 @@ public final class LateRegistry {
         return r.getDelegateOrThrow(value);
     }
 
+    /**
+     * Fabric mods give their mobs default stats (health, speed and so on) through Fabric API.
+     * The bridge hands those to Forge in Forge's attribute step, which runs before Fabric mods start
+     * on the Forge layer. Without them a mob cannot spawn. Called once Fabric mods have started:
+     * the stats go straight into Forge's table.
+     */
+    @SuppressWarnings("unchecked")
+    public static int addFabricAttributes() {
+        try {
+            Class<?> impl = Class.forName("net.fabricmc.fabric.impl.object.builder.FabricDefaultAttributeRegistryImpl",
+                    true, LateRegistry.class.getClassLoader());
+            Field suppliers = impl.getDeclaredField("SUPPLIERS");
+            suppliers.setAccessible(true);
+            Map<Object, Object> fabric = (Map<Object, Object>) suppliers.get(null);
+            Field forgeField = net.minecraftforge.common.ForgeHooks.class.getDeclaredField("FORGE_ATTRIBUTES");
+            forgeField.setAccessible(true);
+            Map<Object, Object> forge = (Map<Object, Object>) forgeField.get(null);
+            int added = 0;
+            for (Map.Entry<Object, Object> e : fabric.entrySet()) {
+                if (forge.putIfAbsent(e.getKey(), e.getValue()) == null) {
+                    added++;
+                }
+            }
+            return added;
+        } catch (ClassNotFoundException e) {
+            return 0;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            System.out.println("[Pentecost] Could not hand Fabric mob stats to Forge: " + e);
+            return 0;
+        }
+    }
+
+    /**
+     * The Fabric API bridge (Forgified Fabric API) keeps what Fabric mods register through it
+     * (command argument types, for one) and hands it to Forge in Forge's registration step.
+     * On the Forge layer Fabric mods start after that step, so Pentecost runs the step again,
+     * for the bridge's own modules only, once Fabric mods have started.
+     * Returns how many registries were handed over.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public static int replayBridgeRegistration() {
+        java.util.List<net.minecraftforge.eventbus.api.IEventBus> buses = new java.util.ArrayList<>();
+        net.minecraftforge.fml.ModList.get().forEachModContainer((id, container) -> {
+            if ((id.startsWith("fabric_") || id.startsWith("fabric-"))
+                    && container instanceof net.minecraftforge.fml.javafmlmod.FMLModContainer fmc) {
+                buses.add(fmc.getEventBus());
+            }
+        });
+        if (buses.isEmpty()) {
+            return 0;
+        }
+        java.lang.reflect.Constructor<net.minecraftforge.registries.RegisterEvent> make;
+        try {
+            make = net.minecraftforge.registries.RegisterEvent.class.getDeclaredConstructor(
+                    net.minecraft.resources.ResourceKey.class, net.minecraftforge.registries.ForgeRegistry.class,
+                    net.minecraft.core.Registry.class);
+            make.setAccessible(true);
+        } catch (ReflectiveOperationException e) {
+            System.out.println("[Pentecost] Could not replay registration for the Fabric API bridge: " + e);
+            return 0;
+        }
+        int count = 0;
+        for (var entry : net.minecraft.core.registries.BuiltInRegistries.REGISTRY.entrySet()) {
+            net.minecraft.resources.ResourceKey key = entry.getKey();
+            net.minecraft.core.Registry<?> registry = entry.getValue();
+            net.minecraftforge.registries.ForgeRegistry<?> forge =
+                    net.minecraftforge.registries.RegistryManager.ACTIVE.getRegistry(key.location());
+            try {
+                if (forge != null && forge.isLocked()) {
+                    forge.getClass().getMethod("unfreeze").invoke(forge);
+                }
+                net.minecraftforge.registries.RegisterEvent event = make.newInstance(key, forge, registry);
+                for (net.minecraftforge.eventbus.api.IEventBus bus : buses) {
+                    bus.post(event);
+                }
+                count++;
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                Throwable why = e instanceof java.lang.reflect.InvocationTargetException && e.getCause() != null ? e.getCause() : e;
+                System.out.println("[Pentecost] Replaying registration of " + key.location()
+                        + " for the Fabric API bridge failed: " + why);
+            }
+        }
+        return count;
+    }
+
     private static final Map<String, Field> FIELDS = new ConcurrentHashMap<>();
 
     private static Field field(Class<?> type, String name) throws NoSuchFieldException {
