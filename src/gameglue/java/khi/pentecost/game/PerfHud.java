@@ -55,6 +55,7 @@ public final class PerfHud {
         keyWasDown = down;
         // F6 slides in from the right edge and back out. While it is open, F3's right column moves down under it.
         float e = Ui.ease("pentecost:f6", shown && !mc.options.hideGui ? 1f : 0f, 12f);
+        khi.pentecost.core.CostMeter.setEnabled(e > 0.001f);
         if (e <= 0.001f) {
             DebugView.render(0f);
             return;
@@ -81,6 +82,12 @@ public final class PerfHud {
         rows.add(new String[]{"Memory", used + " / " + max + " MB"});
         rows.add(new String[]{"Mods", forge + " Forge   " + fabric + " Fabric and Quilt"});
         rows.add(null);
+        List<String[]> cost = khi.pentecost.core.CostMeter.rows(6);
+        if (!cost.isEmpty()) {
+            rows.add(new String[]{"Mod handler time", "per tick"});
+            rows.addAll(cost);
+            rows.add(null);
+        }
         for (Map.Entry<String, Double> mark : Timeline.marks().entrySet()) {
             rows.add(new String[]{mark.getKey(), String.format("%.1f s", mark.getValue())});
         }

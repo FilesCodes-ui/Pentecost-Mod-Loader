@@ -43,7 +43,7 @@ dependencies {
 
 application {
     mainClass = 'khi.pentecost.boot.PentecostMain'
-    applicationDefaultJvmArgs = ['-Xmx4G']
+    applicationDefaultJvmArgs = ['-Xmx4G', '-XX:-DontCompileHugeMethods']
 }
 
 tasks.named('run') {
@@ -106,6 +106,12 @@ def pentecostExec = { String taskName, List<String> taskArgs ->
         workingDir = file('run')
         systemProperty 'pentecost.home', rootDir.path
         jvmArgs '-Xmx4G'
+        // The JVM never compiles a method over 8000 bytes of bytecode, so it runs in the slow interpreter.
+        // Some mods ship such methods (Management Wanted has a 25000 byte one that runs for every living entity every tick).
+        jvmArgs '-XX:-DontCompileHugeMethods'
+        if ((System.getenv('PENTECOST_GC') ?: '').equalsIgnoreCase('zgc')) {
+            jvmArgs '-XX:+UseZGC', '-XX:+ZGenerational'
+        }
         if (System.getenv('PENTECOST_JFR')) {
             jvmArgs "-XX:StartFlightRecording=filename=${file('run/startup.jfr').path},settings=profile,dumponexit=true",
                     '-XX:FlightRecorderOptions=stackdepth=128'
