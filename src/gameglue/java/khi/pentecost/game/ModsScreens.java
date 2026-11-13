@@ -176,7 +176,7 @@ public final class ModsScreens {
         }
         switch (n) {
             case "net.minecraft.client.gui.screens.OptionsScreen":
-                return "Interface";
+                return "General";
             case "net.minecraft.client.gui.screens.SoundOptionsScreen":
                 return "Sound";
             case "net.minecraft.client.gui.screens.ChatOptionsScreen":

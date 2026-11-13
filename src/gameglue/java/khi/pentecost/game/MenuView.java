@@ -137,6 +137,11 @@ final class MenuView {
                 label = Account.signedIn() ? Account.name() : "Sign in";
                 action = () -> mc.setScreen(new PentecostLoginScreen(screen, null, null));
             } else if (key.equals(SETTINGS)) {
+                // The game's Options button already opens Pentecost's settings. This entry only matters
+                // when the player switched to the game's own settings screens.
+                if (!khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.VANILLA_SETTINGS)) {
+                    continue;
+                }
                 label = "Pentecost";
                 action = () -> mc.setScreen(new PentecostSettingsScreen(screen));
             } else if (source != null) {

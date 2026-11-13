@@ -108,7 +108,7 @@ public final class PentecostSettingsScreen extends Screen {
     private Object embeddium;
 
     public PentecostSettingsScreen(Screen parent) {
-        this(parent, "Interface");
+        this(parent, "General");
     }
 
     public PentecostSettingsScreen(Screen parent, String startPage) {
