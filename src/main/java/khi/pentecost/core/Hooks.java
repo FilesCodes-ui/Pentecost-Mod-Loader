@@ -65,9 +65,112 @@ public final class Hooks {
         if (constructed && PentecostRuntime.runner != null && FABRIC_SIDE.compareAndSet(false, true)) {
             Timeline.mark("Forge mods built");
             Log.info("Forge built its mods. Starting Fabric and Quilt mods");
-            PentecostRuntime.runner.runAll(true);
+            openRegistries(() -> PentecostRuntime.runner.runAll(true));
             Timeline.mark("Fabric and Quilt mods started");
         }
+    }
+
+    private static volatile boolean registriesOpen;
+    private static final java.util.List<Object> REOPENED = new java.util.ArrayList<>();
+    private static final java.util.Set<String> REOPEN_REPORTED = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /** Runs Fabric or Quilt mod start code with the game's frozen registries open, then freezes them again. */
+    private static void openRegistries(Runnable work) {
+        registriesOpen = true;
+        try {
+            work.run();
+        } finally {
+            registriesOpen = false;
+            synchronized (REOPENED) {
+                for (Object registry : REOPENED) {
+                    try {
+                        registry.getClass().getMethod("freeze").invoke(registry);
+                    } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+                        Log.warn("Could not freeze " + registryName(registry) + " again: " + e);
+                    }
+                }
+                REOPENED.clear();
+            }
+        }
+    }
+
+    private static String registryName(Object registry) {
+        try {
+            return String.valueOf(registry.getClass().getMethod("key").invoke(registry));
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return registry.getClass().getSimpleName();
+        }
+    }
+
+    private static java.lang.reflect.Field frozenField;
+
+    /** Called by the game at the top of MappedRegistry.validateWrite, before it refuses a frozen registry. */
+    public static void registryWrite(Object registry) {
+        if (!registriesOpen) {
+            return;
+        }
+        try {
+            if (frozenField == null) {
+                Class<?> c = registry.getClass();
+                while (c != null && !c.getName().equals("net.minecraft.core.MappedRegistry")) {
+                    c = c.getSuperclass();
+                }
+                if (c == null) {
+                    return;
+                }
+                java.lang.reflect.Field f = c.getDeclaredField("frozen");
+                f.setAccessible(true);
+                frozenField = f;
+            }
+            if (!frozenField.getBoolean(registry)) {
+                return;
+            }
+            registry.getClass().getMethod("unfreeze").invoke(registry);
+            synchronized (REOPENED) {
+                REOPENED.add(registry);
+            }
+            String name = registryName(registry);
+            if (REOPEN_REPORTED.add(name)) {
+                Log.info("Registry " + name + " reopened while Fabric and Quilt mods start");
+            }
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            // The game reports the frozen registry as it normally would.
+        }
+    }
+
+    /** Hooks MappedRegistry.validateWrite, so Pentecost can reopen it for late Fabric registration. */
+    public static ClassTransformer registryTransformer() {
+        return (name, bytes) -> {
+            if (!name.equals("net.minecraft.core.MappedRegistry")) {
+                return bytes;
+            }
+            ClassReader reader = new ClassReader(bytes);
+            ClassWriter writer = new ClassWriter(0);
+            reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
+                @Override
+                public MethodVisitor visitMethod(int access, String n, String d, String s, String[] e) {
+                    MethodVisitor mv = super.visitMethod(access, n, d, s, e);
+                    if (!n.equals("validateWrite")) {
+                        return mv;
+                    }
+                    return new MethodVisitor(Opcodes.ASM9, mv) {
+                        @Override
+                        public void visitCode() {
+                            super.visitCode();
+                            super.visitVarInsn(Opcodes.ALOAD, 0);
+                            super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks", "registryWrite",
+                                    "(Ljava/lang/Object;)V", false);
+                        }
+
+                        @Override
+                        public void visitMaxs(int maxStack, int maxLocals) {
+                            super.visitMaxs(Math.max(maxStack, 1), maxLocals);
+                        }
+                    };
+                }
+            }, 0);
+            return writer.toByteArray();
+        };
     }
 
     /** Called by Forge at the top of a step's queued-task run. */
@@ -79,7 +182,7 @@ public final class Hooks {
             java.lang.reflect.Field f = queue.getClass().getDeclaredField("modLoadingStage");
             f.setAccessible(true);
             if ("SIDED_SETUP".equals(String.valueOf(f.get(queue)))) {
-                PentecostRuntime.runner.runWaitingClient();
+                openRegistries(PentecostRuntime.runner::runWaitingClient);
             }
         } catch (ReflectiveOperationException | RuntimeException e) {
             Log.error("Could not start the waiting mods: " + e);

@@ -164,7 +164,10 @@ public final class PentecostSettingsScreen extends Screen {
             for (ExternalOptions.VideoOption v : vp.options()) {
                 rows.add(videoRow(v));
             }
-            out.add(new Folder(vp.name(), rows));
+            // Pages without options (Oculus's "Shader Packs" link) are left out: Shaders has its own page here.
+            if (!rows.isEmpty()) {
+                out.add(new Folder(vp.name(), rows));
+            }
         }
         return out;
     }
@@ -480,26 +483,36 @@ public final class PentecostSettingsScreen extends Screen {
         return y + 28;
     }
 
-    /** One setting row: title, note under it, when it applies, and its control. */
+    /**
+     * One setting row. The title and the control share the top line; the description wraps across
+     * the whole row under them, and the row grows to fit it.
+     */
     private int row(GuiGraphics g, Row r, int x, int y, int w, int mx, int my, int top, int bottom) {
+        List<String> noteLines = r.note().isEmpty() ? List.of() : Ui.wrap(font, r.note(), w - 12);
+        if (noteLines.size() > 3) {
+            noteLines = new ArrayList<>(noteLines.subList(0, 3));
+            String last = noteLines.get(2);
+            noteLines.set(2, font.plainSubstrByWidth(last, w - 24) + "...");
+        }
+        int h = Math.max(28, 24 + noteLines.size() * 10 + 4);
         boolean enabled = r.enabled().getAsBoolean();
-        boolean visible = y + 30 > top && y < bottom;
+        boolean visible = y + h > top && y < bottom;
         boolean inside = my >= top && my < bottom;
-        boolean over = visible && inside && Ui.over(mx, my, x, y, w, 30);
+        boolean over = visible && inside && Ui.over(mx, my, x, y, w, h);
         if (over) {
             hovered = r;
         }
         boolean clickable = enabled && visible && (r.action() != null || r.slider() != null);
         if (over && clickable && r.kind() != Kind.SLIDER) {
-            g.fill(x, y, x + w, y + 30, Ui.HOVER);
+            g.fill(x, y, x + w, y + h, Ui.HOVER);
         }
-        g.drawString(font, r.title(), x + 4, y + 5, enabled ? Ui.TEXT : Ui.FAINT, false);
+        g.drawString(font, r.title(), x + 4, y + 7, enabled ? Ui.TEXT : Ui.FAINT, false);
         int right = x + w - 6;
         String key = pages.get(page).name() + ":" + r.title();
         switch (r.kind()) {
             case SWITCH -> {
                 int sx = right - 24;
-                Ui.toggle(g, "settings:" + key, sx, y + 10, r.on().getAsBoolean() && enabled);
+                Ui.toggle(g, "settings:" + key, sx, y + 6, r.on().getAsBoolean() && enabled);
                 right = sx - 10;
             }
             case SLIDER -> {
@@ -509,17 +522,17 @@ public final class PentecostSettingsScreen extends Screen {
                 int value = s.value().getAsInt();
                 float target = s.max() > s.min() ? (value - s.min()) / (float) (s.max() - s.min()) : 0f;
                 float t = Ui.ease("settings:slider:" + key, target * 1000f, 20f) / 1000f;
-                g.fill(bx, y + 14, bx + bw, y + 15, Ui.FAINT);
-                g.fill(bx, y + 14, bx + Math.round(bw * t), y + 15, enabled ? Ui.TEXT : Ui.FAINT);
+                g.fill(bx, y + 11, bx + bw, y + 12, Ui.FAINT);
+                g.fill(bx, y + 11, bx + Math.round(bw * t), y + 12, enabled ? Ui.TEXT : Ui.FAINT);
                 int kx = bx + Math.round((bw - 4) * t);
                 boolean active = key.equals(dragKey);
-                g.fill(kx, y + 9, kx + 4, y + 20, enabled && (over || active) ? Ui.TEXT : Ui.SOFT);
+                g.fill(kx, y + 6, kx + 4, y + 17, enabled && (over || active) ? Ui.TEXT : Ui.SOFT);
                 String text = s.text().get();
-                g.drawString(font, text, bx - 10 - font.width(text), y + 11, enabled ? Ui.SOFT : Ui.FAINT, false);
+                g.drawString(font, text, bx - 10 - font.width(text), y + 7, enabled ? Ui.SOFT : Ui.FAINT, false);
                 right = bx - 20 - font.width(text);
                 if (clickable && inside) {
                     sliderSpots.put(key, new SliderSpot(bx, bw, s));
-                    hits.add(new Hit(bx - 6, y, bw + 12, 30, () -> {
+                    hits.add(new Hit(bx - 6, y, bw + 12, Math.min(h, 24), () -> {
                         dragKey = key;
                         slide(sliderSpots.get(key));
                     }));
@@ -530,17 +543,17 @@ public final class PentecostSettingsScreen extends Screen {
                 int vwid = font.width(v);
                 boolean hot = over && clickable;
                 if (hot) {
-                    g.fill(right - vwid - 14, y + 7, right, y + 23, Ui.TEXT);
+                    g.fill(right - vwid - 14, y + 3, right, y + 19, Ui.TEXT);
                 } else {
-                    Ui.outline(g, right - vwid - 14, y + 7, right, y + 23, enabled ? 0x66FFFFFF : 0x22FFFFFF);
+                    Ui.outline(g, right - vwid - 14, y + 3, right, y + 19, enabled ? 0x66FFFFFF : 0x22FFFFFF);
                 }
-                g.drawString(font, v, right - vwid - 7, y + 11, hot ? Ui.BLACK : enabled ? Ui.TEXT : Ui.FAINT, false);
+                g.drawString(font, v, right - vwid - 7, y + 7, hot ? Ui.BLACK : enabled ? Ui.TEXT : Ui.FAINT, false);
                 right -= vwid + 24;
             }
             case INFO -> {
                 if (r.value() != null) {
                     String v = r.value().get();
-                    g.drawString(font, v, right - font.width(v), y + 11, Ui.SOFT, false);
+                    g.drawString(font, v, right - font.width(v), y + 7, Ui.SOFT, false);
                     right -= font.width(v) + 10;
                 }
             }
@@ -548,18 +561,19 @@ public final class PentecostSettingsScreen extends Screen {
         }
         if ("Restart".equals(r.when())) {
             int tw = font.width("Restart");
-            Ui.outline(g, right - tw - 8, y + 9, right, y + 21, Ui.LINE);
-            g.drawString(font, "Restart", right - tw - 4, y + 11, Ui.FAINT, false);
-            right -= tw + 16;
+            Ui.outline(g, right - tw - 8, y + 5, right, y + 17, Ui.LINE);
+            g.drawString(font, "Restart", right - tw - 4, y + 7, Ui.FAINT, false);
         }
-        if (!r.note().isEmpty()) {
-            g.drawString(font, font.plainSubstrByWidth(r.note(), Math.max(20, right - x - 8)), x + 4, y + 17, Ui.FAINT, false);
+        int ny = y + 21;
+        for (String line : noteLines) {
+            g.drawString(font, line, x + 4, ny, Ui.FAINT, false);
+            ny += 10;
         }
-        g.fill(x, y + 30, x + w, y + 31, Ui.LINE);
+        g.fill(x, y + h, x + w, y + h + 1, Ui.LINE);
         if (clickable && r.action() != null && inside) {
-            hits.add(new Hit(x, Math.max(y, top), w, Math.min(y + 30, bottom) - Math.max(y, top), r.action()));
+            hits.add(new Hit(x, Math.max(y, top), w, Math.min(y + h, bottom) - Math.max(y, top), r.action()));
         }
-        return y + 31;
+        return y + h + 1;
     }
 
     // ---------------------------------------------------------------- input
