@@ -84,6 +84,15 @@ public final class GameClassLoader extends URLClassLoader {
         return res == null ? null : modByJarUrl.get(jarOf(res));
     }
 
+    /**
+     * Adds a place to load classes from. Declared here, not only inherited, because Fabric tools
+     * (Manningham Mills, used by Aether to add enum values) look for it on the loader's own class.
+     */
+    @Override
+    public void addURL(URL url) {
+        super.addURL(url);
+    }
+
     /** Returns the id of the mod whose jar holds this class, or null. */
     public String modOf(String className) {
         URL res = findResource(className.replace('.', '/') + ".class");

@@ -42,6 +42,57 @@ final class WindowMode {
         };
     }
 
+    /** Right before the game makes its window: a borderless window is made without a frame. */
+    static void beforeWindow() {
+        if (Settings.get(Settings.WINDOW).equals(BORDERLESS) && !Minecraft.getInstance().options.fullscreen().get()) {
+            GLFW.glfwWindowHint(GLFW.GLFW_DECORATED, GLFW.GLFW_FALSE);
+        }
+    }
+
+    /**
+     * The window exists but has not taken its size yet. For borderless, its size and place become
+     * the monitor's, so the game opens borderless with no resize later.
+     */
+    static void windowBorn(Object o) {
+        Window w = (Window) o;
+        if (!Settings.get(Settings.WINDOW).equals(BORDERLESS) || w.isFullscreen()) {
+            return;
+        }
+        Monitor monitor = w.findBestMonitor();
+        if (monitor == null) {
+            return;
+        }
+        try {
+            savedX = intField(w, "windowedX");
+            savedY = intField(w, "windowedY");
+            savedW = intField(w, "windowedWidth");
+            savedH = intField(w, "windowedHeight");
+            VideoMode vm = monitor.getCurrentMode();
+            setInt(w, monitor.getX(), "x", "windowedX");
+            setInt(w, monitor.getY(), "y", "windowedY");
+            setInt(w, vm.getWidth(), "width", "windowedWidth");
+            setInt(w, vm.getHeight(), "height", "windowedHeight");
+            GLFW.glfwSetWindowAttrib(w.getWindow(), GLFW.GLFW_DECORATED, GLFW.GLFW_FALSE);
+            borderless = true;
+        } catch (ReflectiveOperationException e) {
+            Log.warn("Borderless at start failed: " + e);
+        }
+    }
+
+    private static int intField(Window w, String name) throws ReflectiveOperationException {
+        java.lang.reflect.Field f = Window.class.getDeclaredField(name);
+        f.setAccessible(true);
+        return f.getInt(w);
+    }
+
+    private static void setInt(Window w, int value, String... names) throws ReflectiveOperationException {
+        for (String name : names) {
+            java.lang.reflect.Field f = Window.class.getDeclaredField(name);
+            f.setAccessible(true);
+            f.setInt(w, value);
+        }
+    }
+
     /** Applies the saved mode once, when the game first shows a menu. */
     static void applySaved() {
         if (applied) {

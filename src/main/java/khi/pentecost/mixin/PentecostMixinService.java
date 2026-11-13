@@ -413,7 +413,10 @@ public class PentecostMixinService extends MixinServiceAbstract implements IClas
     private static final java.util.Map<String, java.util.Set<String>> FORGE_DOES_THIS = java.util.Map.of(
             // Forge captures death loot and fires its own drops event.
             "io/github/fabricators_of_create/porting_lib/entity/mixin/common/LivingEntityMixin",
-            java.util.Set.of("port_lib$startCapturingDrops", "port_lib$dropCapturedDrops"));
+            java.util.Set.of("port_lib$startCapturingDrops", "port_lib$dropCapturedDrops"),
+            // Forge names each loot table. Porting Lib's copy would replace Forge's and refuse a second naming.
+            "io/github/fabricators_of_create/porting_lib/loot/mixin/loottable/LootTableMixin",
+            java.util.Set.of("setLootTableId", "getLootTableId"));
 
     private static void bridgeToForge(ClassNode node) {
         java.util.Set<String> drop = FORGE_DOES_THIS.get(node.name);

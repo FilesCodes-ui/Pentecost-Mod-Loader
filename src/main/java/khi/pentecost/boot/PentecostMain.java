@@ -202,6 +202,10 @@ public final class PentecostMain {
         loader.addTransformer(Hooks.hudTransformer());
         loader.addTransformer(Hooks.styleTransformer());
         loader.addTransformer(Hooks.registryTransformer());
+        loader.addTransformer(Hooks.windowTransformer());
+        loader.addTransformer(Hooks.fabricRegistryTransformer());
+        loader.addTransformer(Hooks.tickTransformer());
+        loader.addTransformer(Hooks.lootNameTransformer());
         if (forgeOn) {
             java.util.Set<String> softMods = new java.util.HashSet<>();
             for (ModInfo m : usable) {

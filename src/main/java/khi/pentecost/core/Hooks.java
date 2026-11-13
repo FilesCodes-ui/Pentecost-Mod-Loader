@@ -50,8 +50,11 @@ public final class Hooks {
 
     /**
      * Called by Forge's mod loader at the start of each of its loading steps.
-     * The step after CONSTRUCT is where Pentecost starts the Fabric and Quilt mods:
-     * every Forge mod object exists, and the registries have not been filled yet.
+     * The step after the registry fill is where Pentecost starts the Fabric and Quilt mods:
+     * every Forge mod and every Forge registry entry exists, as the game's own content does on Fabric.
+     * Fabric mods reach Forge's entries through the game's code (Forge's swim speed attribute, for one),
+     * and Fabric addons for Forge mods need the Forge mod's blocks and items in place.
+     * Set PENTECOST_FABRIC_EARLY=1 to start them before the registry fill instead.
      */
     public static void forgeState(Object state) {
         String name;
@@ -60,13 +63,68 @@ public final class Hooks {
         } catch (ReflectiveOperationException | RuntimeException e) {
             return;
         }
-        boolean constructed = "CONSTRUCT".equals(forgeStep);
+        boolean early = "1".equals(System.getenv("PENTECOST_FABRIC_EARLY"));
+        // Fallback point: the first step after the registry fill. On the client the start comes
+        // earlier, from the top of Forge's client hooks setup (see forgeClientHooks).
+        boolean ready = early ? "CONSTRUCT".equals(forgeStep) : "LOAD_REGISTRIES".equals(forgeStep);
         forgeStep = name;
-        if (constructed && PentecostRuntime.runner != null && FABRIC_SIDE.compareAndSet(false, true)) {
-            Timeline.mark("Forge mods built");
-            Log.info("Forge built its mods. Starting Fabric and Quilt mods");
+        if (ready) {
+            startFabricSide();
+        }
+    }
+
+    /**
+     * Called at the top of Forge's client hooks setup. Forge has filled its registries by then,
+     * and is about to ask mods for their model layers and reload listeners once.
+     * Fabric mods must be started before that question, so they start here.
+     */
+    public static void forgeClientHooks() {
+        if (!"1".equals(System.getenv("PENTECOST_FABRIC_EARLY"))) {
+            startFabricSide();
+        }
+    }
+
+    private static void startFabricSide() {
+        if (PentecostRuntime.runner == null || !FABRIC_SIDE.compareAndSet(false, true)) {
+            return;
+        }
+        Timeline.mark("Forge mods built");
+        Log.info("Forge built its mods and registries. Starting Fabric and Quilt mods");
+        holdTicks = true;
+        try {
             openRegistries(() -> PentecostRuntime.runner.runAll(true));
-            Timeline.mark("Fabric and Quilt mods started");
+            loadPortingLibConfigs();
+        } finally {
+            holdTicks = false;
+        }
+        Timeline.mark("Fabric and Quilt mods started");
+    }
+
+    /**
+     * Porting Lib loads its mods' config files as the game window is set up. On Fabric that comes
+     * after every mod has started and registered its configs. On Forge, Fabric mods start later,
+     * so Pentecost loads those configs once they have started.
+     */
+    private static void loadPortingLibConfigs() {
+        ClassLoader cl = PentecostRuntime.loader;
+        try {
+            Class<?> tracker = Class.forName("io.github.fabricators_of_create.porting_lib.config.ConfigTracker", true, cl);
+            Class<?> type = Class.forName("io.github.fabricators_of_create.porting_lib.config.ConfigType", true, cl);
+            Object instance = tracker.getField("INSTANCE").get(null);
+            Class<?> fl = Class.forName("net.fabricmc.loader.api.FabricLoader", true, cl);
+            Object dir = fl.getMethod("getConfigDir").invoke(fl.getMethod("getInstance").invoke(null));
+            java.lang.reflect.Method load = tracker.getMethod("loadConfigs", type, java.nio.file.Path.class);
+            for (String t : new String[]{"CLIENT", "COMMON"}) {
+                @SuppressWarnings({"unchecked", "rawtypes"})
+                Object value = Enum.valueOf((Class) type, t);
+                load.invoke(instance, value, dir);
+            }
+            Log.info("Loaded the config files of mods that use Porting Lib");
+        } catch (ClassNotFoundException e) {
+            // no mod uses Porting Lib's configs
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            Throwable why = e instanceof java.lang.reflect.InvocationTargetException && e.getCause() != null ? e.getCause() : e;
+            Log.warn("Could not load the config files of mods that use Porting Lib: " + why);
         }
     }
 
@@ -84,6 +142,7 @@ public final class Hooks {
             synchronized (REOPENED) {
                 for (Object registry : REOPENED) {
                     try {
+                        dropLeftoverHolders(registry);
                         registry.getClass().getMethod("freeze").invoke(registry);
                     } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
                         Log.warn("Could not freeze " + registryName(registry) + " again: " + e);
@@ -91,6 +150,29 @@ public final class Hooks {
                 }
                 REOPENED.clear();
             }
+        }
+    }
+
+    /** Holders made for objects that were never registered (a mod failed halfway) would stop the freeze. */
+    private static void dropLeftoverHolders(Object registry) {
+        try {
+            Class<?> c = registry.getClass();
+            while (c != null && !c.getName().equals("net.minecraft.core.MappedRegistry")) {
+                c = c.getSuperclass();
+            }
+            if (c == null) {
+                return;
+            }
+            java.lang.reflect.Field f = c.getDeclaredField("unregisteredIntrusiveHolders");
+            f.setAccessible(true);
+            Object map = f.get(registry);
+            if (map instanceof java.util.Map<?, ?> m && !m.isEmpty()) {
+                Log.warn("Registry " + registryName(registry) + ": dropping " + m.size()
+                        + " half-made entr" + (m.size() == 1 ? "y" : "ies") + " a mod never registered");
+                m.clear();
+            }
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            // Leave the registry as it is.
         }
     }
 
@@ -106,7 +188,7 @@ public final class Hooks {
 
     /** Called by the game at the top of MappedRegistry.validateWrite, before it refuses a frozen registry. */
     public static void registryWrite(Object registry) {
-        if (!registriesOpen) {
+        if (!registriesOpen || registry.getClass().getName().startsWith("net.minecraftforge.")) {
             return;
         }
         try {
@@ -169,6 +251,387 @@ public final class Hooks {
                     };
                 }
             }, 0);
+            return writer.toByteArray();
+        };
+    }
+
+    /** Set by the game glue. Runs right before the game window is made. */
+    public static volatile Runnable windowHints;
+    /** Set by the game glue. Runs when the game window exists, before it takes its size. */
+    public static volatile java.util.function.Consumer<Object> windowBorn;
+
+    /** Called by the game right before it makes its window. */
+    public static void beforeWindow() {
+        startGlue();
+        Runnable r = windowHints;
+        if (r != null) {
+            try {
+                r.run();
+            } catch (RuntimeException | LinkageError e) {
+                Log.error("Window setup failed: " + e);
+            }
+        }
+    }
+
+    /** Called by the game when its window exists, right before it takes its size and place. */
+    public static void afterWindow(Object window) {
+        java.util.function.Consumer<Object> c = windowBorn;
+        if (c != null) {
+            try {
+                c.accept(window);
+            } catch (RuntimeException | LinkageError e) {
+                Log.error("Window setup failed: " + e);
+            }
+        }
+    }
+
+    /** The window mode goes on as the game window is made, so borderless is the first thing you see. */
+    public static ClassTransformer windowTransformer() {
+        return (name, bytes) -> {
+            if (!name.equals("com.mojang.blaze3d.platform.Window")) {
+                return bytes;
+            }
+            ClassReader reader = new ClassReader(bytes);
+            ClassWriter writer = new ClassWriter(0);
+            reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
+                @Override
+                public MethodVisitor visitMethod(int access, String n, String d, String s, String[] e) {
+                    MethodVisitor mv = super.visitMethod(access, n, d, s, e);
+                    if (!n.equals("<init>")) {
+                        return mv;
+                    }
+                    return new MethodVisitor(Opcodes.ASM9, mv) {
+                        private boolean born;
+
+                        @Override
+                        public void visitMethodInsn(int op, String owner, String mn, String md, boolean itf) {
+                            if (owner.equals("org/lwjgl/glfw/GLFW") && mn.equals("glfwCreateWindow")) {
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks",
+                                        "beforeWindow", "()V", false);
+                            }
+                            if (!born && owner.equals("com/mojang/blaze3d/platform/Window") && mn.equals("setMode")) {
+                                born = true;
+                                super.visitVarInsn(Opcodes.ALOAD, 0);
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks",
+                                        "afterWindow", "(Ljava/lang/Object;)V", false);
+                            }
+                            super.visitMethodInsn(op, owner, mn, md, itf);
+                        }
+
+                        @Override
+                        public void visitMaxs(int maxStack, int maxLocals) {
+                            super.visitMaxs(maxStack + 1, maxLocals);
+                        }
+                    };
+                }
+            }, 0);
+            return writer.toByteArray();
+        };
+    }
+
+    private static volatile boolean fabricRegistriesSubmitted;
+
+    /** Called at the top of the Fabric API bridge's hand-over of new registries to the game. */
+    public static void fabricRegistriesSubmit() {
+        fabricRegistriesSubmitted = true;
+    }
+
+    /**
+     * Called when a Fabric mod makes a new registry. On Fabric the game sees a new registry at once.
+     * The bridge holds new registries back and hands them over in one batch, so a mod that looks up
+     * its own registry right after making it finds nothing (and some make a second copy).
+     * Pentecost hands each one to the game right away, as Fabric does, and takes it out of the batch.
+     */
+    public static void fabricRegistryAdded(Object registry) {
+        if (registry == null) {
+            return;
+        }
+        try {
+            ClassLoader cl = registry.getClass().getClassLoader();
+            Object root = Class.forName("net.minecraft.core.registries.BuiltInRegistries", true, cl)
+                    .getField("REGISTRY").get(null);
+            Object key = registry.getClass().getMethod("key").invoke(registry);
+            Object existing = root.getClass().getMethod("get", Class.forName("net.minecraft.resources.ResourceKey", true, cl))
+                    .invoke(root, key);
+            if (existing != null) {
+                if (existing != registry) {
+                    Log.warn("Fabric registry " + key + " was made twice. The game keeps the first one,"
+                            + " so the mod's own copy stays empty");
+                    if (System.getenv("PENTECOST_DEBUG") != null) {
+                        new Throwable("second copy made here").printStackTrace(System.out);
+                    }
+                }
+                return;
+            }
+            Object stable = Class.forName("com.mojang.serialization.Lifecycle", true, cl).getMethod("stable").invoke(null);
+            java.lang.reflect.Method register = null;
+            for (java.lang.reflect.Method m : root.getClass().getMethods()) {
+                if (m.getName().equals("register") && m.getParameterCount() == 3
+                        && m.getParameterTypes()[2].getName().equals("com.mojang.serialization.Lifecycle")
+                        && m.getParameterTypes()[0].getName().equals("net.minecraft.resources.ResourceKey")) {
+                    register = m;
+                    break;
+                }
+            }
+            if (register == null) {
+                Log.warn("A late Fabric registry could not be handed to the game: no register method");
+                return;
+            }
+            // The list of registries can be locked when the mod makes its registry (during class loading,
+            // for one). It opens just for this add and locks again after.
+            java.lang.reflect.Field frozen = null;
+            for (Class<?> c = root.getClass(); c != null && frozen == null; c = c.getSuperclass()) {
+                try {
+                    frozen = c.getDeclaredField("frozen");
+                } catch (NoSuchFieldException ignored) {
+                    // look in the parent class
+                }
+            }
+            boolean wasFrozen = false;
+            if (frozen != null) {
+                frozen.setAccessible(true);
+                wasFrozen = frozen.getBoolean(root);
+                frozen.setBoolean(root, false);
+            }
+            try {
+                register.invoke(root, key, registry, stable);
+            } finally {
+                if (frozen != null && wasFrozen) {
+                    frozen.setBoolean(root, true);
+                }
+            }
+            try {
+                java.lang.reflect.Field list = Class.forName("net.fabricmc.fabric.impl.registry.sync.FabricRegistryInit", false, cl)
+                        .getDeclaredField("REGISTRIES");
+                list.setAccessible(true);
+                ((java.util.List<?>) list.get(null)).remove(registry);
+            } catch (ReflectiveOperationException | RuntimeException ignored) {
+                // the batch will skip nothing; the game already has the registry
+            }
+            Log.info("Fabric registry " + key + " added to the game right away, as on Fabric");
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            Throwable why = e instanceof java.lang.reflect.InvocationTargetException && e.getCause() != null ? e.getCause() : e;
+            Log.warn("A Fabric registry could not be added to the game: " + why);
+            if (System.getenv("PENTECOST_DEBUG") != null) {
+                why.printStackTrace(System.out);
+            }
+        }
+    }
+
+    /** Hooks the Fabric API bridge's registry hand-over, so registries made later still reach the game. */
+    public static ClassTransformer fabricRegistryTransformer() {
+        return (name, bytes) -> {
+            if (!name.equals("net.fabricmc.fabric.impl.registry.sync.FabricRegistryInit")) {
+                return bytes;
+            }
+            ClassReader reader = new ClassReader(bytes);
+            ClassWriter writer = new ClassWriter(0);
+            reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
+                @Override
+                public MethodVisitor visitMethod(int access, String n, String d, String s, String[] e) {
+                    MethodVisitor mv = super.visitMethod(access, n, d, s, e);
+                    boolean submit = n.equals("submitRegistries") && d.equals("()V");
+                    boolean add = n.equals("addRegistry");
+                    if (!submit && !add) {
+                        return mv;
+                    }
+                    return new MethodVisitor(Opcodes.ASM9, mv) {
+                        @Override
+                        public void visitCode() {
+                            super.visitCode();
+                            if (submit) {
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks",
+                                        "fabricRegistriesSubmit", "()V", false);
+                            }
+                        }
+
+                        @Override
+                        public void visitInsn(int op) {
+                            if (add && op == Opcodes.RETURN) {
+                                super.visitVarInsn(Opcodes.ALOAD, 0);
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks",
+                                        "fabricRegistryAdded", "(Ljava/lang/Object;)V", false);
+                            }
+                            super.visitInsn(op);
+                        }
+
+                        @Override
+                        public void visitMaxs(int maxStack, int maxLocals) {
+                            super.visitMaxs(Math.max(maxStack, 1), maxLocals);
+                        }
+                    };
+                }
+            }, 0);
+            return writer.toByteArray();
+        };
+    }
+
+    /**
+     * True while Fabric and Quilt mods start. On Forge the game keeps ticking during loading,
+     * but on Fabric no tick happens before every mod has started, and Fabric mods count on that.
+     */
+    public static volatile boolean holdTicks;
+
+    private static final AtomicBoolean TICK_HOOK_SEEN = new AtomicBoolean();
+    private static final AtomicBoolean TICK_HELD_SEEN = new AtomicBoolean();
+    private static final AtomicBoolean TICK_FREE_SEEN = new AtomicBoolean();
+
+    /** Called at the top of Minecraft.tick. True skips the tick. */
+    public static boolean ticksHeld() {
+        if (TICK_HOOK_SEEN.compareAndSet(false, true)) {
+            Log.info("Tick hook reached");
+        }
+        boolean held = holdTicks;
+        if (held && TICK_HELD_SEEN.compareAndSet(false, true)) {
+            Log.info("Game ticks wait while Fabric and Quilt mods start, as on Fabric");
+        }
+        if (!held && TICK_HELD_SEEN.get() && TICK_FREE_SEEN.compareAndSet(false, true)) {
+            Log.info("First tick after the wait, on " + Thread.currentThread().getName());
+        }
+        return held;
+    }
+
+    private static volatile java.lang.invoke.MethodHandle tickMethod;
+
+    /** Called by the game loop in place of Minecraft.tick: runs the tick unless ticks are held. */
+    public static void tickUnlessHeld(Object minecraft) throws Throwable {
+        if (ticksHeld()) {
+            return;
+        }
+        java.lang.invoke.MethodHandle h = tickMethod;
+        if (h == null) {
+            h = java.lang.invoke.MethodHandles.publicLookup()
+                    .findVirtual(minecraft.getClass(), "tick", java.lang.invoke.MethodType.methodType(void.class))
+                    .asType(java.lang.invoke.MethodType.methodType(void.class, Object.class));
+            tickMethod = h;
+        }
+        h.invokeExact(minecraft);
+    }
+
+    private static volatile java.lang.invoke.MethodHandle runTickMethod;
+    private static volatile java.lang.invoke.MethodHandle pollEvents;
+    private static final AtomicBoolean LOOP_HELD_SEEN = new AtomicBoolean();
+
+    /**
+     * Called by the game loop in place of Minecraft.runTick. While Fabric and Quilt mods start, the loop
+     * only keeps the window answering (so the system does not mark it frozen), as on Fabric where
+     * nothing draws or ticks before every mod has started.
+     */
+    public static void runTickUnlessHeld(Object minecraft, boolean render) throws Throwable {
+        if (holdTicks) {
+            if (LOOP_HELD_SEEN.compareAndSet(false, true)) {
+                Log.info("Game loop waits while Fabric and Quilt mods start, as on Fabric");
+            }
+            java.lang.invoke.MethodHandle poll = pollEvents;
+            if (poll == null) {
+                poll = java.lang.invoke.MethodHandles.publicLookup().findStatic(
+                        Class.forName("org.lwjgl.glfw.GLFW", true, minecraft.getClass().getClassLoader()),
+                        "glfwPollEvents", java.lang.invoke.MethodType.methodType(void.class));
+                pollEvents = poll;
+            }
+            poll.invokeExact();
+            Thread.sleep(10);
+            return;
+        }
+        java.lang.invoke.MethodHandle h = runTickMethod;
+        if (h == null) {
+            java.lang.reflect.Method m = minecraft.getClass().getDeclaredMethod("runTick", boolean.class);
+            m.setAccessible(true);
+            h = java.lang.invoke.MethodHandles.lookup().unreflect(m)
+                    .asType(java.lang.invoke.MethodType.methodType(void.class, Object.class, boolean.class));
+            runTickMethod = h;
+        }
+        h.invokeExact(minecraft, render);
+    }
+
+    /**
+     * Holds the game tick while Fabric and Quilt mods start. The game loop's call to Minecraft.tick
+     * goes through Pentecost. (An early exit inside tick would still run mod hooks placed at its exits.)
+     */
+    public static ClassTransformer tickTransformer() {
+        return (name, bytes) -> {
+            if (!name.equals("net.minecraft.client.Minecraft")) {
+                return bytes;
+            }
+            ClassReader reader = new ClassReader(bytes);
+            ClassWriter writer = new ClassWriter(0);
+            reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
+                @Override
+                public MethodVisitor visitMethod(int access, String n, String d, String s, String[] e) {
+                    MethodVisitor mv = super.visitMethod(access, n, d, s, e);
+                    boolean loop = n.equals("run") && d.equals("()V");
+                    if (!n.equals("runTick") && !loop) {
+                        return mv;
+                    }
+                    return new MethodVisitor(Opcodes.ASM9, mv) {
+                        @Override
+                        public void visitMethodInsn(int op, String owner, String mn, String md, boolean itf) {
+                            if (loop && op == Opcodes.INVOKEVIRTUAL && owner.equals("net/minecraft/client/Minecraft")
+                                    && mn.equals("runTick") && md.equals("(Z)V")) {
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks",
+                                        "runTickUnlessHeld", "(Ljava/lang/Object;Z)V", false);
+                                return;
+                            }
+                            if (!loop && op == Opcodes.INVOKEVIRTUAL && owner.equals("net/minecraft/client/Minecraft")
+                                    && mn.equals("tick") && md.equals("()V")) {
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks",
+                                        "tickUnlessHeld", "(Ljava/lang/Object;)V", false);
+                                return;
+                            }
+                            super.visitMethodInsn(op, owner, mn, md, itf);
+                        }
+                    };
+                }
+            }, 0);
+            return writer.toByteArray();
+        };
+    }
+
+    /**
+     * Forge gives each loot table its name once and refuses a second naming, even with the same name.
+     * Fabric's loot events rebuild tables and name them again with the same name.
+     * Setting the same name again is let through as a no-op.
+     */
+    public static ClassTransformer lootNameTransformer() {
+        return (name, bytes) -> {
+            if (!name.equals("net.minecraft.world.level.storage.loot.LootTable")) {
+                return bytes;
+            }
+            ClassReader reader = new ClassReader(bytes);
+            ClassWriter writer = new ClassWriter(0);
+            reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
+                @Override
+                public MethodVisitor visitMethod(int access, String n, String d, String s, String[] e) {
+                    MethodVisitor mv = super.visitMethod(access, n, d, s, e);
+                    if (!n.equals("setLootTableId") || !d.equals("(Lnet/minecraft/resources/ResourceLocation;)V")) {
+                        return mv;
+                    }
+                    return new MethodVisitor(Opcodes.ASM9, mv) {
+                        @Override
+                        public void visitCode() {
+                            super.visitCode();
+                            org.objectweb.asm.Label go = new org.objectweb.asm.Label();
+                            super.visitVarInsn(Opcodes.ALOAD, 0);
+                            super.visitFieldInsn(Opcodes.GETFIELD, "net/minecraft/world/level/storage/loot/LootTable",
+                                    "lootTableId", "Lnet/minecraft/resources/ResourceLocation;");
+                            super.visitVarInsn(Opcodes.ALOAD, 1);
+                            super.visitMethodInsn(Opcodes.INVOKESTATIC, "java/util/Objects", "equals",
+                                    "(Ljava/lang/Object;Ljava/lang/Object;)Z", false);
+                            super.visitJumpInsn(Opcodes.IFEQ, go);
+                            super.visitInsn(Opcodes.RETURN);
+                            super.visitLabel(go);
+                            super.visitFrame(Opcodes.F_NEW, 2, new Object[]{
+                                    "net/minecraft/world/level/storage/loot/LootTable",
+                                    "net/minecraft/resources/ResourceLocation"}, 0, new Object[0]);
+                        }
+
+                        @Override
+                        public void visitMaxs(int maxStack, int maxLocals) {
+                            super.visitMaxs(Math.max(maxStack, 2), maxLocals);
+                        }
+                    };
+                }
+            }, ClassReader.EXPAND_FRAMES);
             return writer.toByteArray();
         };
     }

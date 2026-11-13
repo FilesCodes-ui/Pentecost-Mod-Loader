@@ -86,10 +86,31 @@ public final class ModRunner {
                 if (later) {
                     waiting.add(m.id());
                 }
-                run(m, client && !later);
+                run(m, false);
                 started.add(m.id());
             } catch (Throwable t) {
                 fail(m, t);
+            }
+        }
+        // As on Fabric: every mod's common start code runs first, then every mod's client start code.
+        // A mod's client code can rely on another mod's common code having run.
+        if (client) {
+            for (ModInfo m : mods) {
+                if (!started.contains(m.id()) || failures.containsKey(m.id()) || waiting.contains(m.id())
+                        || (m.loader() != LoaderKind.FABRIC && m.loader() != LoaderKind.QUILT)) {
+                    continue;
+                }
+                try {
+                    for (String value : m.entrypoints("client")) {
+                        ClientModInitializer init = FabricLoaderImpl.INSTANCE.create(value, ClientModInitializer.class);
+                        if (init != null) {
+                            init.onInitializeClient();
+                        }
+                    }
+                } catch (Throwable t) {
+                    started.remove(m.id());
+                    fail(m, t);
+                }
             }
         }
         if (!waiting.isEmpty()) {
@@ -159,6 +180,16 @@ public final class ModRunner {
         StackTraceElement[] st = cause.getStackTrace();
         for (int i = 0; i < Math.min(6, st.length); i++) {
             Log.error("    at " + st[i]);
+        }
+        // The top lines are often game or loader code. Also show where the mod's own code made the call.
+        for (int i = 6; i < st.length; i++) {
+            String c = st[i].getClassName();
+            if (!c.startsWith("net.minecraft") && !c.startsWith("com.mojang") && !c.startsWith("java.")
+                    && !c.startsWith("jdk.") && !c.startsWith("net.fabricmc") && !c.startsWith("khi.pentecost")
+                    && !c.startsWith("io.github.fabricators_of_create")) {
+                Log.error("    ... from mod code at " + st[i]);
+                break;
+            }
         }
         // The root reason is usually a few causes down. Show each with the lines that name it.
         int depth = 0;

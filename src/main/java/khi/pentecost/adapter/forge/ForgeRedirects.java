@@ -118,6 +118,79 @@ public final class ForgeRedirects {
         CALL_CLASSES.add("net.minecraftforge.fml.lowcodemod.LowCodeModContainer");
     }
 
+    private static final String DELEGATE_CALL = "net/minecraftforge/registries/IForgeRegistry.getDelegateOrThrow"
+            + "(Ljava/lang/Object;)Lnet/minecraft/core/Holder$Reference;";
+
+    /**
+     * Forge's versions of some game objects (flowers, music discs) look up the registry entry
+     * of what they hold as they are made, and keep it as a supplier. Fabric mods make them before
+     * that entry is registered. Where the result goes straight into a supplier field,
+     * the lookup is swapped for one that falls back to the plain value.
+     */
+    private static byte[] looseDelegates(byte[] bytes) {
+        org.objectweb.asm.tree.ClassNode node = new org.objectweb.asm.tree.ClassNode();
+        new ClassReader(bytes).accept(node, 0);
+        boolean changed = false;
+        for (org.objectweb.asm.tree.MethodNode m : node.methods) {
+            for (org.objectweb.asm.tree.AbstractInsnNode insn : m.instructions.toArray()) {
+                if (!(insn instanceof org.objectweb.asm.tree.MethodInsnNode call)
+                        || !(call.owner + "." + call.name + call.desc).equals(DELEGATE_CALL)) {
+                    continue;
+                }
+                org.objectweb.asm.tree.AbstractInsnNode next = call.getNext();
+                while (next != null && next.getOpcode() < 0) {
+                    next = next.getNext();
+                }
+                if (next instanceof org.objectweb.asm.tree.FieldInsnNode f && f.getOpcode() == Opcodes.PUTFIELD
+                        && f.desc.equals("Ljava/util/function/Supplier;")) {
+                    m.instructions.set(call, new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC, SELF,
+                            "delegateOrValue", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/util/function/Supplier;", false));
+                } else {
+                    // Items and blocks carry their own registry handle from birth. Until they are registered,
+                    // that handle stands in (item and block colors are set up this early by Fabric mods).
+                    m.instructions.set(call, new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC,
+                            "khi/pentecost/forgeglue/LateRegistry", "delegateOrOwnHolder",
+                            "(Ljava/lang/Object;Ljava/lang/Object;)Lnet/minecraft/core/Holder$Reference;", false));
+                }
+                changed = true;
+            }
+        }
+        if (!changed) {
+            return bytes;
+        }
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        node.accept(writer);
+        return writer.toByteArray();
+    }
+
+    private static boolean mentions(byte[] bytes, String text) {
+        byte[] t = text.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        outer:
+        for (int i = 0; i + t.length <= bytes.length; i++) {
+            for (int j = 0; j < t.length; j++) {
+                if (bytes[i + j] != t[j]) {
+                    continue outer;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /** Landing point in Forge's flower blocks: the registry entry if it exists, else the value itself. */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public static java.util.function.Supplier<Object> delegateOrValue(Object registry, Object value) {
+        try {
+            Object found = registry.getClass().getMethod("getDelegate", Object.class).invoke(registry, value);
+            if (found instanceof Optional<?> o && o.isPresent() && o.get() instanceof java.util.function.Supplier sup) {
+                return sup;
+            }
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            // fall through to the plain value
+        }
+        return () -> value;
+    }
+
     /**
      * Landing point of Forge's "is this mod loaded". Pentecost's mod list answers, so a Forge mod
      * finds a Fabric or Quilt mod the same way it finds a Forge one.
@@ -163,6 +236,9 @@ public final class ForgeRedirects {
 
     public static ClassTransformer transformer() {
         return (name, bytes) -> {
+            if (name.startsWith("net.minecraft.") && mentions(bytes, "getDelegateOrThrow")) {
+                bytes = looseDelegates(bytes);
+            }
             Map<String, String> bodies = BODIES.get(name);
             boolean calls = CALL_CLASSES.contains(name)
                     || (name.startsWith("net.minecraftforge.") && !name.startsWith("net.minecraftforge.eventbus."))
@@ -185,12 +261,17 @@ public final class ForgeRedirects {
                         return mv;
                     }
                     boolean registryDoor = name.equals("net.minecraftforge.registries.NamespacedWrapper")
-                            && n.equals("registerMapping")
-                            && d.startsWith("(ILnet/minecraft/resources/ResourceKey;Ljava/lang/Object;");
+                            && ((n.equals("registerMapping")
+                            && d.startsWith("(ILnet/minecraft/resources/ResourceKey;Ljava/lang/Object;"))
+                            || n.equals("validateWrite"));
+                    boolean freezeDoor = name.equals("net.minecraftforge.registries.NamespacedWrapper")
+                            && n.equals("freeze") && d.equals("()Lnet/minecraft/core/Registry;");
                     boolean queueDoor = name.equals("net.minecraftforge.fml.DeferredWorkQueue")
                             && n.equals("runTasks") && d.equals("()V");
                     boolean stepDoor = name.equals("net.minecraftforge.fml.ModLoader")
                             && n.equals("dispatchAndHandleError");
+                    boolean clientHooksDoor = name.equals("net.minecraftforge.client.ForgeHooksClient")
+                            && n.equals("initClientHooks");
                     return new MethodVisitor(Opcodes.ASM9, mv) {
                         @Override
                         public void visitCode() {
@@ -199,6 +280,10 @@ public final class ForgeRedirects {
                                 super.visitVarInsn(Opcodes.ALOAD, 0);
                                 super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks",
                                         "forgeDeferred", "(Ljava/lang/Object;)V", false);
+                            }
+                            if (clientHooksDoor) {
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks",
+                                        "forgeClientHooks", "()V", false);
                             }
                             if (stepDoor) {
                                 super.visitVarInsn(Opcodes.ALOAD, 1);
@@ -209,6 +294,11 @@ public final class ForgeRedirects {
                                 super.visitVarInsn(Opcodes.ALOAD, 0);
                                 super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/forgeglue/LateRegistry",
                                         "open", "(Ljava/lang/Object;)V", false);
+                            }
+                            if (freezeDoor) {
+                                super.visitVarInsn(Opcodes.ALOAD, 0);
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/forgeglue/LateRegistry",
+                                        "beforeFreeze", "(Ljava/lang/Object;)V", false);
                             }
                         }
 
