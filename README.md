@@ -25,3 +25,4 @@ Pentecost is in active development. Version 1 targets Minecraft 1.20.1 on Java 2
 ## Contact
 
 Project lead: Files
+Copyright © 2026 FilesCodes-ui. All rights reserved.
