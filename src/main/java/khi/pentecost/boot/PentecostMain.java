@@ -81,8 +81,10 @@ public final class PentecostMain {
     /** Installs the game and converts it and the mods to readable names. */
     private static GameFiles prepare(List<Path> modDirs, boolean assets) throws Exception {
         GameFiles vanilla = MinecraftInstall.install(MINECRAFT, assets);
+        khi.pentecost.core.Timeline.step("game install checked");
         RemapService remap = new RemapService(vanilla);
         GameFiles game = remap.game();
+        khi.pentecost.core.Timeline.step("game remapped or cached");
         List<ModInfo> found = new ArrayList<>();
         for (Path dir : modDirs) {
             found.addAll(ModDiscovery.scan(dir));
@@ -90,6 +92,7 @@ public final class PentecostMain {
         if (forge && new khi.pentecost.adapter.forge.ForgeFiles().installed()) {
             found = khi.pentecost.adapter.forge.FabricBridge.apply(found, MINECRAFT);
         }
+        khi.pentecost.core.Timeline.step("mods scanned and bridged");
         khi.pentecost.control.Choices.load();
         PentecostRuntime.allMods = List.copyOf(found);
         List<ModInfo> on = new ArrayList<>();
@@ -101,6 +104,7 @@ public final class PentecostMain {
             }
         }
         mods = khi.pentecost.control.Features.apply(remap.mods(on));
+        khi.pentecost.core.Timeline.step("mods remapped or cached");
         PentecostRuntime.remap = remap;
         PentecostRuntime.mods = mods;
         PentecostRuntime.gameDir = Dirs.run();
@@ -131,6 +135,7 @@ public final class PentecostMain {
         }
         if (forgeOn) {
             forgeJar = forgeFiles.universal(PentecostRuntime.remap);
+            khi.pentecost.core.Timeline.step("Forge jar ready");
             for (String dir : System.getProperty("pentecost.forgeglue").split(java.io.File.pathSeparator)) {
                 first.add(Path.of(dir));
             }
@@ -149,6 +154,7 @@ public final class PentecostMain {
             PentecostRuntime.forgeLayer = true;
         }
         loader = GameClassLoader.create(game, mods, first, afterGame);
+        khi.pentecost.core.Timeline.step("class loader built");
         PentecostRuntime.loader = loader;
         Log.info("Found " + mods.size() + " mod(s)");
         for (ModInfo m : mods) {
@@ -159,6 +165,7 @@ public final class PentecostMain {
         }
         ModRunner runner = new ModRunner(loader, mods);
         runner.checkDependencies();
+        khi.pentecost.core.Timeline.step("dependencies checked");
         PentecostRuntime.runner = runner;
         java.util.Set<String> forgeCovers = forgeOn
                 ? java.util.Set.of("fabric-loot-tables-v1") : java.util.Set.of();
@@ -172,6 +179,7 @@ public final class PentecostMain {
                 .filter(m -> !runner.missing().containsKey(m.id()) && !forgeCovers.contains(m.id())).toList();
 
         AccessWidener widener = AccessWidener.load(usable);
+        khi.pentecost.core.Timeline.step("access wideners loaded");
         List<Path> forgeModJars = new ArrayList<>();
         if (forgeOn) {
             for (ModInfo m : usable) {
@@ -182,10 +190,12 @@ public final class PentecostMain {
             List<Path> atJars = new ArrayList<>(forgeModJars);
             atJars.add(0, forgeJar);
             widener.addAccessTransformers(atJars, new khi.pentecost.remap.TextRemapper(PentecostRuntime.remap.modTable()));
+            khi.pentecost.core.Timeline.step("access transformers read");
             loader.addTransformer(khi.pentecost.adapter.forge.ForgeRedirects.transformer());
             loader.addTransformer((khi.pentecost.loader.ClassTransformer) Class
                     .forName("khi.pentecost.forgeglue.LaunchPlugins", true, loader)
                     .getConstructor(ClassLoader.class).newInstance(loader));
+            khi.pentecost.core.Timeline.step("launch plugins loaded");
         }
         if (!widener.isEmpty()) {
             loader.addTransformer(widener);
@@ -197,6 +207,7 @@ public final class PentecostMain {
                     .invoke(null, Dirs.run(), game.clientJar(), forgeJar, forgeModJars, MINECRAFT,
                             khi.pentecost.adapter.forge.ForgeFiles.VERSION.substring(MINECRAFT.length() + 1));
         }
+        khi.pentecost.core.Timeline.step("Forge prepared");
         loader.addTransformer(Hooks.transformer());
         loader.addTransformer(Hooks.packTransformer());
         loader.addTransformer(Hooks.hudTransformer());
@@ -226,6 +237,7 @@ public final class PentecostMain {
             }
         }
         MixinHost.start(loader, usable);
+        khi.pentecost.core.Timeline.step("Mixin started");
         return runner;
     }
 
@@ -284,6 +296,7 @@ public final class PentecostMain {
     }
 
     private static void launch(List<Path> modDirs) throws Exception {
+        khi.pentecost.core.WallProfiler.startIfAsked(Thread.currentThread());
         GameFiles game = prepare(modDirs, true);
         if (forge && new khi.pentecost.adapter.forge.ForgeFiles().installed()) {
             game = new khi.pentecost.adapter.forge.ForgeFiles().game(game, PentecostRuntime.remap);
@@ -312,6 +325,7 @@ public final class PentecostMain {
 
         Thread.currentThread().setContextClassLoader(loader);
         runner.runPreLaunch();
+        khi.pentecost.core.Timeline.step("pre-launch entrypoints done");
         Log.info("Starting Minecraft");
         Class<?> main = Class.forName(game.mainClass(), true, loader);
         main.getMethod("main", String[].class).invoke(null, (Object) gameArgs);

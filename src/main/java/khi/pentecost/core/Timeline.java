@@ -19,6 +19,21 @@ public final class Timeline {
         MARKS.putIfAbsent(name, (System.currentTimeMillis() - START) / 1000.0);
     }
 
+    private static double lastStep;
+
+    /** When the Java process started, in milliseconds since 1970. */
+    public static long startMillis() {
+        return START;
+    }
+
+    /** Logs a finer startup step with its time since the process started and since the last step. */
+    public static synchronized void step(String name) {
+        double now = (System.currentTimeMillis() - START) / 1000.0;
+        khi.pentecost.boot.Log.info(String.format(java.util.Locale.ROOT,
+                "Startup step: %s at %.1f s (+%.1f s)", name, now, now - lastStep));
+        lastStep = now;
+    }
+
     public static synchronized Map<String, Double> marks() {
         return new LinkedHashMap<>(MARKS);
     }

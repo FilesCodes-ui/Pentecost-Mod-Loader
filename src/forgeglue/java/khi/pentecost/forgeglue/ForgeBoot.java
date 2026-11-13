@@ -49,8 +49,19 @@ import java.util.stream.Stream;
 public final class ForgeBoot {
     private ForgeBoot() {}
 
+    private static long lapAt = System.nanoTime();
+
+    /** Prints how long the work since the last lap took. Shows where Forge prepare spends its time. */
+    private static void lap(String what) {
+        long now = System.nanoTime();
+        System.out.println(String.format(java.util.Locale.ROOT,
+                "[Pentecost] Forge prepare: %s took %.2f s", what, (now - lapAt) / 1e9));
+        lapAt = now;
+    }
+
     public static void prepare(Path gameDir, Path gameJar, Path forgeJar, List<Path> modJars,
                                String mcVersion, String forgeVersion) throws Exception {
+        lapAt = System.nanoTime();
         FMLPaths.loadAbsolutePaths(gameDir);
         FMLConfig.load();
 
@@ -83,6 +94,7 @@ public final class ForgeBoot {
             }
         }
 
+        lap("settings and mod languages");
         List<ModFile> files = new ArrayList<>();
         ModFile minecraft = new ModFile(SecureJar.from(gameJar), new Provider(false), ForgeBoot::minecraftInfo);
         files.add(minecraft);
@@ -91,6 +103,7 @@ public final class ForgeBoot {
             files.add(new ModFile(SecureJar.from(jar), new Provider(true), ModFileParser::modsTomlParser));
         }
 
+        lap("opening mod jars");
         List<ModFile> usable = new ArrayList<>();
         for (ModFile f : files) {
             if (!f.identifyMods()) {
@@ -111,6 +124,7 @@ public final class ForgeBoot {
             usable.add(f);
         }
 
+        lap("reading mod descriptions");
         // Forge reports loading progress through this handler. Give it a progress bar to write to.
         Field progress = ImmediateWindowHandler.class.getDeclaredField("earlyProgress");
         progress.setAccessible(true);
@@ -118,13 +132,17 @@ public final class ForgeBoot {
 
         FMLLoader.progressWindowTick = () -> { };
 
+        lap("progress bar");
         LoadingModList list = LoadingModList.of(usable, sort(usable), null);
+        lap("sorting mods");
         list.setBrokenFiles(List.of());
         set("loadingModList", list);
         FMLLoader.backgroundScanHandler = new BackgroundScanHandler(usable);
         list.addForScanning(FMLLoader.backgroundScanHandler);
+        lap("starting the background class scan");
 
         CoreMods.load(usable);
+        lap("core mods");
 
         // Forge shows an early loading window through this handler. The plain window path is enough here.
         Field provider = ImmediateWindowHandler.class.getDeclaredField("provider");
