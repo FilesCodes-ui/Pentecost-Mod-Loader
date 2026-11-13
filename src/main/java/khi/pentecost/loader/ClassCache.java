@@ -43,7 +43,7 @@ public final class ClassCache {
     static final boolean CHECK = System.getenv("PENTECOST_CACHE_CHECK") != null;
     private static final int MAGIC = 0x50434332;
     private static final Set<String> IGNORED_ENV = Set.of(
-            "PENTECOST_WORLD", "PENTECOST_WALL", "PENTECOST_JFR", "PENTECOST_CACHE_CHECK", "PENTECOST_NOCACHE", "PENTECOST_GC");
+            "PENTECOST_WORLD", "PENTECOST_WALL", "PENTECOST_JFR", "PENTECOST_CACHE_CHECK", "PENTECOST_NOCACHE", "PENTECOST_GC", "PENTECOST_JVM");
 
     private record Entry(long offset, int length, int rawCrc, int rawLength) {}
 

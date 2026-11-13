@@ -43,7 +43,7 @@ dependencies {
 
 application {
     mainClass = 'khi.pentecost.boot.PentecostMain'
-    applicationDefaultJvmArgs = ['-Xmx4G', '-XX:-DontCompileHugeMethods']
+    applicationDefaultJvmArgs = ['-Xms6G', '-Xmx6G', '-Xmn3G', '-XX:-DontCompileHugeMethods']
 }
 
 tasks.named('run') {
@@ -105,10 +105,16 @@ def pentecostExec = { String taskName, List<String> taskArgs ->
         args taskArgs
         workingDir = file('run')
         systemProperty 'pentecost.home', rootDir.path
-        jvmArgs '-Xmx4G'
+        // A large young area makes memory cleanups rarer. At 4 GB the game stuttered about every 4 s; at 6 GB with
+        // a 3 GB young area, shaders on, it went from about 40 to about 60 fps.
+        jvmArgs '-Xms6G', '-Xmx6G', '-Xmn3G'
         // The JVM never compiles a method over 8000 bytes of bytecode, so it runs in the slow interpreter.
         // Some mods ship such methods (Management Wanted has a 25000 byte one that runs for every living entity every tick).
         jvmArgs '-XX:-DontCompileHugeMethods'
+        // Extra flags for tests, for example PENTECOST_JVM=-Xmx8G -Xmn4G. They come after the defaults, so they win.
+        if (System.getenv('PENTECOST_JVM')) {
+            jvmArgs System.getenv('PENTECOST_JVM').trim().split(/\s+/).toList()
+        }
         if ((System.getenv('PENTECOST_GC') ?: '').equalsIgnoreCase('zgc')) {
             jvmArgs '-XX:+UseZGC', '-XX:+ZGenerational'
         }
