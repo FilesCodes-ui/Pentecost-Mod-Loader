@@ -28,6 +28,12 @@ public final class PerfHud {
     private static boolean exportTested;
     private static long lastFrame;
     private static double frameMs;
+    private static double workMs;
+
+    /** Smoothed time the game spends on a frame, without the wait the frame cap adds. */
+    public static double workMs() {
+        return workMs;
+    }
     private static final double[] HIST = new double[240];
     private static int histAt;
 
@@ -40,6 +46,8 @@ public final class PerfHud {
         if (lastFrame != 0) {
             double instant = (now - lastFrame) / 1_000_000.0;
             frameMs = frameMs * 0.9 + instant * 0.1;
+            double work = Math.max(0, instant - khi.pentecost.core.ClientHooks.takeSleep() / 1_000_000.0);
+            workMs = workMs * 0.9 + work * 0.1;
             HIST[histAt++ % HIST.length] = instant;
         }
         lastFrame = now;
@@ -90,6 +98,7 @@ public final class PerfHud {
                 fabric++;
             }
         }
+        rows.add(new String[]{"Work per frame", String.format("%.1f ms", workMs)});
         rows.add(new String[]{"Memory", used + " / " + max + " MB"});
         rows.add(new String[]{"Mods", forge + " Forge   " + fabric + " Fabric and Quilt"});
         rows.add(null);

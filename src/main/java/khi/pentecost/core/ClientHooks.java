@@ -55,6 +55,24 @@ public final class ClientHooks {
     public static float b() { return blue; }
     public static float a() { return alpha; }
 
+    private static long limitStarted;
+    private static long slept;
+
+    public static void limitStart() {
+        limitStarted = System.nanoTime();
+    }
+
+    public static void limitEnd() {
+        slept += System.nanoTime() - limitStarted;
+    }
+
+    /** Nanoseconds the frame cap made the game wait since the last call. */
+    public static long takeSleep() {
+        long s = slept;
+        slept = 0;
+        return s;
+    }
+
     /** Called by the game before a sound plays. False drops the sound. */
     public static boolean sound(Object instance) {
         Gate g = gate;
@@ -65,7 +83,8 @@ public final class ClientHooks {
         return (name, bytes) -> {
             boolean sounds = name.equals("net.minecraft.client.sounds.SoundEngine");
             boolean levels = name.equals("net.minecraft.client.renderer.LevelRenderer");
-            if (!sounds && !levels) {
+            boolean render = name.equals("com.mojang.blaze3d.systems.RenderSystem");
+            if (!sounds && !levels && !render) {
                 return bytes;
             }
             final String internal = name.replace('.', '/');
@@ -75,6 +94,20 @@ public final class ClientHooks {
             reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
                 @Override
                 public MethodVisitor visitMethod(int access, String n, String d, String s, String[] e) {
+                    if (render && n.equals("limitDisplayFPS") && d.equals("(I)V") && (access & Opcodes.ACC_STATIC) != 0) {
+                        changed[0] = true;
+                        String kept = n + "$pentecost";
+                        MethodVisitor w = super.visitMethod(access, n, d, s, e);
+                        w.visitCode();
+                        w.visitMethodInsn(Opcodes.INVOKESTATIC, HOOKS, "limitStart", "()V", false);
+                        w.visitVarInsn(Opcodes.ILOAD, 0);
+                        w.visitMethodInsn(Opcodes.INVOKESTATIC, internal, kept, d, false);
+                        w.visitMethodInsn(Opcodes.INVOKESTATIC, HOOKS, "limitEnd", "()V", false);
+                        w.visitInsn(Opcodes.RETURN);
+                        w.visitMaxs(1, 1);
+                        w.visitEnd();
+                        return super.visitMethod(access, kept, d, s, e);
+                    }
                     if ((access & (Opcodes.ACC_STATIC | Opcodes.ACC_ABSTRACT)) != 0) {
                         return super.visitMethod(access, n, d, s, e);
                     }

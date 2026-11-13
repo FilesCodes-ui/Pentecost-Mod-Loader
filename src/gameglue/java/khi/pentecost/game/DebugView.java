@@ -115,6 +115,7 @@ final class DebugView {
         int fps = mc.getFps();
         List<Line> perf = new ArrayList<>();
         perf.add(new Line("Frame rate", fps + " FPS"));
+        perf.add(new Line("Work", String.format(Locale.ROOT, "%.1f ms", PerfHud.workMs())));
         perf.add(new Line("Frame time", fps > 0 ? String.format(Locale.ROOT, "%.1f ms", 1000.0 / fps) : "-"));
         int cap = mc.options.framerateLimit().get();
         perf.add(new Line("Frame limit", (cap >= 260 ? "None" : cap + " FPS") + (mc.options.enableVsync().get() ? ", VSync" : "")));
