@@ -224,6 +224,10 @@ public final class PentecostSettingsScreen extends Screen {
         for (int i = 0; i < pages.size(); i++) {
             if (pages.get(i).name().equals(name)) {
                 built.remove(i);
+                if (name.equals("Shader pack")) {
+                    packPath.clear();
+                    packPath.add(0);
+                }
                 page = i;
                 scroll = 0;
                 return;
@@ -234,69 +238,103 @@ public final class PentecostSettingsScreen extends Screen {
     /** Last profile picked on the Shader pack page, shown until the pack changes. */
     private String shaderProfile = "Pick one";
 
+    /** The shader pack's groups, read when the page is built. */
+    private List<ExternalOptions.ShaderScreen> packScreens = List.of();
+    /** Where the player is in the pack's groups, like folders on a computer. First entry: the main group. */
+    private final List<Integer> packPath = new ArrayList<>(List.of(0));
+
+    /** The names along the path, for the line at the top of the page. */
+    private List<String> packCrumbs() {
+        List<String> out = new ArrayList<>();
+        for (int i : packPath) {
+            if (i >= 0 && i < packScreens.size()) {
+                out.add(packScreens.get(i).title());
+            }
+        }
+        return out;
+    }
+
+    /** Goes to a group on the path (depth 0 is the main group). */
+    private void packGoTo(int depth) {
+        while (packPath.size() > depth + 1) {
+            packPath.remove(packPath.size() - 1);
+        }
+        built.remove(page);
+        scroll = 0;
+    }
+
     private List<Folder> packFolders() {
         List<Folder> out = new ArrayList<>();
         if (!ExternalOptions.hasShaders()) {
             out.add(new Folder("Pack", List.of(Row.info("Shaders", "Install Oculus (Forge) or Iris (Fabric)"))));
             return out;
         }
-        List<ExternalOptions.ShaderScreen> screens = ExternalOptions.shaderMenu();
-        if (screens.isEmpty()) {
+        packScreens = ExternalOptions.shaderMenu();
+        if (packScreens.isEmpty()) {
+            packPath.clear();
+            packPath.add(0);
             out.add(new Folder("Pack", List.of(Row.info("No pack in use", "Pick one on the Shaders page"))));
             return out;
         }
         Map<String, Integer> index = new HashMap<>();
-        for (int i = 0; i < screens.size(); i++) {
-            index.put(screens.get(i).id(), i);
+        for (int i = 0; i < packScreens.size(); i++) {
+            index.put(packScreens.get(i).id(), i);
         }
-        for (ExternalOptions.ShaderScreen sc : screens) {
-            List<Row> rows = new ArrayList<>();
-            for (ExternalOptions.ShaderEntry en : sc.entries()) {
-                String about = en.about().isEmpty() ? "An option of this shader pack." : en.about();
-                switch (en.kind()) {
-                    case "bool" -> rows.add(new Row(Kind.SWITCH, en.label(), firstLine(about), about, "On apply", null,
-                            () -> "true".equals(ExternalOptions.shaderValue(en.id(), true)),
-                            () -> ExternalOptions.setShaderValue(en.id(),
-                                    "true".equals(ExternalOptions.shaderValue(en.id(), true)) ? "false" : "true"),
-                            null, () -> true));
-                    case "string" -> rows.add(new Row(Kind.CHOICE, en.label(), firstLine(about), about, "On apply",
-                            () -> ExternalOptions.shaderValueLabel(en.id(), ExternalOptions.shaderValue(en.id(), false)),
-                            null, () -> {
-                                List<String> values = en.values();
-                                if (values.isEmpty()) {
-                                    return;
-                                }
-                                int at = values.indexOf(ExternalOptions.shaderValue(en.id(), false));
-                                ExternalOptions.setShaderValue(en.id(), values.get((at + 1) % values.size()));
-                            }, null, () -> true));
-                    case "link" -> {
-                        Integer target = index.get(en.id());
-                        if (target != null) {
-                            rows.add(new Row(Kind.BUTTON, en.label(), en.about().isEmpty() ? "A group of options." : firstLine(en.about()),
-                                    en.about().isEmpty() ? "Opens this group of options." : en.about(), "", () -> "Open", null,
-                                    () -> {
-                                        folderOf.put(page, target);
-                                        scroll = 0;
-                                    }, null, () -> true));
-                        }
+        packPath.removeIf(i -> i < 0 || i >= packScreens.size());
+        if (packPath.isEmpty()) {
+            packPath.add(0);
+        }
+        ExternalOptions.ShaderScreen sc = packScreens.get(packPath.get(packPath.size() - 1));
+        // Groups first, like folders above files, then the options in the pack's own order.
+        List<Row> groups = new ArrayList<>();
+        List<Row> rows = new ArrayList<>();
+        for (ExternalOptions.ShaderEntry en : sc.entries()) {
+            String about = en.about().isEmpty() ? "An option of this shader pack." : en.about();
+            switch (en.kind()) {
+                case "bool" -> rows.add(new Row(Kind.SWITCH, en.label(), firstLine(about), about, "On apply", null,
+                        () -> "true".equals(ExternalOptions.shaderValue(en.id(), true)),
+                        () -> ExternalOptions.setShaderValue(en.id(),
+                                "true".equals(ExternalOptions.shaderValue(en.id(), true)) ? "false" : "true"),
+                        null, () -> true));
+                case "string" -> rows.add(new Row(Kind.CHOICE, en.label(), firstLine(about), about, "On apply",
+                        () -> ExternalOptions.shaderValueLabel(en.id(), ExternalOptions.shaderValue(en.id(), false)),
+                        null, () -> {
+                            List<String> values = en.values();
+                            if (values.isEmpty()) {
+                                return;
+                            }
+                            int at = values.indexOf(ExternalOptions.shaderValue(en.id(), false));
+                            ExternalOptions.setShaderValue(en.id(), values.get((at + 1) % values.size()));
+                        }, null, () -> true));
+                case "link" -> {
+                    Integer target = index.get(en.id());
+                    if (target != null && !packPath.contains(target)) {
+                        String note = en.about().isEmpty() ? "A group of options." : firstLine(en.about());
+                        groups.add(new Row(Kind.BUTTON, en.label(), note,
+                                en.about().isEmpty() ? "Opens this group of options." : en.about(), "", () -> "Open  >", null,
+                                () -> {
+                                    packPath.add(target);
+                                    built.remove(page);
+                                    scroll = 0;
+                                }, null, () -> true));
                     }
-                    case "profile" -> rows.add(new Row(Kind.CHOICE, en.label(), firstLine(about), about, "On apply",
-                            () -> shaderProfile, null, () -> {
-                                List<String> names = en.values();
-                                int at = names.indexOf(shaderProfile);
-                                shaderProfile = names.get((at + 1) % names.size());
-                                ExternalOptions.useShaderProfile(shaderProfile);
-                            }, null, () -> true));
-                    default -> { }
                 }
-            }
-            if (!rows.isEmpty()) {
-                out.add(new Folder(sc.title(), rows));
+                case "profile" -> rows.add(0, new Row(Kind.CHOICE, en.label(), firstLine(about), about, "On apply",
+                        () -> shaderProfile, null, () -> {
+                            List<String> names = en.values();
+                            int at = names.indexOf(shaderProfile);
+                            shaderProfile = names.get((at + 1) % names.size());
+                            ExternalOptions.useShaderProfile(shaderProfile);
+                        }, null, () -> true));
+                default -> { }
             }
         }
-        if (out.isEmpty()) {
-            out.add(new Folder("Pack", List.of(Row.info("This pack", "Has no options"))));
+        List<Row> all = new ArrayList<>(groups);
+        all.addAll(rows);
+        if (all.isEmpty()) {
+            all.add(Row.info("This group", "Has no options"));
         }
+        out.add(new Folder(sc.title(), all));
         return out;
     }
 
@@ -327,6 +365,9 @@ public final class PentecostSettingsScreen extends Screen {
             shaderProfile = "Pick one";
             built.remove(page);
         }));
+        if (packPath.size() > 1) {
+            out.add(new Shortcut("Up one level", () -> packGoTo(packPath.size() - 2)));
+        }
         out.add(new Shortcut("Back to packs", () -> openPage("Shaders")));
         return out;
     }
@@ -455,6 +496,33 @@ public final class PentecostSettingsScreen extends Screen {
             g.fill(cx, rowsTop - 6, cx + cw, rowsTop - 5, Ui.LINE);
         }
 
+        if (folders.size() <= 1 && "Shader pack".equals(pages.get(page).name()) && !packCrumbs().isEmpty()) {
+            List<String> crumbs = packCrumbs();
+            int tx = cx;
+            int ty = top;
+            int sep = font.width("  /  ");
+            for (int i = 0; i < crumbs.size(); i++) {
+                String name = crumbs.get(i);
+                int w = font.width(name);
+                if (tx + w > cx + cw) {
+                    tx = cx;
+                    ty += 18;
+                }
+                boolean last = i == crumbs.size() - 1;
+                boolean hover = !last && Ui.over(mx, my, tx - 4, ty - 4, w + 8, 16);
+                g.drawString(font, name, tx, ty, last ? Ui.TEXT : hover ? Ui.SOFT : Ui.MUTED, false);
+                if (last) {
+                    g.fill(tx, ty + 11, tx + w, ty + 12, Ui.TEXT);
+                } else {
+                    int depth = i;
+                    hits.add(new Hit(tx - 4, ty - 4, w + 8, 16, () -> packGoTo(depth)));
+                    g.drawString(font, "  /  ", tx + w, ty, Ui.FAINT, false);
+                }
+                tx += w + sep;
+            }
+            rowsTop = ty + 22;
+            g.fill(cx, rowsTop - 6, cx + cw, rowsTop - 5, Ui.LINE);
+        }
         g.enableScissor((int) (cx * ui), (int) (rowsTop * ui), (int) ((cx + cw + 4) * ui), (int) (bottom * ui));
         int py = rowsTop - (int) scroll;
         List<Row> rows = folders.isEmpty() ? List.of() : folders.get(folder).rows();
