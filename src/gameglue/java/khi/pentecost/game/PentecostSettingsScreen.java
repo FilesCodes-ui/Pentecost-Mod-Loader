@@ -134,6 +134,9 @@ public final class PentecostSettingsScreen extends Screen {
                         new Folder("Menus", List.of(
                                 Row.toggle("Pentecost menus", "Pentecost draws the main and pause menus.", "Now",
                                         () -> Settings.on(Settings.MENUS), () -> Settings.toggle(Settings.MENUS)),
+                                Row.toggle("Use the game's own settings screens", "Options, Sound, Chat, Language and the rest open "
+                                        + "as the game draws them. Turn it off to come back to this screen.", "Now",
+                                        () -> Settings.on(Settings.VANILLA_SETTINGS), () -> Settings.toggle(Settings.VANILLA_SETTINGS)),
                                 Row.toggle("Restyle every screen", "Buttons, sliders, checkboxes and backgrounds everywhere, mods' too.", "Now",
                                         () -> Settings.on(Settings.RESTYLE), () -> Settings.toggle(Settings.RESTYLE)),
                                 Row.toggle("Mod buttons in black and white", "Buttons mods add to the menus match the rest.", "Now",

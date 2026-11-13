@@ -146,7 +146,8 @@ public final class ModsScreens {
         // The game's controls, skin and resource pack screens open as pages of Pentecost's settings.
         String optionPage = optionPageFor(incoming);
         if (optionPage != null && !ExternalOptions.bypass
-                && khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.RESTYLE)) {
+                && khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.RESTYLE)
+                && !khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.VANILLA_SETTINGS)) {
             return new PentecostSettingsScreen(lastScreenOf(incoming), optionPage);
         }
         if (OTHER_MODS_SCREENS.contains(name)) {
@@ -172,6 +173,22 @@ public final class ModsScreens {
         }
         if (n.equals("net.minecraft.client.gui.screens.SkinCustomizationScreen")) {
             return "Skin";
+        }
+        switch (n) {
+            case "net.minecraft.client.gui.screens.OptionsScreen":
+                return "Interface";
+            case "net.minecraft.client.gui.screens.SoundOptionsScreen":
+                return "Sound";
+            case "net.minecraft.client.gui.screens.ChatOptionsScreen":
+                return "Chat";
+            case "net.minecraft.client.gui.screens.LanguageSelectScreen":
+                return "Language";
+            case "net.minecraft.client.gui.screens.AccessibilityOptionsScreen":
+                return "Accessibility";
+            case "net.minecraft.client.gui.screens.MouseSettingsScreen":
+                return "Controls";
+            default:
+                break;
         }
         if (n.equals("net.minecraft.client.gui.screens.packs.PackSelectionScreen")
                 && mcScreen() instanceof net.minecraft.client.gui.screens.OptionsScreen) {

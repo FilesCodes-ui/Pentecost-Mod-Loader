@@ -41,6 +41,8 @@ public final class Settings {
     /** Chunks unload a few at a time instead of all in one tick. */
     public static final String SPREAD_UNLOADS = "server.spreadUnloads";
 
+    /** The game's own options screens open instead of Pentecost's settings. Off unless the player turns it on. */
+    public static final String VANILLA_SETTINGS = "interface.vanillaSettings";
     public static final String JAVA_MEMORY = "java.memory";
     public static final String JAVA_YOUNG = "java.young";
     public static final String JAVA_GC = "java.gc";
