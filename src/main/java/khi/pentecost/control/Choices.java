@@ -182,6 +182,11 @@ public final class Choices {
         return out;
     }
 
+    /** The choices that change what a launch builds, as one sorted string. Keys the class cache. */
+    public static synchronized String launchFingerprint() {
+        return String.join(",", new TreeSet<>(atLaunch));
+    }
+
     /** How many choices wait for a restart. */
     public static synchronized int pendingRestart() {
         Set<String> now = restartState();

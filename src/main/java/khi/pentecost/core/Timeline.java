@@ -16,7 +16,9 @@ public final class Timeline {
 
     /** Records a point once. Later calls with the same name are ignored. */
     public static synchronized void mark(String name) {
-        MARKS.putIfAbsent(name, (System.currentTimeMillis() - START) / 1000.0);
+        if (MARKS.putIfAbsent(name, (System.currentTimeMillis() - START) / 1000.0) == null) {
+            khi.pentecost.loader.ClassStats.report(name);
+        }
     }
 
     private static double lastStep;

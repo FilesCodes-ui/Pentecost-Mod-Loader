@@ -1,0 +1,8 @@
+option.SHADOWS=Shadows
+option.SHADOWS.comment=Sun and moon shadows.
+option.SOFT_SHADOWS=Soft shadows
+option.SOFT_SHADOWS.comment=Softer shadow edges. Costs a little speed.
+option.SATURATION=Color strength
+option.SATURATION.comment=1.00 is the colors as drawn. Lower is paler, higher is richer.
+option.BLOCK_LIGHT=Torch light
+option.BLOCK_LIGHT.comment=How strong the glow of torches and lamps is.

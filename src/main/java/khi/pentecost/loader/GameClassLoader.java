@@ -31,6 +31,7 @@ public final class GameClassLoader extends URLClassLoader {
 
     private final List<ClassTransformer> transformers = new CopyOnWriteArrayList<>();
     private volatile ClassTransformer mixin;
+    private volatile ClassCache cache;
     private final Map<String, String> modByJarUrl = new HashMap<>();
 
     private GameClassLoader(URL[] urls, ClassLoader parent) {
@@ -190,6 +191,11 @@ public final class GameClassLoader extends URLClassLoader {
         super.addURL(url);
     }
 
+    /** Turns on the class cache. Call after Mixin has started, so every cached class has been through Mixin. */
+    public void useCache(ClassCache c) {
+        this.cache = c;
+    }
+
     /** Returns the id of the mod whose jar holds this class, or null. */
     public String modOf(String className) {
         URL res = findResource(className.replace('.', '/') + ".class");
@@ -204,6 +210,16 @@ public final class GameClassLoader extends URLClassLoader {
 
     /** Class bytes after every transformer except Mixin. Mixin reads target classes through this. */
     public byte[] preMixinBytes(String name) throws IOException {
+        long p0 = System.nanoTime();
+        try {
+            return preMixinBytesTimed(name);
+        } finally {
+            ClassStats.PEEKS.increment();
+            ClassStats.PEEK_NS.add(System.nanoTime() - p0);
+        }
+    }
+
+    private byte[] preMixinBytesTimed(String name) throws IOException {
         String path = name.replace('.', '/') + ".class";
         URL own = findResource(path);
         try (InputStream in = own != null ? own.openStream() : getResourceAsStream(path)) {
@@ -241,17 +257,48 @@ public final class GameClassLoader extends URLClassLoader {
             return defineClass(name, made, 0, made.length, (CodeSource) null);
         }
         try (InputStream in = res.openStream()) {
+            long t0 = System.nanoTime();
             byte[] bytes = in.readAllBytes();
-            for (ClassTransformer t : transformers) {
-                bytes = t.transform(name, bytes);
+            long t1 = System.nanoTime();
+            ClassCache cc = cache;
+            byte[] original = bytes;
+            byte[] hit = cc == null ? null : cc.get(name, original);
+            {
+                if (hit != null && !ClassCache.CHECK) {
+                    bytes = hit;
+                    ClassStats.HITS.increment();
+                } else {
+                    for (ClassTransformer t : transformers) {
+                        bytes = t.transform(name, bytes);
+                    }
+                }
+                long t2 = System.nanoTime();
+                ClassTransformer mx = mixin;
+                byte[] beforeMixin = bytes;
+                if (mx != null) {
+                    bytes = mx.transform(name, bytes);
+                }
+                boolean mixinTouched = bytes != beforeMixin && !java.util.Arrays.equals(bytes, beforeMixin);
+                long t3 = System.nanoTime();
+                bytes = DefaultConflicts.transform(this, name, bytes);
+                khi.pentecost.core.HudOwner.afterMixin(name, bytes);
+                bytes = khi.pentecost.mixin.MixinReport.instrument(this, name, bytes);
+                long t4 = System.nanoTime();
+                if (cc != null) {
+                    if (hit != null) {
+                        if (ClassCache.CHECK) {
+                            cc.compare(name, hit, beforeMixin);
+                        }
+                    } else {
+                        cc.put(name, original, beforeMixin);
+                    }
+                }
+                ClassStats.CLASSES.increment();
+                ClassStats.READ.add(t1 - t0);
+                ClassStats.CHAIN.add(t2 - t1);
+                ClassStats.MIXIN.add(t3 - t2);
+                ClassStats.TAIL.add(t4 - t3);
             }
-            ClassTransformer mx = mixin;
-            if (mx != null) {
-                bytes = mx.transform(name, bytes);
-            }
-            bytes = DefaultConflicts.transform(this, name, bytes);
-            khi.pentecost.core.HudOwner.afterMixin(name, bytes);
-            bytes = khi.pentecost.mixin.MixinReport.instrument(this, name, bytes);
             int dot = name.lastIndexOf('.');
             if (dot > 0) {
                 String pkg = name.substring(0, dot);
@@ -269,10 +316,79 @@ public final class GameClassLoader extends URLClassLoader {
                 }
             }
             CodeSource source = new CodeSource(URI.create(jarOf(res)).toURL(), (Certificate[]) null);
-            return defineClass(name, bytes, 0, bytes.length, source);
+            long d0 = System.nanoTime();
+            Class<?> defined = defineClass(name, bytes, 0, bytes.length, source);
+            ClassStats.DEFINE.add(System.nanoTime() - d0);
+            return defined;
         } catch (IOException e) {
             throw new ClassNotFoundException(name, e);
         }
+    }
+
+    private static final Map<String, Boolean> KNOWN_CLASSES = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final byte[] SYNTHETIC =
+            "org/spongepowered/asm/synthetic/".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+
+    /**
+     * True when a finished class points at a class that Mixin makes on demand (Args helpers, inner classes
+     * of a mixin). Mixin only makes those while it applies the mixin, so a cached copy of this class
+     * would find nothing on a warm launch. Such classes always run through Mixin.
+     * Any doubt counts as true.
+     */
+    private boolean referencesGenerated(byte[] bytes) {
+        try {
+            if (indexOf(bytes, SYNTHETIC) >= 0) {
+                return true;
+            }
+            org.objectweb.asm.ClassReader reader = new org.objectweb.asm.ClassReader(bytes);
+            char[] buf = new char[reader.getMaxStringLength()];
+            for (int i = 1; i < reader.getItemCount(); i++) {
+                int off = reader.getItem(i);
+                if (off < 1 || reader.readByte(off - 1) != 7) {
+                    continue;
+                }
+                String n = reader.readClass(off, buf);
+                if (n.startsWith("[")) {
+                    int l = n.indexOf('L');
+                    if (l < 0 || !n.endsWith(";")) {
+                        continue;
+                    }
+                    n = n.substring(l + 1, n.length() - 1);
+                }
+                if (n.indexOf('$') < 0 || n.startsWith("java/") || n.startsWith("javax/")
+                        || n.startsWith("jdk/") || n.startsWith("sun/")) {
+                    continue;
+                }
+                Boolean known = KNOWN_CLASSES.get(n);
+                if (known == null) {
+                    known = getResource(n + ".class") != null;
+                    KNOWN_CLASSES.put(n, known);
+                }
+                if (!known) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (RuntimeException e) {
+            return true;
+        }
+    }
+
+    private static int indexOf(byte[] data, byte[] pattern) {
+        int last = data.length - pattern.length;
+        outer:
+        for (int i = 0; i <= last; i++) {
+            if (data[i] != pattern[0]) {
+                continue;
+            }
+            for (int j = 1; j < pattern.length; j++) {
+                if (data[i + j] != pattern[j]) {
+                    continue outer;
+                }
+            }
+            return i;
+        }
+        return -1;
     }
 
     private final Map<String, java.util.Optional<java.util.jar.Manifest>> manifests =

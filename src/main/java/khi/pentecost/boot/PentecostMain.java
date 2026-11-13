@@ -238,6 +238,8 @@ public final class PentecostMain {
         }
         MixinHost.start(loader, usable);
         khi.pentecost.core.Timeline.step("Mixin started");
+        loader.useCache(khi.pentecost.loader.ClassCache.openFor(loader, khi.pentecost.control.Choices.launchFingerprint()));
+        khi.pentecost.core.Timeline.step("class cache opened");
         return runner;
     }
 
