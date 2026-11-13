@@ -148,6 +148,14 @@ final class MenuView {
                 label = clean(source.getMessage().getString());
                 enabled = source.active;
                 action = source::onPress;
+                if (key.equals("menu.shareToLan")
+                        && !khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.VANILLA_SETTINGS)) {
+                    // World Wide Local Server replaces Open to LAN. The entry stays open while sharing,
+                    // so the code and Stop sharing are one click away.
+                    label = "Open to friends";
+                    enabled = true;
+                    action = () -> mc.setScreen(new WwlsScreen(screen));
+                }
             } else {
                 continue;
             }
