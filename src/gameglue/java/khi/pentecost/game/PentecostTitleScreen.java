@@ -18,7 +18,7 @@ import java.util.Map;
  * still find it. Pentecost draws its own layout on top.
  */
 public final class PentecostTitleScreen extends TitleScreen {
-    private static final List<String> MAIN = List.of("menu.singleplayer", "menu.multiplayer", MenuView.MODS,
+    private static final List<String> MAIN = List.of("menu.singleplayer", "menu.multiplayer", MenuView.FRIENDS, MenuView.MODS,
             MenuView.SETTINGS, "menu.options", MenuView.ACCOUNT, "menu.quit");
     private static final Map<String, String> LINKS = new LinkedHashMap<>();
     static {

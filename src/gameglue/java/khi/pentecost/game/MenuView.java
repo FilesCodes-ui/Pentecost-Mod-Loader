@@ -35,6 +35,8 @@ final class MenuView {
     static final String SETTINGS = "pentecost.settings";
     /** The Account entry. Opens the sign in screen. */
     static final String ACCOUNT = "pentecost.account";
+    /** The Join a friend entry. Opens World Wide Local Server. */
+    static final String FRIENDS = "pentecost.friends";
 
     private record ModButton(String modId, String label, AbstractButton source) {}
 
@@ -133,6 +135,9 @@ final class MenuView {
             if (key.equals(MODS)) {
                 label = "Mods";
                 action = () -> mc.setScreen(new PentecostModsScreen(screen));
+            } else if (key.equals(FRIENDS)) {
+                label = "Join a friend";
+                action = () -> mc.setScreen(new WwlsScreen(screen));
             } else if (key.equals(ACCOUNT)) {
                 label = Account.signedIn() ? Account.name() : "Sign in";
                 action = () -> mc.setScreen(new PentecostLoginScreen(screen, null, null));

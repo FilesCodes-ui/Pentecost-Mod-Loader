@@ -16,11 +16,56 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.LinkedHashMap;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.OptionInstance;
 import java.util.stream.Stream;
 
 /** Saved setups. Each is one .json file holding every Pentecost setting that differs from the default. */
 final class Profiles {
     private Profiles() {}
+
+
+    /** The game's own options a setup remembers, stored as game.name. */
+    private static Map<String, OptionInstance<?>> gameOptions() {
+        net.minecraft.client.Options o = Minecraft.getInstance().options;
+        Map<String, OptionInstance<?>> m = new LinkedHashMap<>();
+        m.put("renderDistance", o.renderDistance());
+        m.put("simulationDistance", o.simulationDistance());
+        m.put("entityDistanceScaling", o.entityDistanceScaling());
+        m.put("framerateLimit", o.framerateLimit());
+        m.put("enableVsync", o.enableVsync());
+        m.put("fov", o.fov());
+        m.put("guiScale", o.guiScale());
+        m.put("biomeBlendRadius", o.biomeBlendRadius());
+        m.put("mipmapLevels", o.mipmapLevels());
+        m.put("graphicsMode", o.graphicsMode());
+        m.put("particles", o.particles());
+        m.put("cloudStatus", o.cloudStatus());
+        return m;
+    }
+
+    private static String text(Object v) {
+        return v instanceof Enum<?> e ? e.name() : String.valueOf(v);
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static void setOption(OptionInstance option, String value) {
+        Object now = option.get();
+        Object next;
+        if (now instanceof Integer) {
+            next = Integer.valueOf(value);
+        } else if (now instanceof Double) {
+            next = Double.valueOf(value);
+        } else if (now instanceof Boolean) {
+            next = Boolean.valueOf(value);
+        } else if (now instanceof Enum<?> e) {
+            next = Enum.valueOf(e.getDeclaringClass(), value);
+        } else {
+            return;
+        }
+        option.set(next);
+    }
 
     static Path folder() {
         return Dirs.mk(Dirs.config().resolve("pentecost").resolve("profiles"));
@@ -46,6 +91,11 @@ final class Profiles {
         JsonObject root = new JsonObject();
         Settings.snapshot().forEach(root::addProperty);
         try {
+            gameOptions().forEach((k, v) -> root.addProperty("game." + k, text(v.get())));
+        } catch (RuntimeException e) {
+            Log.error("Cannot read game options for the setup: " + e);
+        }
+        try {
             Files.writeString(folder().resolve("Setup " + n + ".json"),
                     new GsonBuilder().setPrettyPrinting().create().toJson(root), StandardCharsets.UTF_8);
         } catch (IOException e) {
@@ -63,7 +113,29 @@ final class Profiles {
                     values.put(e.getKey(), e.getValue().getAsString());
                 }
             }
-            Settings.restore(values);
+            Map<String, String> own = new TreeMap<>();
+            Map<String, String> game = new TreeMap<>();
+            values.forEach((k, v) -> {
+                if (k.startsWith("game.")) {
+                    game.put(k.substring(5), v);
+                } else {
+                    own.put(k, v);
+                }
+            });
+            Settings.restore(own);
+            Map<String, OptionInstance<?>> options = gameOptions();
+            game.forEach((k, v) -> {
+                OptionInstance<?> option = options.get(k);
+                if (option == null) {
+                    return;
+                }
+                try {
+                    setOption(option, v);
+                } catch (RuntimeException e) {
+                    Log.error("Setup value " + k + " not applied: " + e);
+                }
+            });
+            Minecraft.getInstance().options.save();
         } catch (IOException | RuntimeException e) {
             Log.error("Cannot read setup " + name + ": " + e);
         }

@@ -145,13 +145,31 @@ final class SoundControl implements ClientHooks.Gate {
         Settings.set(key, String.join(",", set));
     }
 
+    private static void stopPlaying(java.util.function.Predicate<String> match) {
+        net.minecraft.client.sounds.SoundManager manager = net.minecraft.client.Minecraft.getInstance().getSoundManager();
+        for (String id : new ArrayList<>(SOUNDS.keySet())) {
+            if (match.test(id)) {
+                net.minecraft.resources.ResourceLocation rl = net.minecraft.resources.ResourceLocation.tryParse(id);
+                if (rl != null) {
+                    manager.stop(rl, null);
+                }
+            }
+        }
+    }
+
     static void toggleMod(String mod) {
         flip(Settings.SOUND_MUTED_MODS, mod);
         refreshed = 0;
+        if (modMuted(mod)) {
+            stopPlaying(id -> id.startsWith(mod + ":"));
+        }
     }
 
     static void toggleSound(String id) {
         flip(Settings.SOUND_MUTED, id);
         refreshed = 0;
+        if (soundMuted(id)) {
+            stopPlaying(id::equals);
+        }
     }
 }
