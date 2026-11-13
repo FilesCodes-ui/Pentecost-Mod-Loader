@@ -24,4 +24,4 @@ Pentecost is in active development. Version 1 targets Minecraft 1.20.1 on Java 2
 
 ## Contact
 
-Project lead: Gabriel, Kilo-Heat Industrialists.
+Project lead: Files
