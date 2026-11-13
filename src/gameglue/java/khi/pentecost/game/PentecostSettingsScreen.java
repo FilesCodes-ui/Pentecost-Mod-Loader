@@ -128,6 +128,9 @@ public final class PentecostSettingsScreen extends Screen {
                 this::videoFolders, List.of(), this::videoShortcuts));
         pages.add(new Page("Shaders", "Pick a shader pack, or Off. Pentecost drives Oculus (Forge) or Iris (Fabric).",
                 this::shaderFolders, List.of(), this::shaderShortcuts));
+        pages.add(new Page("Shader pack", "The options of the pack in use, grouped the way the pack groups them. "
+                + "Changes wait until you press Apply, then the pack reloads once.",
+                this::packFolders, List.of(), this::packShortcuts));
         pages.add(planned("Performance", "Launch cache", "Chunk building threads", "Far mob throttle", "Virtual threads on Java 25"));
         pages.add(planned("Java", "Memory", "Garbage collector", "Extra flags", "Java version"));
         pages.add(planned("Gameplay", "Faster mobs", "Smarter mobs", "Stall warning"));
@@ -217,12 +220,123 @@ public final class PentecostSettingsScreen extends Screen {
         return List.of(new Folder("Packs", rows));
     }
 
+    private void openPage(String name) {
+        for (int i = 0; i < pages.size(); i++) {
+            if (pages.get(i).name().equals(name)) {
+                built.remove(i);
+                page = i;
+                scroll = 0;
+                return;
+            }
+        }
+    }
+
+    /** Last profile picked on the Shader pack page, shown until the pack changes. */
+    private String shaderProfile = "Pick one";
+
+    private List<Folder> packFolders() {
+        List<Folder> out = new ArrayList<>();
+        if (!ExternalOptions.hasShaders()) {
+            out.add(new Folder("Pack", List.of(Row.info("Shaders", "Install Oculus (Forge) or Iris (Fabric)"))));
+            return out;
+        }
+        List<ExternalOptions.ShaderScreen> screens = ExternalOptions.shaderMenu();
+        if (screens.isEmpty()) {
+            out.add(new Folder("Pack", List.of(Row.info("No pack in use", "Pick one on the Shaders page"))));
+            return out;
+        }
+        Map<String, Integer> index = new HashMap<>();
+        for (int i = 0; i < screens.size(); i++) {
+            index.put(screens.get(i).id(), i);
+        }
+        for (ExternalOptions.ShaderScreen sc : screens) {
+            List<Row> rows = new ArrayList<>();
+            for (ExternalOptions.ShaderEntry en : sc.entries()) {
+                String about = en.about().isEmpty() ? "An option of this shader pack." : en.about();
+                switch (en.kind()) {
+                    case "bool" -> rows.add(new Row(Kind.SWITCH, en.label(), firstLine(about), about, "On apply", null,
+                            () -> "true".equals(ExternalOptions.shaderValue(en.id(), true)),
+                            () -> ExternalOptions.setShaderValue(en.id(),
+                                    "true".equals(ExternalOptions.shaderValue(en.id(), true)) ? "false" : "true"),
+                            null, () -> true));
+                    case "string" -> rows.add(new Row(Kind.CHOICE, en.label(), firstLine(about), about, "On apply",
+                            () -> ExternalOptions.shaderValueLabel(en.id(), ExternalOptions.shaderValue(en.id(), false)),
+                            null, () -> {
+                                List<String> values = en.values();
+                                if (values.isEmpty()) {
+                                    return;
+                                }
+                                int at = values.indexOf(ExternalOptions.shaderValue(en.id(), false));
+                                ExternalOptions.setShaderValue(en.id(), values.get((at + 1) % values.size()));
+                            }, null, () -> true));
+                    case "link" -> {
+                        Integer target = index.get(en.id());
+                        if (target != null) {
+                            rows.add(new Row(Kind.BUTTON, en.label(), en.about().isEmpty() ? "A group of options." : firstLine(en.about()),
+                                    en.about().isEmpty() ? "Opens this group of options." : en.about(), "", () -> "Open", null,
+                                    () -> {
+                                        folderOf.put(page, target);
+                                        scroll = 0;
+                                    }, null, () -> true));
+                        }
+                    }
+                    case "profile" -> rows.add(new Row(Kind.CHOICE, en.label(), firstLine(about), about, "On apply",
+                            () -> shaderProfile, null, () -> {
+                                List<String> names = en.values();
+                                int at = names.indexOf(shaderProfile);
+                                shaderProfile = names.get((at + 1) % names.size());
+                                ExternalOptions.useShaderProfile(shaderProfile);
+                            }, null, () -> true));
+                    default -> { }
+                }
+            }
+            if (!rows.isEmpty()) {
+                out.add(new Folder(sc.title(), rows));
+            }
+        }
+        if (out.isEmpty()) {
+            out.add(new Folder("Pack", List.of(Row.info("This pack", "Has no options"))));
+        }
+        return out;
+    }
+
+    private static String firstLine(String s) {
+        int dot = s.indexOf(". ");
+        String line = dot > 0 ? s.substring(0, dot + 1) : s;
+        return line.length() > 90 ? line.substring(0, 87) + "..." : line;
+    }
+
+    private List<Shortcut> packShortcuts() {
+        if (!ExternalOptions.hasShaders()) {
+            return List.of();
+        }
+        int waiting = ExternalOptions.pendingShaderChanges();
+        List<Shortcut> out = new ArrayList<>();
+        out.add(new Shortcut(waiting > 0 ? "Apply " + waiting + (waiting == 1 ? " change" : " changes") : "Apply", () -> {
+            ExternalOptions.applyShaderChanges();
+            built.remove(page);
+        }));
+        if (waiting > 0) {
+            out.add(new Shortcut("Undo changes", () -> {
+                ExternalOptions.discardShaderChanges();
+                built.remove(page);
+            }));
+        }
+        out.add(new Shortcut("Reset to defaults", () -> {
+            ExternalOptions.resetShaderOptions();
+            shaderProfile = "Pick one";
+            built.remove(page);
+        }));
+        out.add(new Shortcut("Back to packs", () -> openPage("Shaders")));
+        return out;
+    }
+
     private List<Shortcut> shaderShortcuts() {
         if (!ExternalOptions.hasShaders()) {
             return List.of();
         }
         return List.of(
-                new Shortcut("Pack settings", () -> ExternalOptions.openPackSettings(this)),
+                new Shortcut("Pack settings", () -> openPage("Shader pack")),
                 new Shortcut("Shader folder", () -> {
                     java.nio.file.Path dir = ExternalOptions.packFolder();
                     if (dir != null) {

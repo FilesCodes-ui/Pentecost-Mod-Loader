@@ -11,7 +11,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 
@@ -329,6 +331,214 @@ final class ExternalOptions {
     }
 
     /** Oculus's own screen, for the chosen pack's settings. */
+    // ---------------------------------------------------------------- shader pack options
+
+    /** One entry of a shader pack's option menu. kind: bool, string, link, profile. */
+    record ShaderEntry(String kind, String id, String label, String about, List<String> values) {}
+
+    /** One screen of a shader pack's option menu: the main screen or a group it links to. */
+    record ShaderScreen(String id, String title, List<ShaderEntry> entries) {}
+
+    /** Option name to its menu element, for the values the pack runs with now. */
+    private static final Map<String, Object> ELEMENTS = new HashMap<>();
+    private static Map<String, String> words = Map.of();
+    private static Object profileSet;
+
+    /** The current pack's option menu, as Pentecost rows. Empty when no pack is in use. */
+    static List<ShaderScreen> shaderMenu() {
+        List<ShaderScreen> out = new ArrayList<>();
+        ELEMENTS.clear();
+        profileSet = null;
+        try {
+            Class<?> iris = find(IRIS);
+            if (iris == null) {
+                return out;
+            }
+            Optional<?> pack = (Optional<?>) iris.getMethod("getCurrentPack").invoke(null);
+            if (pack.isEmpty()) {
+                return out;
+            }
+            Object sp = pack.get();
+            words = translations(sp);
+            Object container = sp.getClass().getMethod("getMenuContainer").invoke(sp);
+            Object main = container.getClass().getField("mainScreen").get(container);
+            Map<?, ?> subs = (Map<?, ?>) container.getClass().getField("subScreens").get(container);
+            out.add(screen("", "General", main));
+            for (Map.Entry<?, ?> e : subs.entrySet()) {
+                String id = String.valueOf(e.getKey());
+                out.add(screen(id, word("screen." + id, id), e.getValue()));
+            }
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            Log.error("Cannot read the shader pack's options: " + e);
+        }
+        return out;
+    }
+
+    private static ShaderScreen screen(String id, String title, Object screen) throws ReflectiveOperationException {
+        List<ShaderEntry> entries = new ArrayList<>();
+        List<?> elements = (List<?>) screen.getClass().getField("elements").get(screen);
+        for (Object el : elements) {
+            String type = el.getClass().getSimpleName();
+            switch (type) {
+                case "OptionMenuBooleanOptionElement", "OptionMenuStringOptionElement" -> {
+                    String name = (String) el.getClass().getField("optionId").get(el);
+                    Object option = el.getClass().getField("option").get(el);
+                    ELEMENTS.put(name, el);
+                    String about = word("option." + name + ".comment", "");
+                    Optional<?> comment = (Optional<?>) option.getClass().getMethod("getComment").invoke(option);
+                    if (about.isEmpty() && comment.isPresent()) {
+                        about = clean(String.valueOf(comment.get()));
+                    }
+                    if (type.startsWith("OptionMenuBoolean")) {
+                        entries.add(new ShaderEntry("bool", name, word("option." + name, name), about, List.of()));
+                    } else {
+                        List<String> values = new ArrayList<>();
+                        for (Object v : (List<?>) option.getClass().getMethod("getAllowedValues").invoke(option)) {
+                            values.add(String.valueOf(v));
+                        }
+                        entries.add(new ShaderEntry("string", name, word("option." + name, name), about, values));
+                    }
+                }
+                case "OptionMenuLinkElement" -> {
+                    String target = (String) el.getClass().getField("targetScreenId").get(el);
+                    entries.add(new ShaderEntry("link", target, word("screen." + target, target),
+                            word("screen." + target + ".comment", ""), List.of()));
+                }
+                case "OptionMenuProfileElement" -> {
+                    profileSet = el.getClass().getField("profiles").get(el);
+                    List<String> names = new ArrayList<>();
+                    profileSet.getClass().getMethod("forEach", java.util.function.BiConsumer.class)
+                            .invoke(profileSet, (java.util.function.BiConsumer<Object, Object>) (n, prof) -> names.add(String.valueOf(n)));
+                    if (!names.isEmpty()) {
+                        entries.add(new ShaderEntry("profile", "", "Profile",
+                                "A set of values chosen by the pack's author, from light to heavy.", names));
+                    }
+                }
+                default -> { }
+            }
+        }
+        return new ShaderScreen(id, clean(title), entries);
+    }
+
+    private static Map<String, String> translations(Object pack) {
+        try {
+            Object map = pack.getClass().getMethod("getLanguageMap").invoke(pack);
+            String code = Minecraft.getInstance().options.languageCode;
+            Map<String, String> t = (Map<String, String>) map.getClass().getMethod("getTranslations", String.class).invoke(map, code);
+            if (t == null || t.isEmpty()) {
+                t = (Map<String, String>) map.getClass().getMethod("getTranslations", String.class).invoke(map, "en_us");
+            }
+            return t == null ? Map.of() : t;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            return Map.of();
+        }
+    }
+
+    private static String word(String key, String fallback) {
+        String w = words.get(key);
+        return w == null ? fallback : clean(w);
+    }
+
+    /** Shader packs color their text with section signs. Pentecost's screens are black and white. */
+    private static String clean(String s) {
+        return s.replaceAll("\u00a7.", "").trim();
+    }
+
+    private static Map<String, String> queue() throws ReflectiveOperationException {
+        return (Map<String, String>) find(IRIS).getMethod("getShaderPackOptionQueue").invoke(null);
+    }
+
+    /** The value an option will have after Apply: a change waiting in line, or the value in use. */
+    static String shaderValue(String id, boolean bool) {
+        try {
+            String queued = queue().get(id);
+            if (queued != null) {
+                return queued;
+            }
+            Object el = ELEMENTS.get(id);
+            if (el == null) {
+                return "";
+            }
+            Object values = el.getClass().getMethod("getAppliedOptionValues").invoke(el);
+            return bool ? String.valueOf(values.getClass().getMethod("getBooleanValueOrDefault", String.class).invoke(values, id))
+                    : String.valueOf(values.getClass().getMethod("getStringValueOrDefault", String.class).invoke(values, id));
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            return "";
+        }
+    }
+
+    static void setShaderValue(String id, String value) {
+        try {
+            queue().put(id, value);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            Log.error("Cannot change the shader option " + id + ": " + e);
+        }
+    }
+
+    /** How the pack names a value of an option, or the value itself. */
+    static String shaderValueLabel(String id, String value) {
+        return word("value." + id + "." + value, value);
+    }
+
+    /** Puts a profile's values in line. They take effect on Apply. */
+    static void useShaderProfile(String name) {
+        try {
+            if (profileSet == null) {
+                return;
+            }
+            Object[] found = new Object[1];
+            profileSet.getClass().getMethod("forEach", java.util.function.BiConsumer.class)
+                    .invoke(profileSet, (java.util.function.BiConsumer<Object, Object>) (n, prof) -> {
+                        if (name.equals(String.valueOf(n))) {
+                            found[0] = prof;
+                        }
+                    });
+            if (found[0] != null) {
+                Class<?> profile = find("net.irisshaders.iris.shaderpack.option.Profile");
+                find(IRIS).getMethod("queueShaderPackOptionsFromProfile", profile).invoke(null, found[0]);
+            }
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            Log.error("Cannot use the shader profile " + name + ": " + e);
+        }
+    }
+
+    static int pendingShaderChanges() {
+        try {
+            return queue().size();
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            return 0;
+        }
+    }
+
+    /** Reloads the pack with the changes in line. Oculus saves them to the pack's settings file. */
+    static void applyShaderChanges() {
+        try {
+            find(IRIS).getMethod("reload").invoke(null);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            Log.error("Cannot apply the shader changes: " + e);
+        }
+    }
+
+    static void discardShaderChanges() {
+        try {
+            find(IRIS).getMethod("clearShaderPackOptionQueue").invoke(null);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            Log.error("Cannot discard the shader changes: " + e);
+        }
+    }
+
+    /** Every option back to the pack's own default, applied at once. */
+    static void resetShaderOptions() {
+        try {
+            Class<?> iris = find(IRIS);
+            iris.getMethod("clearShaderPackOptionQueue").invoke(null);
+            iris.getMethod("resetShaderPackOptionsOnNextReload").invoke(null);
+            iris.getMethod("reload").invoke(null);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            Log.error("Cannot reset the shader options: " + e);
+        }
+    }
+
     static void openPackSettings(Screen parent) {
         try {
             Class<?> c = find("net.irisshaders.iris.gui.screen.ShaderPackScreen");
