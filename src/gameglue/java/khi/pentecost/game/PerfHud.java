@@ -26,6 +26,8 @@ public final class PerfHud {
     private static boolean exportTested;
     private static long lastFrame;
     private static double frameMs;
+    private static final double[] HIST = new double[240];
+    private static int histAt;
 
     private PerfHud() {}
 
@@ -34,7 +36,9 @@ public final class PerfHud {
         Minecraft mc = Minecraft.getInstance();
         long now = System.nanoTime();
         if (lastFrame != 0) {
-            frameMs = frameMs * 0.9 + (now - lastFrame) / 1_000_000.0 * 0.1;
+            double instant = (now - lastFrame) / 1_000_000.0;
+            frameMs = frameMs * 0.9 + instant * 0.1;
+            HIST[histAt++ % HIST.length] = instant;
         }
         lastFrame = now;
         if (mc.level != null) {
@@ -78,7 +82,6 @@ public final class PerfHud {
                 fabric++;
             }
         }
-        rows.add(new String[]{"Frames", mc.getFps() + " fps   " + String.format("%.1f ms", frameMs)});
         rows.add(new String[]{"Memory", used + " / " + max + " MB"});
         rows.add(new String[]{"Mods", forge + " Forge   " + fabric + " Fabric and Quilt"});
         rows.add(null);
@@ -104,8 +107,10 @@ public final class PerfHud {
                 valueW = Math.max(valueW, font.width(r[1]));
             }
         }
-        int w = labelW + valueW + 28;
-        int h = 22 + rows.size() * 11;
+        int w = Math.max(176, labelW + valueW + 40);
+        int bigH = 30;
+        int sparkH = 22;
+        int h = 15 + bigH + 2 + sparkH + 4 + rows.size() * 10;
         float slide = 1f - (1f - e) * (1f - e);
         int x = vw - w - 8 + Math.round((1f - slide) * (w + 16));
         int y = 8;
@@ -118,16 +123,51 @@ public final class PerfHud {
         g.pose().pushPose();
         g.pose().translate(0, 0, 210);
         g.pose().scale(ui, ui, 1);
-        g.fill(x, y, x + w, y + h, fade(0xD00A0A0B, alpha));
-        text(g, font, "Pentecost " + PentecostMain.VERSION, x + 8, y + 6, fade(0xFFF2F2F2, alpha));
-        g.fill(x + 8, y + 17, x + w - 8, y + 18, fade(0x24FFFFFF, alpha));
-        int ry = y + 22;
+        int back = fade(0xB00A0A0B, alpha);
+        // A white label with black letters, flush right, like a terminal's title bar.
+        String title = "PENTECOST " + PentecostMain.VERSION;
+        int tw = font.width(title) + 8;
+        g.fill(x + w - tw, y, x + w, y + 11, fade(0xFFF2F2F2, alpha));
+        text(g, font, title, x + w - tw + 4, y + 2, fade(0xFF0A0A0B, alpha));
+        int cy = y + 15;
+        // The frame rate, large, with the frame time beside it.
+        String fps = String.valueOf(mc.getFps());
+        g.fill(x, cy, x + w, cy + bigH, back);
+        Ui.text(g, font, fps, x + 6, cy + 3, fade(0xFFF2F2F2, alpha), 3f);
+        int afterBig = x + 10 + font.width(fps) * 3;
+        text(g, font, "fps", afterBig, cy + bigH - 12, fade(0xFF636363, alpha));
+        String ms = String.format("%.1f ms", frameMs);
+        text(g, font, ms, x + w - 6 - font.width(ms), cy + bigH - 12, fade(0xFF9A9A9A, alpha));
+        // The last frames as thin bars. The dotted line is 60 frames a second.
+        int sy = cy + bigH + 2;
+        g.fill(x, sy, x + w, sy + sparkH, back);
+        int samples = (w - 4) / 2;
+        for (int i = 0; i < samples; i++) {
+            double v = HIST[Math.floorMod(histAt - samples + i, HIST.length)];
+            if (v <= 0) {
+                continue;
+            }
+            int bh = (int) Math.min(sparkH - 2, v / 33.3 * (sparkH - 2));
+            int bx = x + 2 + i * 2;
+            g.fill(bx, sy + sparkH - 1 - Math.max(1, bh), bx + 1, sy + sparkH - 1,
+                    fade(v > 25 ? 0xFFF2F2F2 : 0xFF9A9A9A, alpha));
+        }
+        int line60 = sy + sparkH - 1 - (int) (16.7 / 33.3 * (sparkH - 2));
+        for (int dx = x + 2; dx < x + w - 2; dx += 6) {
+            g.fill(dx, line60, dx + 2, line60 + 1, fade(0x66FFFFFF, alpha));
+        }
+        int ry = sy + sparkH + 4;
         for (String[] r : rows) {
             if (r != null) {
-                text(g, font, r[0], x + 8, ry, fade(0xFF9A9A9A, alpha));
-                text(g, font, r[1], x + w - 8 - font.width(r[1]), ry, fade(0xFFF2F2F2, alpha));
+                g.fill(x, ry, x + w, ry + 9, back);
+                text(g, font, r[0], x + 6, ry + 1, fade(0xFF9A9A9A, alpha));
+                text(g, font, r[1], x + w - 6 - font.width(r[1]), ry + 1, fade(0xFFF2F2F2, alpha));
+                // Dots lead the eye from the label to its value.
+                for (int dx = x + 6 + font.width(r[0]) + 6; dx < x + w - 6 - font.width(r[1]) - 6; dx += 4) {
+                    g.fill(dx, ry + 6, dx + 1, ry + 7, fade(0xFF3A3A3A, alpha));
+                }
             }
-            ry += 11;
+            ry += 10;
         }
         g.pose().popPose();
         g.flush();

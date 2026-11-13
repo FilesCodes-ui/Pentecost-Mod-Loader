@@ -278,8 +278,9 @@ final class DebugView {
     }
 
     /**
-     * Draws one panel. x is the left edge, or the right edge when alignRight. slide: 0 hidden off the side,
-     * 1 in place. Returns the bottom.
+     * Draws one block. x is the left edge, or the right edge when alignRight. slide: 0 hidden off the side,
+     * 1 in place. Returns the bottom. No box: a white label, then each line on its own dark strip that is
+     * only as wide as its text, like selected text in a terminal.
      */
     private static int panel(GuiGraphics g, Font font, Panel p, int x, int y, boolean alignRight, int vw,
                              float slide, int alpha) {
@@ -288,30 +289,34 @@ final class DebugView {
         for (Line l : p.lines()) {
             keyW = Math.max(keyW, font.width(l.key()));
         }
-        int width = font.width(p.title());
+        keyW = Math.min(keyW, maxW / 2);
+        int width = font.width(p.title()) + 8;
         for (Line l : p.lines()) {
-            int w = (l.key().isEmpty() ? 0 : keyW + 10) + font.width(l.value());
-            width = Math.max(width, w);
+            int w = (l.key().isEmpty() ? 0 : keyW + 8) + font.width(l.value()) + 8;
+            width = Math.max(width, Math.min(maxW, w));
         }
-        width = Math.min(maxW, width) + 16;
-        int height = 18 + p.lines().size() * 11 + 4;
+        int height = 12 + p.lines().size() * 10;
         int shift = Math.round((1f - slide) * (width + 16));
-        int x1 = alignRight ? x - width + shift : x - shift;
         if (alpha < 8) {
             return y + height;
         }
-        g.fill(x1, y, x1 + width, y + height, fade(0xB40A0A0B, alpha));
-        g.fill(x1, y, x1 + 2, y + height, fade(Ui.TEXT, alpha));
-        text(g, font, p.title(), x1 + 8, y + 6, fade(Ui.FAINT, alpha));
-        int ly = y + 18;
+        int tw = font.width(p.title()) + 8;
+        int tx = alignRight ? x - tw + shift : x - shift;
+        g.fill(tx, y, tx + tw, y + 11, fade(Ui.TEXT, alpha));
+        text(g, font, p.title(), tx + 4, y + 2, fade(Ui.BLACK, alpha));
+        int ly = y + 12;
         for (Line l : p.lines()) {
-            int vx = x1 + 8;
+            String value = font.plainSubstrByWidth(l.value(), maxW - (l.key().isEmpty() ? 0 : keyW + 8) - 8);
+            int lw = (l.key().isEmpty() ? 0 : keyW + 8) + font.width(value) + 8;
+            int lx = alignRight ? x - lw + shift : x - shift;
+            g.fill(lx, ly, lx + lw, ly + 10, fade(0xB40A0A0B, alpha));
+            int vx = lx + 4;
             if (!l.key().isEmpty()) {
-                text(g, font, l.key(), vx, ly, fade(Ui.MUTED, alpha));
-                vx += keyW + 10;
+                text(g, font, font.plainSubstrByWidth(l.key(), keyW), vx, ly + 1, fade(Ui.FAINT, alpha));
+                vx += keyW + 8;
             }
-            text(g, font, font.plainSubstrByWidth(l.value(), x1 + width - 8 - vx), vx, ly, fade(Ui.TEXT, alpha));
-            ly += 11;
+            text(g, font, value, vx, ly + 1, fade(Ui.TEXT, alpha));
+            ly += 10;
         }
         return y + height;
     }
