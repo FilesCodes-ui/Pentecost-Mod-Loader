@@ -301,8 +301,7 @@ final class DebugView {
             return y + height;
         }
         int tw = font.width(p.title()) + 8;
-        // Left column: the label sits at the block's right end. Right column: flush right, as before.
-        int tx = alignRight ? x - tw + shift : x - shift + width - tw;
+        int tx = alignRight ? x - tw + shift : x - shift;
         g.fill(tx, y, tx + tw, y + 11, fade(Ui.TEXT, alpha));
         text(g, font, p.title(), tx + 4, y + 2, fade(Ui.BLACK, alpha));
         int ly = y + 12;
@@ -311,12 +310,23 @@ final class DebugView {
             int lw = (l.key().isEmpty() ? 0 : keyW + 8) + font.width(value) + 8;
             int lx = alignRight ? x - lw + shift : x - shift;
             g.fill(lx, ly, lx + lw, ly + 10, fade(0xB40A0A0B, alpha));
-            int vx = lx + 4;
-            if (!l.key().isEmpty()) {
-                text(g, font, font.plainSubstrByWidth(l.key(), keyW), vx, ly + 1, fade(Ui.FAINT, alpha));
-                vx += keyW + 8;
+            if (alignRight) {
+                // Mirrored: the key sits against the right edge and the value to its left.
+                int right = lx + lw - 4;
+                if (!l.key().isEmpty()) {
+                    String key = font.plainSubstrByWidth(l.key(), keyW);
+                    text(g, font, key, right - font.width(key), ly + 1, fade(Ui.FAINT, alpha));
+                    right -= keyW + 8;
+                }
+                text(g, font, value, right - font.width(value), ly + 1, fade(Ui.TEXT, alpha));
+            } else {
+                int vx = lx + 4;
+                if (!l.key().isEmpty()) {
+                    text(g, font, font.plainSubstrByWidth(l.key(), keyW), vx, ly + 1, fade(Ui.FAINT, alpha));
+                    vx += keyW + 8;
+                }
+                text(g, font, value, vx, ly + 1, fade(Ui.TEXT, alpha));
             }
-            text(g, font, value, vx, ly + 1, fade(Ui.TEXT, alpha));
             ly += 10;
         }
         return y + height;
