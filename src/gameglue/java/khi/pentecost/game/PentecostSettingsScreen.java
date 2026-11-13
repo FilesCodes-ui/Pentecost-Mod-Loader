@@ -77,6 +77,11 @@ public final class PentecostSettingsScreen extends Screen {
     private double lastMouseX;
     private String dragKey;
     private Row hovered;
+    /** A choice waiting for the arrow to land. It applies after the glide, so the reload never freezes the arrow. */
+    private Row pickPending;
+    private int pickPage = -1;
+    private long pickSince;
+    private boolean pickReady;
     /** Embeddium's screen, built but not shown: holds its option pages and its apply step. */
     private Object embeddium;
 
@@ -211,7 +216,15 @@ public final class PentecostSettingsScreen extends Screen {
         }
         rows.add(Row.pick("Off", "No shader pack. The game's own look.", () -> !ExternalOptions.shadersOn(),
                 () -> ExternalOptions.setShaders(false)));
+        if (ExternalOptions.installBundledPack()) {
+            rows.add(Row.pick("Pentecost shaders", "Made for Pentecost. Sun and moon shadows, warm torches, softer colors.",
+                    () -> ExternalOptions.shadersOn() && ExternalOptions.BUNDLED_PACK.equals(ExternalOptions.currentPack()),
+                    ExternalOptions::usePentecostPack));
+        }
         for (String pack : ExternalOptions.packs()) {
+            if (ExternalOptions.BUNDLED_PACK.equals(pack)) {
+                continue;
+            }
             String shown = pack.endsWith(".zip") ? pack.substring(0, pack.length() - 4) : pack;
             rows.add(Row.pick(shown, pack.endsWith(".zip") ? "Zip pack." : "Folder pack.",
                     () -> ExternalOptions.shadersOn() && pack.equals(ExternalOptions.currentPack()),
@@ -377,6 +390,10 @@ public final class PentecostSettingsScreen extends Screen {
             return List.of();
         }
         return List.of(
+                new Shortcut("Use Pentecost shaders", () -> {
+                    ExternalOptions.usePentecostPack();
+                    built.remove(page);
+                }),
                 new Shortcut("Pack settings", () -> openPage("Shader pack")),
                 new Shortcut("Shader folder", () -> {
                     java.nio.file.Path dir = ExternalOptions.packFolder();
@@ -391,11 +408,34 @@ public final class PentecostSettingsScreen extends Screen {
 
     @Override
     public void onClose() {
+        runPendingPick();
         minecraft.setScreen(parent);
+    }
+
+    /** Marks a choice. The arrow moves now, the choice applies a frame after the arrow settles. */
+    private void choosePick(Row r) {
+        pickPending = r;
+        pickPage = page;
+        pickSince = System.nanoTime();
+        pickReady = false;
+    }
+
+    private void runPendingPick() {
+        Row r = pickPending;
+        pickPending = null;
+        pickPage = -1;
+        pickReady = false;
+        if (r != null && r.action() != null) {
+            r.action().run();
+        }
     }
 
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+        if (pickPending != null && (pickReady || pickPage != page
+                || System.nanoTime() - pickSince > 600_000_000L)) {
+            runPendingPick();
+        }
         g.fill(0, 0, width, height, minecraft.level == null ? 0xFF0A0A0B : 0xD80A0A0B);
         Ui.dither(g, width, height);
         float ui = Ui.scale(minecraft);
@@ -530,7 +570,9 @@ public final class PentecostSettingsScreen extends Screen {
         int pickTarget = -1;
         for (Row r : rows) {
             if (r.kind() == Kind.PICK) {
-                if (r.on().getAsBoolean()) {
+                boolean chosen = pickPending != null && pickPage == page
+                        ? pickPending.title().equals(r.title()) : r.on().getAsBoolean();
+                if (chosen) {
                     pickTarget = py;
                 }
                 py = pick(g, r, cx, py, cw, mx, my, rowsTop, bottom);
@@ -540,8 +582,13 @@ public final class PentecostSettingsScreen extends Screen {
         }
         if (picks && pickTarget >= 0) {
             // The arrow glides to the chosen button.
-            float ay = Ui.ease("settings:pick:" + page, pickTarget + (int) scroll, 14f) - (int) scroll;
-            arrow(g, cx + 10, Math.round(ay) + 8, Ui.TEXT);
+            float eased = Ui.ease("settings:pick:" + page, pickTarget + (int) scroll, 14f);
+            float ay = eased - (int) scroll;
+            arrow(g, cx + 10, Math.round(ay) + 12, Ui.TEXT);
+            if (pickPending != null && (Math.abs(eased - (pickTarget + (int) scroll)) < 0.6f
+                    || System.nanoTime() - pickSince > 400_000_000L)) {
+                pickReady = true;
+            }
         }
         if (!p.planned().isEmpty()) {
             g.drawString(font, "COMING", cx, py + 4, Ui.FAINT, false);
@@ -648,7 +695,8 @@ public final class PentecostSettingsScreen extends Screen {
         boolean visible = y + 24 > top && y < bottom;
         boolean inside = my >= top && my < bottom;
         boolean hover = visible && inside && Ui.over(mx, my, x, y, w, 24);
-        boolean on = r.on().getAsBoolean();
+        boolean on = pickPending != null && pickPage == page
+                ? pickPending.title().equals(r.title()) : r.on().getAsBoolean();
         if (hover) {
             hovered = r;
             g.fill(x, y, x + w, y + 24, Ui.HOVER);
@@ -660,7 +708,7 @@ public final class PentecostSettingsScreen extends Screen {
             g.drawString(font, tag, x + w - 10 - font.width(tag), y + 8, Ui.FAINT, false);
         }
         if (visible && inside) {
-            hits.add(new Hit(x, Math.max(y, top), w, Math.min(y + 24, bottom) - Math.max(y, top), r.action()));
+            hits.add(new Hit(x, Math.max(y, top), w, Math.min(y + 24, bottom) - Math.max(y, top), () -> choosePick(r)));
         }
         return y + 28;
     }

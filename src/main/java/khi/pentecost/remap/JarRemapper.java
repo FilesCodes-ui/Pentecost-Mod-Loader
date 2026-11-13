@@ -38,7 +38,11 @@ public final class JarRemapper {
             Enumeration<? extends ZipEntry> en = z.entries();
             while (en.hasMoreElements()) {
                 ZipEntry e = en.nextElement();
-                if (e.isDirectory() || isSignature(e.getName())) {
+                if (isSignature(e.getName())) {
+                    continue;
+                }
+                if (e.isDirectory()) {
+                    entries.add(Map.entry(e.getName(), new byte[0]));
                     continue;
                 }
                 try (InputStream is = z.getInputStream(e)) {

@@ -732,6 +732,104 @@ public final class Hooks {
         };
     }
 
+    /** Fabric API's HudRenderCallback: {event, invoker method, call method}. Null until found, or without Fabric API. */
+    private static volatile Object[] hudCallback;
+    private static volatile boolean hudCallbackLooked;
+
+    /**
+     * Called at the end of Forge's HUD draw. Forge's HUD never runs the vanilla Gui.render,
+     * which is where Fabric API fires HudRenderCallback, so Pentecost fires it here, once, for every Fabric HUD mod.
+     */
+    public static void hudRender(Object graphics, float partialTick) {
+        Object[] cb = hudCallback;
+        if (cb == null) {
+            if (hudCallbackLooked) {
+                return;
+            }
+            hudCallbackLooked = true;
+            cb = resolveHudCallback();
+            if (cb == null) {
+                return;
+            }
+            hudCallback = cb;
+        }
+        try {
+            Object invoker = ((java.lang.reflect.Method) cb[1]).invoke(cb[0]);
+            ((java.lang.reflect.Method) cb[2]).invoke(invoker, graphics, partialTick);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            hudCallback = null;
+            Throwable why = e.getCause() != null ? e.getCause() : e;
+            Log.error("Fabric HUD callbacks failed and were turned off: " + why);
+        }
+    }
+
+    private static Object[] resolveHudCallback() {
+        ClassLoader cl = PentecostRuntime.loader;
+        if (cl == null) {
+            hudCallbackLooked = false;
+            return null;
+        }
+        try {
+            Class<?> cb = Class.forName("net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback", false, cl);
+            Object event = cb.getField("EVENT").get(null);
+            java.lang.reflect.Method invoker = event.getClass().getMethod("invoker");
+            java.lang.reflect.Method call = null;
+            for (java.lang.reflect.Method m : cb.getMethods()) {
+                if (m.getName().equals("onHudRender")) {
+                    call = m;
+                }
+            }
+            if (call == null) {
+                return null;
+            }
+            Log.info("Forge layer: Pentecost fires Fabric HUD callbacks after Forge's HUD");
+            return new Object[]{event, invoker, call};
+        } catch (ClassNotFoundException noFabricApi) {
+            return null;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            Log.error("Could not find Fabric's HUD callback: " + e);
+            return null;
+        }
+    }
+
+    /** Adds the call to hudRender at the end of Forge's HUD draw. */
+    public static ClassTransformer forgeHudTransformer() {
+        return (name, bytes) -> {
+            if (bytes == null || !"net.minecraftforge.client.gui.overlay.ForgeGui".equals(name)) {
+                return bytes;
+            }
+            ClassReader reader = new ClassReader(bytes);
+            ClassWriter writer = new ClassWriter(0);
+            reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
+                @Override
+                public MethodVisitor visitMethod(int access, String n, String d, String s, String[] e) {
+                    MethodVisitor mv = super.visitMethod(access, n, d, s, e);
+                    if (!n.equals("render") || !d.equals("(Lnet/minecraft/client/gui/GuiGraphics;F)V")) {
+                        return mv;
+                    }
+                    return new MethodVisitor(Opcodes.ASM9, mv) {
+                        @Override
+                        public void visitInsn(int op) {
+                            if (op == Opcodes.RETURN) {
+                                super.visitVarInsn(Opcodes.ALOAD, 1);
+                                super.visitVarInsn(Opcodes.FLOAD, 2);
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks",
+                                        "hudRender", "(Ljava/lang/Object;F)V", false);
+                            }
+                            super.visitInsn(op);
+                        }
+
+                        @Override
+                        public void visitMaxs(int maxStack, int maxLocals) {
+                            super.visitMaxs(Math.max(maxStack, 2), maxLocals);
+                        }
+                    };
+                }
+            }, 0);
+            return writer.toByteArray();
+        };
+    }
+
     private static final AtomicBoolean GLUE = new AtomicBoolean();
 
     /** Starts Pentecost's in-game code once: screens, resource packs. */

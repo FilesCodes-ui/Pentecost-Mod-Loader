@@ -1,5 +1,6 @@
 package khi.pentecost.game;
 
+import khi.pentecost.boot.Dirs;
 import khi.pentecost.boot.Log;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
@@ -7,9 +8,12 @@ import net.minecraft.network.chat.Component;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -288,6 +292,45 @@ final class ExternalOptions {
             return (Path) find(IRIS).getMethod("getShaderpacksDirectory").invoke(null);
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
             return null;
+        }
+    }
+
+    /** The shader pack that ships with Pentecost: its folder name in the shaderpacks folder and in Pentecost's own folder. */
+    static final String BUNDLED_PACK = "Pentecost";
+
+    /**
+     * Copies Pentecost's own shader pack (shaderpack/Pentecost in the Pentecost folder) into the shaderpacks folder.
+     * Only files that are missing or different are written, so a repeat call costs a few reads.
+     * Returns false when there is no pack to copy or the copy failed.
+     */
+    static boolean installBundledPack() {
+        Path dir = packFolder();
+        Path src = Dirs.home().resolve("shaderpack").resolve(BUNDLED_PACK);
+        if (dir == null || !Files.isDirectory(src)) {
+            return false;
+        }
+        Path dst = dir.resolve(BUNDLED_PACK);
+        try (Stream<Path> walk = Files.walk(src)) {
+            for (Path p : (Iterable<Path>) walk::iterator) {
+                Path t = dst.resolve(src.relativize(p).toString());
+                if (Files.isDirectory(p)) {
+                    Files.createDirectories(t);
+                } else if (!Files.exists(t) || !Arrays.equals(Files.readAllBytes(p), Files.readAllBytes(t))) {
+                    Files.createDirectories(t.getParent());
+                    Files.copy(p, t, StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
+            return true;
+        } catch (IOException | RuntimeException e) {
+            Log.error("Cannot install Pentecost's shader pack: " + e);
+            return false;
+        }
+    }
+
+    /** Installs Pentecost's shader pack if needed, then switches to it. */
+    static void usePentecostPack() {
+        if (installBundledPack()) {
+            usePack(BUNDLED_PACK);
         }
     }
 

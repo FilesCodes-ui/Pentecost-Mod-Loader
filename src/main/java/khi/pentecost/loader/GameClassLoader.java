@@ -1,5 +1,6 @@
 package khi.pentecost.loader;
 
+import khi.pentecost.boot.Log;
 import khi.pentecost.install.MinecraftInstall.GameFiles;
 import khi.pentecost.mods.ModInfo;
 
@@ -9,6 +10,7 @@ import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.net.URLConnection;
 import java.nio.file.Path;
 import java.security.CodeSource;
 import java.security.cert.Certificate;
@@ -67,6 +69,101 @@ public final class GameClassLoader extends URLClassLoader {
         GameClassLoader loader = new GameClassLoader(urls.toArray(new URL[0]), GameClassLoader.class.getClassLoader());
         loader.modByJarUrl.putAll(owners);
         return loader;
+    }
+
+    /**
+     * Same as the stock lookup, with changes for one known failure: Embeddium asks for its shader files and
+     * the stock lookup answers "missing" although the jar holds them (Embeddium: "Shader not found").
+     * The stock lookup hides every error, so this one writes what happens to run/logs/pentecost-resources.log
+     * and, for Embeddium's files only, reads the file straight from its jar when the stock lookup fails.
+     */
+    @Override
+    public InputStream getResourceAsStream(String name) {
+        name = withoutLeadingSlash(name);
+        URL url = getResource(name);
+        boolean watched = name.startsWith("assets/sodium/");
+        if (url != null) {
+            try {
+                InputStream served = url.openStream();
+                if (watched) {
+                    note("Resource " + name + " served from " + url);
+                }
+                return served;
+            } catch (IOException first) {
+                note("Resource " + name + " found at " + url + " but opening it failed: " + first);
+                try {
+                    URLConnection c = url.openConnection();
+                    c.setUseCaches(false);
+                    InputStream fresh = c.getInputStream();
+                    note("Resource " + name + " opened again with a fresh jar handle");
+                    return fresh;
+                } catch (IOException second) {
+                    note("Resource " + name + " failed again with a fresh jar handle: " + second);
+                }
+            }
+        } else if (watched) {
+            note("Resource " + name + " not found by the stock lookup");
+        }
+        if (!watched) {
+            return null;
+        }
+        InputStream direct = openFromJars(name);
+        note("Resource " + name + (direct != null ? " read straight from its jar" : " is in none of the jars"));
+        return direct;
+    }
+
+    /** Looks for the file in each jar, with a jar handle of its own. Slow, so only for files that must exist. */
+    private InputStream openFromJars(String name) {
+        for (URL u : getURLs()) {
+            if (!"file".equals(u.getProtocol()) || !u.getPath().endsWith(".jar")) {
+                continue;
+            }
+            try (java.util.jar.JarFile jf = new java.util.jar.JarFile(Path.of(u.toURI()).toFile())) {
+                java.util.zip.ZipEntry e = jf.getEntry(name);
+                if (e != null && !e.isDirectory()) {
+                    try (InputStream in = jf.getInputStream(e)) {
+                        return new java.io.ByteArrayInputStream(in.readAllBytes());
+                    }
+                }
+            } catch (IOException | java.net.URISyntaxException | RuntimeException e) {
+                note("Reading " + name + " from " + u + " failed: " + e);
+            }
+        }
+        return null;
+    }
+
+    private static void note(String line) {
+        Log.warn(line);
+        try {
+            java.nio.file.Path file = khi.pentecost.boot.Dirs.run().resolve("logs").resolve("pentecost-resources.log");
+            java.nio.file.Files.createDirectories(file.getParent());
+            java.nio.file.Files.writeString(file, java.time.LocalTime.now() + " " + line + System.lineSeparator(),
+                    java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+        } catch (IOException | RuntimeException e) {
+            // Logging must never break the game.
+        }
+    }
+
+    /**
+     * Embeddium asks the loader for "/assets/sodium/shaders/..." with a leading slash.
+     * A plain Java loader never matches that, Forge's loader does. Match Forge.
+     */
+    private static String withoutLeadingSlash(String name) {
+        int i = 0;
+        while (i < name.length() && name.charAt(i) == '/') {
+            i++;
+        }
+        return i == 0 ? name : name.substring(i);
+    }
+
+    @Override
+    public URL getResource(String name) {
+        return super.getResource(withoutLeadingSlash(name));
+    }
+
+    @Override
+    public URL findResource(String name) {
+        return super.findResource(withoutLeadingSlash(name));
     }
 
     /** Adds a transformer that runs before Mixin. */
@@ -130,6 +227,9 @@ public final class GameClassLoader extends URLClassLoader {
 
     @Override
     protected Class<?> findClass(String name) throws ClassNotFoundException {
+        if (name.equals("me.jellysquid.mods.sodium.client.gl.shader.ShaderLoader")) {
+            note("Embeddium's ShaderLoader is being defined by " + getName());
+        }
         String path = name.replace('.', '/') + ".class";
         URL res = findResource(path);
         if (res == null) {
@@ -150,6 +250,7 @@ public final class GameClassLoader extends URLClassLoader {
                 bytes = mx.transform(name, bytes);
             }
             bytes = DefaultConflicts.transform(this, name, bytes);
+            bytes = khi.pentecost.mixin.MixinReport.instrument(this, name, bytes);
             int dot = name.lastIndexOf('.');
             if (dot > 0) {
                 String pkg = name.substring(0, dot);

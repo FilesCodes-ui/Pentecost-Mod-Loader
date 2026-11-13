@@ -123,6 +123,26 @@ public final class ModDiscovery {
                     jarjar.add(n);
                 }
             }
+            // Jar-in-jar metadata names its jars by path, and the path is not always under META-INF/jarjar/.
+            // Oculus keeps JCPP at META-INF/jars/jcpp-1.4.14.jar.
+            JarEntry jarjarMeta = jf.getJarEntry("META-INF/jarjar/metadata.json");
+            if (jarjarMeta != null) {
+                try {
+                    JsonElement listed = json(jf, jarjarMeta).get("jars");
+                    if (listed != null && listed.isJsonArray()) {
+                        for (JsonElement x : listed.getAsJsonArray()) {
+                            if (x.isJsonObject() && x.getAsJsonObject().has("path")) {
+                                String p = x.getAsJsonObject().get("path").getAsString();
+                                if (p.endsWith(".jar") && !jarjar.contains(p)) {
+                                    jarjar.add(p);
+                                }
+                            }
+                        }
+                    }
+                } catch (RuntimeException | IOException badMetadata) {
+                    // A broken metadata file only means no extra nested jars.
+                }
+            }
             Found found;
             JarEntry quilt = jf.getJarEntry("quilt.mod.json");
             JarEntry fabric = jf.getJarEntry("fabric.mod.json");
