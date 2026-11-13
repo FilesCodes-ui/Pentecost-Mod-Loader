@@ -184,6 +184,7 @@ public class PentecostMixinService extends MixinServiceAbstract implements IClas
         ClassNode node = new ClassNode();
         new ClassReader(bytes).accept(node, readerFlags);
         if (isMixin(node)) {
+            bridgeToForge(node);
             renameClashingFields(node);
             guardHooks(node, loader.modOf(name.replace('/', '.')));
         }
@@ -218,7 +219,12 @@ public class PentecostMixinService extends MixinServiceAbstract implements IClas
                 continue;
             }
             for (String target : targets) {
-                if (fieldsOf(target).contains(f.name + " " + f.desc) || fieldsOf(target).contains(f.name)) {
+                java.util.Set<String> known = fieldsOf(target);
+                // Same name and type, not final: the mod means to share the field (Porting Lib and Forge's
+                // captured drops). Locked or of another type: the two cannot be one field, so they part.
+                boolean sameShape = known.contains(f.name + " " + f.desc);
+                boolean locked = known.contains("final " + f.name + " " + f.desc);
+                if ((sameShape && locked) || (!sameShape && known.contains(f.name))) {
                     renames.put(f.name + " " + f.desc, "pentecost$" + f.name);
                     break;
                 }
@@ -399,6 +405,27 @@ public class PentecostMixinService extends MixinServiceAbstract implements IClas
         out.add(new org.objectweb.asm.tree.InsnNode(ret.getOpcode(org.objectweb.asm.Opcodes.IRETURN)));
     }
 
+    /**
+     * Hooks from Fabric ports of Forge's API (Porting Lib) that do a job Forge already does on the Forge layer.
+     * Both running at once breaks the game, so on the Forge layer these hooks are removed and Forge's own code runs.
+     * Mixin class, then its handler methods.
+     */
+    private static final java.util.Map<String, java.util.Set<String>> FORGE_DOES_THIS = java.util.Map.of(
+            // Forge captures death loot and fires its own drops event.
+            "io/github/fabricators_of_create/porting_lib/entity/mixin/common/LivingEntityMixin",
+            java.util.Set.of("port_lib$startCapturingDrops", "port_lib$dropCapturedDrops"));
+
+    private static void bridgeToForge(ClassNode node) {
+        java.util.Set<String> drop = FORGE_DOES_THIS.get(node.name);
+        if (drop == null || !khi.pentecost.core.PentecostRuntime.forgeLayer || node.methods == null) {
+            return;
+        }
+        if (node.methods.removeIf(m -> drop.contains(m.name))) {
+            khi.pentecost.boot.Log.info("Forge layer: " + node.name.substring(node.name.lastIndexOf('/') + 1)
+                    + " leaves " + String.join(", ", drop) + " to Forge");
+        }
+    }
+
     private static boolean has(java.util.List<org.objectweb.asm.tree.AnnotationNode> list, String desc) {
         if (list != null) {
             for (org.objectweb.asm.tree.AnnotationNode a : list) {
@@ -453,6 +480,9 @@ public class PentecostMixinService extends MixinServiceAbstract implements IClas
                                                                         String sig, Object value) {
                             names.add(name + " " + desc);
                             names.add(name);
+                            if ((access & org.objectweb.asm.Opcodes.ACC_FINAL) != 0) {
+                                names.add("final " + name + " " + desc);
+                            }
                             return null;
                         }
                     }, ClassReader.SKIP_CODE);

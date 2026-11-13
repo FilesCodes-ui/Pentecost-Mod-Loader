@@ -93,14 +93,15 @@ final class PentecostLoadingOverlay extends Overlay {
             minecraft.setOverlay(null);
         }
         if (fadeOutStart == -1L && reload.isDone() && (!fadeIn || in >= 2f)) {
+            // Marked as finished first: finishing can open a world, which draws frames while this runs.
+            fadeOutStart = Util.getMillis();
+            fontsReady = true;
             try {
                 reload.checkExceptions();
                 onFinish.accept(Optional.empty());
             } catch (Throwable t) {
                 onFinish.accept(Optional.of(t));
             }
-            fadeOutStart = Util.getMillis();
-            fontsReady = true;
             if (minecraft.screen != null) {
                 minecraft.screen.init(minecraft, w, h);
             }

@@ -217,6 +217,101 @@ final class WidgetStyle implements Hooks.Style {
         return true;
     }
 
+    /**
+     * The F3 screen. On the game's own path the lines come from its debug overlay. On Forge's path,
+     * Pentecost asks Forge's overlay for its lines and posts Forge's event, so mods add their lines as usual.
+     */
+    @Override
+    @SuppressWarnings("unchecked")
+    public boolean debug(Object source, Object graphics) {
+        Minecraft mc = Minecraft.getInstance();
+        if (!Settings.on(Settings.OVERLAY) || !mc.options.renderDebug || !(graphics instanceof GuiGraphics g)) {
+            return false;
+        }
+        try {
+            java.util.List<String> left;
+            java.util.List<String> right;
+            java.util.List<String> fromMods = new java.util.ArrayList<>();
+            if (source instanceof net.minecraft.client.gui.components.DebugScreenOverlay overlay) {
+                left = (java.util.List<String>) call(net.minecraft.client.gui.components.DebugScreenOverlay.class,
+                        overlay, "getGameInformation");
+                right = (java.util.List<String>) call(net.minecraft.client.gui.components.DebugScreenOverlay.class,
+                        overlay, "getSystemInformation");
+            } else {
+                Field f = findField(source.getClass(), "debugOverlay");
+                Object overlay = f.get(source);
+                overlay.getClass().getMethod("update").invoke(overlay);
+                java.util.ArrayList<String> l = new java.util.ArrayList<>((java.util.List<String>) call(overlay.getClass(), overlay, "getLeft"));
+                java.util.ArrayList<String> r = new java.util.ArrayList<>((java.util.List<String>) call(overlay.getClass(), overlay, "getRight"));
+                java.util.List<String> baseL = new java.util.ArrayList<>(l);
+                java.util.List<String> baseR = new java.util.ArrayList<>(r);
+                postDebugEvent(mc, g, l, r);
+                for (String s : l) {
+                    if (!baseL.contains(s)) {
+                        fromMods.add(s);
+                    }
+                }
+                for (String s : r) {
+                    if (!baseR.contains(s)) {
+                        fromMods.add(s);
+                    }
+                }
+                left = baseL;
+                right = baseR;
+            }
+            DebugView.draw(g, left, right, fromMods);
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return false;
+        }
+    }
+
+    private static Object call(Class<?> owner, Object target, String method) throws ReflectiveOperationException {
+        java.lang.reflect.Method m = owner.getDeclaredMethod(method);
+        m.setAccessible(true);
+        return m.invoke(target);
+    }
+
+    private static Field findField(Class<?> c, String name) throws NoSuchFieldException {
+        for (Class<?> k = c; k != null; k = k.getSuperclass()) {
+            try {
+                Field f = k.getDeclaredField(name);
+                f.setAccessible(true);
+                return f;
+            } catch (NoSuchFieldException next) {
+                // Look in the parent.
+            }
+        }
+        throw new NoSuchFieldException(name);
+    }
+
+    /** Posts Forge's debug text event, so mods add their lines to these lists. */
+    private static void postDebugEvent(Minecraft mc, GuiGraphics g, java.util.ArrayList<String> left,
+                                       java.util.ArrayList<String> right) {
+        try {
+            ClassLoader cl = Minecraft.class.getClassLoader();
+            Class<?> type = Class.forName("net.minecraftforge.client.event.CustomizeGuiOverlayEvent$DebugText", false, cl);
+            Object event = null;
+            for (java.lang.reflect.Constructor<?> c : type.getConstructors()) {
+                if (c.getParameterCount() == 5) {
+                    event = c.newInstance(mc.getWindow(), g, mc.getFrameTime(), left, right);
+                }
+            }
+            if (event == null) {
+                return;
+            }
+            Object bus = Class.forName("net.minecraftforge.common.MinecraftForge", false, cl).getField("EVENT_BUS").get(null);
+            for (java.lang.reflect.Method m : bus.getClass().getMethods()) {
+                if (m.getName().equals("post") && m.getParameterCount() == 1) {
+                    m.invoke(bus, event);
+                    return;
+                }
+            }
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            // Without the event, the panels show the game's lines only.
+        }
+    }
+
     /** Tooltips: a dark box with a thin light line, in place of the purple frame. */
     @Override
     public boolean tooltip(Object graphics, int x, int y, int width, int height, int z) {

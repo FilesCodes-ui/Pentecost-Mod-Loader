@@ -31,6 +31,10 @@ public final class Settings {
     public static final String LOADING = "interface.loading";
     /** Pentecost's look for every screen's buttons, sliders, checkboxes and backgrounds. */
     public static final String RESTYLE = "interface.restyle";
+    /** Pentecost draws the F3 screen. */
+    public static final String OVERLAY = "interface.overlay";
+    /** How much the F3 screen shows: standard or full. */
+    public static final String OVERLAY_DETAIL = "interface.overlayDetail";
 
     private static final Map<String, String> DEFAULTS = Map.of(
             WINDOW, "windowed",
@@ -38,7 +42,9 @@ public final class Settings {
             GRAY_BUTTONS, "true",
             PATTERN, "true",
             LOADING, "true",
-            RESTYLE, "true");
+            RESTYLE, "true",
+            OVERLAY, "true",
+            OVERLAY_DETAIL, "standard");
 
     private static final Map<String, String> VALUES = new TreeMap<>();
     private static boolean loaded;

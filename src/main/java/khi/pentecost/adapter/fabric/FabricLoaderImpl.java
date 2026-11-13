@@ -99,6 +99,10 @@ public final class FabricLoaderImpl implements FabricLoader {
             if (m.loader() != LoaderKind.FABRIC && m.loader() != LoaderKind.QUILT) {
                 continue;
             }
+            // A mod that failed to start hands nothing to other mods.
+            if (khi.pentecost.core.Hooks.modFailed(m.id())) {
+                continue;
+            }
             for (String value : m.entrypoints(key)) {
                 try {
                     T o = create(value, type);

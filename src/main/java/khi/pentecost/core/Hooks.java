@@ -217,6 +217,22 @@ public final class Hooks {
 
         /** Draws a tooltip's box. True when drawn. */
         boolean tooltip(Object graphics, int x, int y, int width, int height, int z);
+
+        /** Draws the F3 screen. source: the game's debug overlay, or Forge's HUD. True when drawn. */
+        boolean debug(Object source, Object graphics);
+    }
+
+    public static boolean styleDebug(Object source, Object graphics) {
+        Style s = style;
+        try {
+            return s != null && s.debug(source, graphics);
+        } catch (RuntimeException | LinkageError e) {
+            return false;
+        }
+    }
+
+    public static boolean styleDebugForge(Object gui, int width, int height, Object graphics) {
+        return styleDebug(gui, graphics);
     }
 
     public static boolean styleTooltip(Object graphics, int x, int y, int width, int height, int z) {
@@ -288,9 +304,11 @@ public final class Hooks {
             boolean widget = STYLED.contains(name);
             boolean screen = name.equals("net.minecraft.client.gui.screens.Screen");
             boolean tip = name.equals("net.minecraft.client.gui.screens.inventory.tooltip.TooltipRenderUtil");
+            boolean debugVanilla = name.equals("net.minecraft.client.gui.components.DebugScreenOverlay");
+            boolean debugForge = name.equals("net.minecraftforge.client.gui.overlay.ForgeGui");
             // Any screen that draws its own background (Create World does) gets the hook too.
             boolean ownDirt = !screen && bytes != null && mentions(bytes, DIRT);
-            if (!widget && !screen && !tip && !ownDirt) {
+            if (!widget && !screen && !tip && !ownDirt && !debugVanilla && !debugForge) {
                 return bytes;
             }
             ClassReader reader = new ClassReader(bytes);
@@ -306,7 +324,9 @@ public final class Hooks {
                             && d.startsWith("(" + GG + "IIIII");
                     boolean init = screen && n.equals("init") && d.equals("(Lnet/minecraft/client/Minecraft;II)V");
                     boolean shown = screen && n.equals("renderWithTooltip") && d.equals("(" + GG + "IIF)V");
-                    if (!draw && !dirt && !init && !shown && !tooltip) {
+                    boolean dbg = debugVanilla && n.equals("render") && d.equals("(" + GG + ")V");
+                    boolean dbgForge = debugForge && n.equals("renderHUDText") && d.equals("(II" + GG + ")V");
+                    if (!draw && !dirt && !init && !shown && !tooltip && !dbg && !dbgForge) {
                         return mv;
                     }
                     return new MethodVisitor(Opcodes.ASM9, mv) {
@@ -317,6 +337,25 @@ public final class Hooks {
                                 return;
                             }
                             org.objectweb.asm.Label go = new org.objectweb.asm.Label();
+                            if (dbg || dbgForge) {
+                                super.visitVarInsn(Opcodes.ALOAD, 0);
+                                if (dbg) {
+                                    super.visitVarInsn(Opcodes.ALOAD, 1);
+                                    super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks", "styleDebug",
+                                            "(Ljava/lang/Object;Ljava/lang/Object;)Z", false);
+                                } else {
+                                    super.visitVarInsn(Opcodes.ILOAD, 1);
+                                    super.visitVarInsn(Opcodes.ILOAD, 2);
+                                    super.visitVarInsn(Opcodes.ALOAD, 3);
+                                    super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks", "styleDebugForge",
+                                            "(Ljava/lang/Object;IILjava/lang/Object;)Z", false);
+                                }
+                                super.visitJumpInsn(Opcodes.IFEQ, go);
+                                super.visitInsn(Opcodes.RETURN);
+                                super.visitLabel(go);
+                                super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                                return;
+                            }
                             if (tooltip) {
                                 super.visitVarInsn(Opcodes.ALOAD, 0);
                                 for (int i = 1; i <= 5; i++) {

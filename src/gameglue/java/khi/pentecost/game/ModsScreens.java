@@ -49,7 +49,8 @@ public final class ModsScreens {
 
     /** Test switch: PENTECOST_TEST_SCREEN=pause opens the pause menu about two seconds into a world. */
     private static void testPause() {
-        if (pauseWait == -2 || !"pause".equals(System.getenv("PENTECOST_TEST_SCREEN"))) {
+        String test = System.getenv("PENTECOST_TEST_SCREEN");
+        if (pauseWait == -2 || !("pause".equals(test) || "f3".equals(test))) {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
@@ -60,8 +61,13 @@ public final class ModsScreens {
             pauseWait = 120;
         } else if (--pauseWait == 0) {
             pauseWait = -2;
-            Log.info("Test: opening the pause menu");
-            mc.pauseGame(false);
+            if ("f3".equals(test)) {
+                Log.info("Test: showing F3");
+                mc.options.renderDebug = true;
+            } else {
+                Log.info("Test: opening the pause menu");
+                mc.pauseGame(false);
+            }
         }
     }
 

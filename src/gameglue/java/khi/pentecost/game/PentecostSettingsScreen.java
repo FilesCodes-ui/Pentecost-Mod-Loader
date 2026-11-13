@@ -60,11 +60,17 @@ public final class PentecostSettingsScreen extends Screen {
                         null, () -> Settings.on(Settings.GRAY_BUTTONS), () -> Settings.toggle(Settings.GRAY_BUTTONS)),
                 new Row("Restyle every screen", "Buttons, sliders, checkboxes and backgrounds everywhere, mods' too.", "Now",
                         null, () -> Settings.on(Settings.RESTYLE), () -> Settings.toggle(Settings.RESTYLE)),
+                new Row("Pentecost F3 screen", "Readable panels in place of the long text columns.", "Now",
+                        null, () -> Settings.on(Settings.OVERLAY), () -> Settings.toggle(Settings.OVERLAY)),
+                new Row("F3 detail", "Standard shows the usual facts. Full shows every line.", "Now",
+                        () -> "full".equals(Settings.get(Settings.OVERLAY_DETAIL)) ? "Full" : "Standard", null,
+                        () -> Settings.set(Settings.OVERLAY_DETAIL,
+                                "full".equals(Settings.get(Settings.OVERLAY_DETAIL)) ? "standard" : "full")),
                 new Row("Pentecost loading screen", "Logo, progress line, RAM gauge and time left while loading.", "Now",
                         null, () -> Settings.on(Settings.LOADING), () -> Settings.toggle(Settings.LOADING)),
                 new Row("Background pattern", "The slow dot pattern behind Pentecost's screens.", "Now",
                         null, () -> Settings.on(Settings.PATTERN), () -> Settings.toggle(Settings.PATTERN))),
-                List.of("Overlay layout (F3 and F6)", "Boot splash style", "Text size")));
+                List.of("Boot splash style", "Text size")));
         pages.add(new Page("Performance", List.of(),
                 List.of("Launch cache", "Chunk building threads", "Far mob throttle", "Virtual threads on Java 25")));
         pages.add(new Page("Java", List.of(),
