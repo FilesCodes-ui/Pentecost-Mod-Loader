@@ -1,6 +1,6 @@
 # Pentecost
 
-Pentecost is a Minecraft 1.20.1 mod loader. It runs Forge, Fabric and Quilt mods together in one game. It is made by Gabriel ("Lord Files") of the Kilo-Heat Industrialists (KHI).
+Pentecost is a Minecraft 1.20.1 mod loader. It runs Forge, Fabric and Quilt mods together in one game. It is made by Files.
 
 ## What it does
 
