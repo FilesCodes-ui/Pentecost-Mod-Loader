@@ -33,6 +33,8 @@ final class MenuView {
     static final String MODS = "pentecost.mods";
     /** The Pentecost entry. Opens Pentecost's settings. */
     static final String SETTINGS = "pentecost.settings";
+    /** The Account entry. Opens the sign in screen. */
+    static final String ACCOUNT = "pentecost.account";
 
     private record ModButton(String modId, String label, AbstractButton source) {}
 
@@ -131,6 +133,9 @@ final class MenuView {
             if (key.equals(MODS)) {
                 label = "Mods";
                 action = () -> mc.setScreen(new PentecostModsScreen(screen));
+            } else if (key.equals(ACCOUNT)) {
+                label = Account.signedIn() ? Account.name() : "Sign in";
+                action = () -> mc.setScreen(new PentecostLoginScreen(screen, null, null));
             } else if (key.equals(SETTINGS)) {
                 label = "Pentecost";
                 action = () -> mc.setScreen(new PentecostSettingsScreen(screen));

@@ -19,7 +19,7 @@ import java.util.Map;
  */
 public final class PentecostTitleScreen extends TitleScreen {
     private static final List<String> MAIN = List.of("menu.singleplayer", "menu.multiplayer", MenuView.MODS,
-            MenuView.SETTINGS, "menu.options", "menu.quit");
+            MenuView.SETTINGS, "menu.options", MenuView.ACCOUNT, "menu.quit");
     private static final Map<String, String> LINKS = new LinkedHashMap<>();
     static {
         LINKS.put("menu.online", "Realms");

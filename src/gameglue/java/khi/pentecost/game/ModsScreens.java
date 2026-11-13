@@ -34,11 +34,14 @@ public final class ModsScreens {
     public static void init() {
         Hooks.packSources = ModPacks::extend;
         Hooks.frame = () -> {
-            PerfHud.frame();            Zoom.frame();
+            PerfHud.frame();
+            Zoom.frame();
+            Account.frame();
             WindowIcon.frame();
             testPause();
         };
         WidgetStyle.install();
+        NameTags.install();
         Hooks.windowHints = WindowMode::beforeWindow;
         Hooks.windowBorn = WindowMode::windowBorn;
         Hooks.iconSet = WindowIcon::apply;
@@ -119,6 +122,11 @@ public final class ModsScreens {
             tested = true;
             Log.info("Test: opening the mods screen");
             return new PentecostModsScreen(incoming);
+        }
+        // Multiplayer and Realms need a signed in account.
+        if (!Account.signedIn() && Account.gated(name)) {
+            Screen back = Minecraft.getInstance().screen;
+            return new PentecostLoginScreen(back, incoming, "Multiplayer and Realms need a Minecraft account. Sign in to open them.");
         }
         // The shader key opens the Shaders page of Pentecost's settings.
         if (name.equals(ExternalOptions.SHADER_SCREEN) && !ExternalOptions.bypass
