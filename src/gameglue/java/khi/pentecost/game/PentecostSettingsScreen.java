@@ -9,6 +9,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -174,11 +175,23 @@ public final class PentecostSettingsScreen extends Screen {
                                 + "save dozens of them at once.", "Restart",
                                 () -> Settings.on(Settings.SPREAD_UNLOADS), () -> Settings.toggle(Settings.SPREAD_UNLOADS))))),
                 List.of("Launch cache", "Chunk building threads", "Virtual threads on Java 25"), List::of));
-        pages.add(planned("Java", "Memory", "Garbage collector", "Extra flags", "Java version"));
-        pages.add(planned("Gameplay", "Faster mobs", "Smarter mobs", "Stall warning"));
-        pages.add(planned("Building", "Block rotation", "Block outline"));
-        pages.add(planned("Server", "World Wide Local Server", "Operators", "Server tools"));
-        pages.add(planned("Profiles", "Save a setup", "Switch setups", "Export and import"));
+        pages.add(new Page("Java", "Memory, garbage collector and extra flags for the next launch. "
+                + "Pentecost reads them when you start the game with Play Pentecost.",
+                this::javaFolders, List.of(), this::javaShortcuts));
+        pages.add(new Page("Gameplay", "Mob thinking, movement and the stall warning.",
+                this::gameplayFolders, List.of(), List::of));
+        pages.add(new Page("Building", "How the block you look at is marked.",
+                this::buildingFolders, List.of(), List::of));
+        pages.add(new Page("Server", "How much of the world runs around you, and what the server spends on it.",
+                this::serverFolders, List.of(), List::of));
+        pages.add(new Page("Sound", "Volume, limits, and muting by mod or by sound. The lists fill as sounds play.",
+                this::soundFolders, List.of(), this::soundShortcuts));
+        pages.add(new Page("Chat", "How chat looks and behaves.", this::chatFolders, List.of(), List::of));
+        pages.add(new Page("Accessibility", "Reading, motion and glint options.", this::accessibilityFolders, List.of(), List::of));
+        pages.add(new Page("Language", "The game's language. The game reloads its text when you choose one.",
+                this::languageFolders, List.of(), List::of));
+        pages.add(new Page("Profiles", "Save every Pentecost setting as a setup, switch between setups, and share them as files.",
+                this::profileFolders, List.of(), this::profileShortcuts));
         for (int i = 0; i < pages.size(); i++) {
             if (pages.get(i).name().equalsIgnoreCase(startPage)) {
                 page = i;
@@ -789,11 +802,357 @@ public final class PentecostSettingsScreen extends Screen {
                 new Shortcut("Refresh list", () -> built.remove(page)));
     }
 
+    // ---------------------------------------------------------------- shared row helpers
+
+    private boolean optionsDirty;
+
+    private Row numberOption(String title, String note, net.minecraft.client.OptionInstance<Double> option,
+                             int mult, int min, int max, String unit) {
+        IntSupplier value = () -> (int) Math.round(option.get() * mult);
+        Supplier<String> text = () -> value.getAsInt() + unit;
+        return new Row(Kind.SLIDER, title, note, note, "Now", text, null, null,
+                new Slider(min, max, 1, value, n -> {
+                    option.set(n / (double) mult);
+                    optionsDirty = true;
+                }, text), () -> true);
+    }
+
+    private Row intOption(String title, String note, net.minecraft.client.OptionInstance<Integer> option,
+                          int min, int max, String unit) {
+        IntSupplier value = () -> option.get();
+        Supplier<String> text = () -> value.getAsInt() + unit;
+        return new Row(Kind.SLIDER, title, note, note, "Now", text, null, null,
+                new Slider(min, max, 1, value, n -> {
+                    option.set(n);
+                    optionsDirty = true;
+                }, text), () -> true);
+    }
+
+    private <E extends Enum<E>> Row enumOption(String title, String note, net.minecraft.client.OptionInstance<E> option) {
+        return Row.choice(title, note, "Now", () -> {
+            String s = option.get().name().toLowerCase(Locale.ROOT).replace('_', ' ');
+            return Character.toUpperCase(s.charAt(0)) + s.substring(1);
+        }, () -> {
+            E[] all = option.get().getDeclaringClass().getEnumConstants();
+            option.set(all[(option.get().ordinal() + 1) % all.length]);
+            optionsDirty = true;
+        });
+    }
+
+    private Row settingSlider(String title, String note, String when, String key, int def, int min, int max, int step,
+                              String unit, String zero) {
+        IntSupplier value = () -> Settings.num(key, def);
+        Supplier<String> text = () -> zero != null && value.getAsInt() == 0 ? zero : value.getAsInt() + unit;
+        return new Row(Kind.SLIDER, title, note, note, when, text, null, null,
+                new Slider(min, max, step, value, n -> Settings.set(key, String.valueOf(n)), text), () -> true);
+    }
+
+    private Row settingToggle(String title, String note, String when, String key) {
+        return Row.toggle(title, note, when, () -> Settings.on(key), () -> Settings.toggle(key));
+    }
+
+    private static String nice(String s) {
+        return s.isEmpty() ? s : Character.toUpperCase(s.charAt(0)) + s.substring(1);
+    }
+
+    // ---------------------------------------------------------------- sound
+
+    private List<Folder> soundFolders() {
+        Options o = minecraft.options;
+        List<Row> volume = new ArrayList<>();
+        for (SoundSource src : SoundSource.values()) {
+            volume.add(numberOption(src == SoundSource.MASTER ? "Master volume" : nice(src.getName()),
+                    src == SoundSource.MASTER ? "Every sound at once." : "Volume of the " + src.getName() + " sound group.",
+                    o.getSoundSourceOptionInstance(src), 100, 0, 100, "%"));
+        }
+        List<Folder> out = new ArrayList<>();
+        out.add(new Folder("Volume", volume));
+        out.add(new Folder("Options", List.of(
+                optionToggle("Show subtitles", "Words on screen for the sounds around you.", o.showSubtitles()),
+                optionToggle("Directional audio", "Sounds come from the side they are on, with better stereo.", o.directionalAudio()))));
+        out.add(new Folder("Limits", List.of(
+                settingSlider("Sounds per second", "At most this many sounds start each second. Music, records and voice chat are never cut. "
+                        + "Off lets everything play.", "Now", Settings.SOUND_LIMIT, 0, 0, 200, 5, " per second", "Off"),
+                settingSlider("Same sound spacing", "The same sound cannot start again within this time. "
+                        + "Helps with machines and mobs that repeat one sound many times.", "Now",
+                        Settings.SOUND_GAP, 0, 0, 500, 10, " ms", "Off"))));
+        List<Row> mods = new ArrayList<>();
+        for (SoundControl.Seen s : SoundControl.mods()) {
+            String ns = s.name();
+            mods.add(Row.toggle("Mute " + ns, "Played " + s.count() + " times so far this session.", "Now",
+                    () -> SoundControl.modMuted(ns), () -> SoundControl.toggleMod(ns)));
+        }
+        if (mods.isEmpty()) {
+            mods.add(Row.info("Nothing played yet", "Play for a moment, then press Refresh lists"));
+        }
+        out.add(new Folder("Mods", mods));
+        List<Row> sounds = new ArrayList<>();
+        for (SoundControl.Seen s : SoundControl.sounds()) {
+            String id = s.name();
+            sounds.add(Row.toggle("Mute " + id, "Played " + s.count() + " times so far this session.", "Now",
+                    () -> SoundControl.soundMuted(id), () -> SoundControl.toggleSound(id)));
+        }
+        if (sounds.isEmpty()) {
+            sounds.add(Row.info("Nothing played yet", "Play for a moment, then press Refresh lists"));
+        }
+        out.add(new Folder("Sounds", sounds));
+        return out;
+    }
+
+    private List<Shortcut> soundShortcuts() {
+        return List.of(
+                new Shortcut("Refresh lists", () -> built.remove(page)),
+                new Shortcut("Clear counts", () -> {
+                    SoundControl.clearCounts();
+                    built.remove(page);
+                }),
+                new Shortcut("Unmute everything", () -> {
+                    Settings.set(Settings.SOUND_MUTED_MODS, "");
+                    Settings.set(Settings.SOUND_MUTED, "");
+                }));
+    }
+
+    // ---------------------------------------------------------------- chat, accessibility, language
+
+    private List<Folder> chatFolders() {
+        Options o = minecraft.options;
+        return List.of(
+                new Folder("Chat", List.of(
+                        enumOption("Chat", "Show everything, only commands, or nothing.", o.chatVisibility()),
+                        optionToggle("Colors", "Chat messages show the colors servers send.", o.chatColors()),
+                        optionToggle("Web links", "Links in chat can be clicked.", o.chatLinks()),
+                        optionToggle("Ask before opening links", "A question first, so one stray click opens nothing.", o.chatLinksPrompt()),
+                        optionToggle("Command suggestions", "Suggestions appear while you type a command.", o.autoSuggestions()),
+                        optionToggle("Hide matched names", "Names of players in a message are not repeated.", o.hideMatchedNames()),
+                        optionToggle("Only secure chat", "Hides messages whose sender cannot be verified.", o.onlyShowSecureChat()))),
+                new Folder("Size", List.of(
+                        numberOption("Text size", "How big chat letters are.", o.chatScale(), 100, 0, 100, "%"),
+                        numberOption("Line spacing", "Space between chat lines.", o.chatLineSpacing(), 100, 0, 100, "%"),
+                        numberOption("Width", "How wide the chat is.", o.chatWidth(), 100, 0, 100, "%"),
+                        numberOption("Height, open", "How tall the chat is while you type.", o.chatHeightFocused(), 100, 0, 100, "%"),
+                        numberOption("Height, closed", "How tall the chat is while you play.", o.chatHeightUnfocused(), 100, 0, 100, "%"))),
+                new Folder("Look", List.of(
+                        numberOption("Text opacity", "How solid the letters are.", o.chatOpacity(), 100, 0, 100, "%"),
+                        numberOption("Background opacity", "How dark the box behind the letters is.", o.textBackgroundOpacity(), 100, 0, 100, "%"),
+                        numberOption("Message delay", "Seconds before a new message shows. Gives you time to look away.", o.chatDelay(), 1, 0, 6, " s"))));
+    }
+
+    private List<Folder> accessibilityFolders() {
+        Options o = minecraft.options;
+        return List.of(
+                new Folder("Reading", List.of(
+                        enumOption("Narrator", "Reads chat and menus out loud.", o.narrator()),
+                        optionToggle("Show subtitles", "Words on screen for the sounds around you.", o.showSubtitles()),
+                        optionToggle("High contrast", "Stronger outlines on the interface.", o.highContrast()),
+                        optionToggle("Background only for chat", "Menus keep their plain background.", o.backgroundForChatOnly()))),
+                new Folder("Motion", List.of(
+                        numberOption("Screen effects", "How strong nausea and portal wobble are.", o.screenEffectScale(), 100, 0, 100, "%"),
+                        numberOption("FOV effects", "How much speed changes the field of view.", o.fovEffectScale(), 100, 0, 100, "%"),
+                        numberOption("Darkness pulse", "How much the Warden's darkness pulses.", o.darknessEffectScale(), 100, 0, 100, "%"),
+                        optionToggle("Hide lightning flash", "Lightning no longer flashes the sky.", o.hideLightningFlash()),
+                        optionToggle("View bobbing", "The view sways while you walk.", o.bobView()))),
+                new Folder("Enchant glint", List.of(
+                        numberOption("Glint speed", "How fast the shine moves across enchanted items.", o.glintSpeed(), 100, 0, 100, "%"),
+                        numberOption("Glint strength", "How bright the shine is.", o.glintStrength(), 100, 0, 100, "%"))));
+    }
+
+    private List<Folder> languageFolders() {
+        List<Row> rows = new ArrayList<>();
+        for (Map.Entry<String, net.minecraft.client.resources.language.LanguageInfo> e
+                : minecraft.getLanguageManager().getLanguages().entrySet()) {
+            String code = e.getKey();
+            String label = e.getValue().name() + " (" + e.getValue().region() + ")";
+            rows.add(Row.pick(label, "Language code " + code + ". The game reloads its text when you choose it.",
+                    () -> code.equals(minecraft.options.languageCode), () -> {
+                        minecraft.getLanguageManager().setSelected(code);
+                        minecraft.options.languageCode = code;
+                        minecraft.options.save();
+                        minecraft.reloadResourcePacks();
+                    }));
+        }
+        return List.of(new Folder("Languages", rows));
+    }
+
+    // ---------------------------------------------------------------- java
+
+    private static int machineGigabytes() {
+        try {
+            java.lang.management.OperatingSystemMXBean os = java.lang.management.ManagementFactory.getOperatingSystemMXBean();
+            if (os instanceof com.sun.management.OperatingSystemMXBean big) {
+                return (int) (big.getTotalMemorySize() >> 30);
+            }
+        } catch (RuntimeException | LinkageError e) {
+            // fall through to a safe default
+        }
+        return 16;
+    }
+
+    private static final String[][] GCS = {
+            {"g1", "G1", "The default. Balanced pauses and speed."},
+            {"zgc", "Generational ZGC", "Very short pauses. Uses more memory and a little more CPU."},
+            {"parallel", "Parallel", "Highest raw speed, longer pauses. Fine for short sessions."}};
+
+    private List<Folder> javaFolders() {
+        int cap = Math.max(4, Math.min(32, machineGigabytes() - 2));
+        Row heap = settingSlider("Memory", "The most memory the game may use. Your PC has about " + machineGigabytes()
+                + " GB, so Pentecost keeps 2 GB free for it. Too little stutters, too much starves other programs.",
+                "Restart", Settings.JAVA_MEMORY, 6, 2, cap, 1, " GB", null);
+        Row young = settingSlider("New objects area", "The part of memory for short-lived objects. A big area means fewer cleanups. "
+                + "Half of the memory suits the game. It never goes above memory minus 1 GB.", "Restart",
+                Settings.JAVA_YOUNG, 3, 1, Math.max(1, cap - 1), 1, " GB", null);
+        List<Row> gc = new ArrayList<>();
+        for (String[] g : GCS) {
+            gc.add(Row.pick(g[1], g[2], () -> g[0].equals(Settings.get(Settings.JAVA_GC).isEmpty() ? "g1" : Settings.get(Settings.JAVA_GC)),
+                    () -> Settings.set(Settings.JAVA_GC, g[0])));
+        }
+        java.nio.file.Path flags = khi.pentecost.boot.Dirs.config().resolve("pentecost").resolve("jvm-flags.txt");
+        return List.of(
+                new Folder("Memory", List.of(heap, young,
+                        Row.info("Running now", (Runtime.getRuntime().maxMemory() >> 30) + " GB limit"))),
+                new Folder("Garbage collector", gc),
+                new Folder("Extra flags", List.of(
+                        Row.button("Edit extra flags", "One flag per line. A line starting with # is ignored. "
+                                + "They load after the settings above, so they win.", () -> {
+                            try {
+                                java.nio.file.Files.createDirectories(flags.getParent());
+                                if (!java.nio.file.Files.exists(flags)) {
+                                    java.nio.file.Files.writeString(flags, "# One JVM flag per line, for example -XX:+UseStringDeduplication\n");
+                                }
+                                Util.getPlatform().openFile(flags.toFile());
+                            } catch (java.io.IOException e) {
+                                khi.pentecost.boot.Log.error("Cannot open " + flags + ": " + e);
+                            }
+                        }))),
+                new Folder("Java", List.of(
+                        Row.info("Version", System.getProperty("java.version")),
+                        Row.info("Vendor", System.getProperty("java.vendor")),
+                        Row.info("Runtime", System.getProperty("java.vm.name")),
+                        Row.info("Folder", System.getProperty("java.home")))));
+    }
+
+    private List<Shortcut> javaShortcuts() {
+        return List.of(new Shortcut("Reset Java settings", () -> {
+            Settings.reset(Settings.JAVA_MEMORY);
+            Settings.reset(Settings.JAVA_YOUNG);
+            Settings.reset(Settings.JAVA_GC);
+        }));
+    }
+
+    // ---------------------------------------------------------------- gameplay, building, server
+
+    private List<Folder> gameplayFolders() {
+        Options o = minecraft.options;
+        return List.of(
+                new Folder("Mobs", List.of(
+                        settingToggle("Far mob throttle", "Mobs far from every player think less often. "
+                                + "Mobs near you, with a target, leashed or ridden never slow.", "Now", Settings.FAR_MOBS),
+                        settingSlider("Far distance", "Mobs farther than this from every player count as far.", "Now",
+                                Settings.FAR_RANGE, 48, 24, 96, 8, " blocks", null),
+                        settingSlider("Far thinking rate", "A far mob thinks once every this many ticks. Higher saves more and looks choppier.", "Now",
+                                Settings.FAR_EVERY, 3, 2, 8, 1, " ticks", null))),
+                new Folder("Movement", List.of(
+                        optionToggle("Auto jump", "Step up one block without pressing jump.", o.autoJump()),
+                        optionToggle("Toggle sneak", "Press once to sneak, again to stop.", o.toggleCrouch()),
+                        optionToggle("Toggle sprint", "Press once to sprint, again to stop.", o.toggleSprint()),
+                        optionToggle("View bobbing", "The view sways while you walk.", o.bobView()))),
+                new Folder("Combat", List.of(
+                        enumOption("Attack indicator", "Where the cooldown of your swing shows.", o.attackIndicator()))),
+                new Folder("Warnings", List.of(
+                        settingToggle("Stall warning", "A short message above the hotbar whenever one frame takes too long. "
+                                + "Use it to find out when and where the game freezes.", "Now", Settings.STALL_WARNING),
+                        settingSlider("Stall limit", "A frame longer than this counts as a stall.", "Now",
+                                Settings.STALL_MS, 150, 50, 1000, 10, " ms", null))));
+    }
+
+    private List<Folder> buildingFolders() {
+        return List.of(new Folder("Block outline", List.of(
+                Row.choice("Color", "The box around the block you look at.", "Now",
+                        () -> Settings.get(Settings.OUTLINE_COLOR).isEmpty() ? "Black" : Settings.get(Settings.OUTLINE_COLOR),
+                        () -> {
+                            String now = Settings.get(Settings.OUTLINE_COLOR).isEmpty() ? "Black" : Settings.get(Settings.OUTLINE_COLOR);
+                            String[] all = khi.pentecost.core.ClientHooks.COLORS;
+                            int at = 0;
+                            for (int i = 0; i < all.length; i++) {
+                                if (all[i].equalsIgnoreCase(now)) {
+                                    at = i;
+                                }
+                            }
+                            Settings.set(Settings.OUTLINE_COLOR, all[(at + 1) % all.length]);
+                        }),
+                settingSlider("Strength", "How solid the box is. The game's own is 40 percent. "
+                        + "Raise it to see blocks in dark caves and bright snow.", "Now",
+                        Settings.OUTLINE_ALPHA, 40, 0, 100, 5, "%", null))));
+    }
+
+    private List<Folder> serverFolders() {
+        Options o = minecraft.options;
+        return List.of(
+                new Folder("Distance", List.of(
+                        intOption("Simulation distance", "How far from you the world runs: mobs, crops, redstone. "
+                                + "The chunks ticked grow with the square of this. 12 to 8 ticks about 54 percent fewer chunks.",
+                                o.simulationDistance(), 5, 32, " chunks"),
+                        intOption("Render distance", "How far you see. Costs the render thread, not the world tick.",
+                                o.renderDistance(), 2, 32, " chunks"),
+                        numberOption("Entity distance", "How far mobs and other entities are drawn.",
+                                o.entityDistanceScaling(), 100, 50, 500, "%"))),
+                new Folder("Server tick", List.of(
+                        settingToggle("Spread chunk saving", "Chunks you leave unload a few at a time.", "Restart", Settings.SPREAD_UNLOADS),
+                        settingToggle("Far mob throttle", "Mobs far from every player think less often.", "Now", Settings.FAR_MOBS))),
+                new Folder("Planned", List.of(
+                        Row.info("World Wide Local Server", "Needs the handshake service"),
+                        Row.info("Operators", "Needs the handshake service"))));
+    }
+
+    // ---------------------------------------------------------------- profiles
+
+    private List<Folder> profileFolders() {
+        List<String> names = Profiles.names();
+        List<Row> use = new ArrayList<>();
+        List<Row> del = new ArrayList<>();
+        for (String n : names) {
+            use.add(new Row(Kind.BUTTON, n, "Switch every Pentecost setting to this setup.", "Switch every Pentecost setting to this setup.",
+                    "", () -> "Use", null, () -> {
+                        Profiles.apply(n);
+                        built.clear();
+                    }, null, () -> true));
+            del.add(new Row(Kind.BUTTON, n, "Delete this saved setup. Your current settings stay as they are.",
+                    "Delete this saved setup. Your current settings stay as they are.", "", () -> "Delete", null, () -> {
+                        Profiles.delete(n);
+                        built.remove(page);
+                    }, null, () -> true));
+        }
+        if (use.isEmpty()) {
+            use.add(Row.info("No saved setups", "Press Save current setup"));
+        }
+        List<Folder> out = new ArrayList<>();
+        out.add(new Folder("Switch", use));
+        if (!del.isEmpty()) {
+            out.add(new Folder("Delete", del));
+        }
+        out.add(new Folder("Share", List.of(
+                Row.button("Open setups folder", "Each setup is one .json file. Send a file to a friend, "
+                        + "or drop one in here and press Refresh.", () -> Util.getPlatform().openFile(Profiles.folder().toFile())))));
+        return out;
+    }
+
+    private List<Shortcut> profileShortcuts() {
+        return List.of(
+                new Shortcut("Save current setup", () -> {
+                    Profiles.saveNew();
+                    built.remove(page);
+                }),
+                new Shortcut("Refresh", () -> built.remove(page)));
+    }
+
     // ---------------------------------------------------------------- drawing
 
     @Override
     public void onClose() {
         runPendingPick();
+        if (optionsDirty) {
+            optionsDirty = false;
+            minecraft.options.save();
+        }
         applyPacks();
         minecraft.setScreen(parent);
     }

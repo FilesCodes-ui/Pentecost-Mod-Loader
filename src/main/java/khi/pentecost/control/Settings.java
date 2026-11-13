@@ -41,6 +41,20 @@ public final class Settings {
     /** Chunks unload a few at a time instead of all in one tick. */
     public static final String SPREAD_UNLOADS = "server.spreadUnloads";
 
+    public static final String JAVA_MEMORY = "java.memory";
+    public static final String JAVA_YOUNG = "java.young";
+    public static final String JAVA_GC = "java.gc";
+    public static final String FAR_RANGE = "server.farRange";
+    public static final String FAR_EVERY = "server.farEvery";
+    public static final String STALL_WARNING = "gameplay.stall";
+    public static final String STALL_MS = "gameplay.stallMs";
+    public static final String OUTLINE_COLOR = "building.outlineColor";
+    public static final String OUTLINE_ALPHA = "building.outlineAlpha";
+    public static final String SOUND_MUTED_MODS = "sound.mutedMods";
+    public static final String SOUND_MUTED = "sound.muted";
+    public static final String SOUND_GAP = "sound.gap";
+    public static final String SOUND_LIMIT = "sound.limit";
+
     private static final Map<String, String> DEFAULTS = Map.of(
             WINDOW, "windowed",
             MENUS, "true",
@@ -105,13 +119,35 @@ public final class Settings {
 
     public static synchronized void set(String key, String value) {
         load();
-        if (value.equals(DEFAULTS.get(key))) {
+        if (value.equals(DEFAULTS.get(key)) || (value.isEmpty() && !DEFAULTS.containsKey(key))) {
             if (VALUES.remove(key) != null) {
                 save();
             }
         } else if (!value.equals(VALUES.put(key, value))) {
             save();
         }
+    }
+
+    /** A whole number setting, or def when it is unset or not a number. */
+    public static int num(String key, int def) {
+        try {
+            String v = get(key);
+            return v.isEmpty() ? def : Integer.parseInt(v.trim());
+        } catch (NumberFormatException e) {
+            return def;
+        }
+    }
+
+    public static synchronized Map<String, String> snapshot() {
+        load();
+        return new TreeMap<>(VALUES);
+    }
+
+    public static synchronized void restore(Map<String, String> values) {
+        load();
+        VALUES.clear();
+        VALUES.putAll(values);
+        save();
     }
 
     public static void toggle(String key) {

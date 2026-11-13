@@ -36,6 +36,7 @@ public final class ModsScreens {
         Hooks.frame = () -> {
             PerfHud.frame();
             Zoom.frame();
+            Stall.frame();
             Account.frame();
             WindowIcon.frame();
             testPause();
@@ -43,6 +44,7 @@ public final class ModsScreens {
         WidgetStyle.install();
         NameTags.install();
         FarMobs.install();
+        SoundControl.install();
         Hooks.windowHints = WindowMode::beforeWindow;
         Hooks.windowBorn = WindowMode::windowBorn;
         Hooks.iconSet = WindowIcon::apply;

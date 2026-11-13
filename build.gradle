@@ -107,7 +107,20 @@ def pentecostExec = { String taskName, List<String> taskArgs ->
         systemProperty 'pentecost.home', rootDir.path
         // A large young area makes memory cleanups rarer. At 4 GB the game stuttered about every 4 s; at 6 GB with
         // a 3 GB young area, shaders on, it went from about 40 to about 60 fps.
-        jvmArgs '-Xms6G', '-Xmx6G', '-Xmn3G'
+        def pentecostSettings = file('run/config/pentecost/settings.json')
+        def saved = pentecostSettings.isFile() ? new groovy.json.JsonSlurper().parseText(pentecostSettings.text) : [:]
+        int heapGb = Math.max(2, (saved['java.memory'] ?: '6') as int)
+        int youngGb = Math.max(1, Math.min((saved['java.young'] ?: '3') as int, heapGb - 1))
+        jvmArgs "-Xms${heapGb}G", "-Xmx${heapGb}G", "-Xmn${youngGb}G"
+        if ((saved['java.gc'] ?: 'g1') == 'zgc') {
+            jvmArgs '-XX:+UseZGC', '-XX:+ZGenerational'
+        } else if ((saved['java.gc'] ?: 'g1') == 'parallel') {
+            jvmArgs '-XX:+UseParallelGC'
+        }
+        def flagFile = file('run/config/pentecost/jvm-flags.txt')
+        if (flagFile.isFile()) {
+            flagFile.readLines().collect { it.trim() }.findAll { it && !it.startsWith('#') }.each { jvmArgs it }
+        }
         // The JVM never compiles a method over 8000 bytes of bytecode, so it runs in the slow interpreter.
         // Some mods ship such methods (Management Wanted has a 25000 byte one that runs for every living entity every tick).
         jvmArgs '-XX:-DontCompileHugeMethods'

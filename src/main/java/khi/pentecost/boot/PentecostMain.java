@@ -224,6 +224,7 @@ public final class PentecostMain {
         loader.addTransformer(khi.pentecost.core.ZoomHooks.transformer());
         loader.addTransformer(khi.pentecost.core.TagHooks.transformer());
         loader.addTransformer(khi.pentecost.core.ServerTuning.transformer());
+        loader.addTransformer(khi.pentecost.core.ClientHooks.transformer());
         if (forgeOn) {
             java.util.Set<String> softMods = new java.util.HashSet<>();
             for (ModInfo m : usable) {
