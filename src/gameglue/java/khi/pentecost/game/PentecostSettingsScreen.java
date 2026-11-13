@@ -179,7 +179,7 @@ public final class PentecostSettingsScreen extends Screen {
                                 () -> Settings.on(Settings.SPREAD_UNLOADS), () -> Settings.toggle(Settings.SPREAD_UNLOADS))))),
                 List.of("Launch cache", "Chunk building threads", "Virtual threads on Java 25"), List::of));
         pages.add(new Page("Java", "Memory, garbage collector and extra flags for the next launch. "
-                + "Pentecost reads them when you start the game with Play Pentecost.",
+                + "Pentecost reads them each time it starts the game.",
                 this::javaFolders, List.of(), this::javaShortcuts));
         pages.add(new Page("Gameplay", "Mob thinking, movement and the stall warning.",
                 this::gameplayFolders, List.of(), List::of));

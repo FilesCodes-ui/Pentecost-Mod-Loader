@@ -108,7 +108,7 @@ public final class RunProfiler {
             section(out, "Inside which mods", s.mods, busy, 15);
         }
         Files.writeString(Dirs.run().resolve("profile.txt"), out.toString());
-        say.accept("Profile saved to run/profile.txt");
+        say.accept("Profile saved as profile.txt in your game folder. Settings, General, Game folder opens it");
     }
 
     private static boolean own(String c) {
