@@ -21,6 +21,8 @@ import java.util.Map;
  */
 public final class PerfHud {
     private static final int KEY_F6 = 295;
+    private static final int KEY_F7 = 296;
+    private static boolean f7WasDown;
     private static boolean shown = "1".equals(System.getenv("PENTECOST_TEST_HUD"));
     private static boolean keyWasDown;
     private static boolean exportTested;
@@ -57,6 +59,12 @@ public final class PerfHud {
             shown = !shown;
         }
         keyWasDown = down;
+        boolean f7 = InputConstants.isKeyDown(mc.getWindow().getWindow(), KEY_F7);
+        if (f7 && !f7WasDown && mc.screen == null && !khi.pentecost.core.RunProfiler.running()) {
+            khi.pentecost.core.RunProfiler.start(msg -> mc.execute(() -> mc.gui.getChat()
+                    .addMessage(net.minecraft.network.chat.Component.literal("[Pentecost] " + msg))));
+        }
+        f7WasDown = f7;
         // F6 slides in from the right edge and back out. While it is open, F3's right column moves down under it.
         float e = Ui.ease("pentecost:f6", shown && !mc.options.hideGui ? 1f : 0f, 12f);
         khi.pentecost.core.CostMeter.setEnabled(e > 0.001f);
