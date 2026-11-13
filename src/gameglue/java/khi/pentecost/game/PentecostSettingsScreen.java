@@ -38,7 +38,7 @@ import java.util.function.Supplier;
  * Video holds Embeddium's options and Shaders drives Oculus, when those mods are installed.
  */
 public final class PentecostSettingsScreen extends Screen {
-    private enum Kind { INFO, BUTTON, SWITCH, CHOICE, SLIDER, PICK, SKIN }
+    private enum Kind { INFO, BUTTON, SWITCH, CHOICE, SLIDER, PICK, SKIN, KEY, HEADER }
 
     private record Slider(int min, int max, int step, IntSupplier value, IntConsumer set, Supplier<String> text) {}
 
@@ -47,6 +47,10 @@ public final class PentecostSettingsScreen extends Screen {
                        BooleanSupplier on, Runnable action, Slider slider, BooleanSupplier enabled) {
         static Row info(String title, String value) {
             return new Row(Kind.INFO, title, "", "", "", () -> value, null, null, null, () -> true);
+        }
+
+        static Row header(String title) {
+            return new Row(Kind.HEADER, title, "", "", "", null, null, null, null, () -> true);
         }
 
         static Row button(String title, String note, Runnable action) {
@@ -180,10 +184,21 @@ public final class PentecostSettingsScreen extends Screen {
 
     private KeyMapping listening;
 
+    private static String folderFor(String category) {
+        return switch (category) {
+            case "key.categories.movement" -> "Movement";
+            case "key.categories.gameplay" -> "Gameplay";
+            case "key.categories.inventory", "key.categories.creative" -> "Inventory";
+            case "key.categories.multiplayer", "key.categories.ui", "key.categories.misc" -> "Interface";
+            case "Pentecost" -> "Pentecost";
+            default -> "Mods";
+        };
+    }
+
     private List<Folder> controlFolders() {
         Options o = minecraft.options;
         List<Folder> out = new ArrayList<>();
-        out.add(new Folder("Mouse and movement", List.of(
+        out.add(new Folder("Mouse", List.of(
                 new Row(Kind.SLIDER, "Mouse sensitivity", "How far the view turns for each move of the mouse.",
                         "How far the view turns for each move of the mouse. While you zoom, it slows down by itself.", "Now",
                         () -> (int) Math.round(o.sensitivity().get() * 200) + "%", null, null,
@@ -195,12 +210,25 @@ public final class PentecostSettingsScreen extends Screen {
                 optionToggle("Toggle sneak", "Press once to sneak, again to stop.", o.toggleCrouch()),
                 optionToggle("Toggle sprint", "Press once to sprint, again to stop.", o.toggleSprint()),
                 optionToggle("Auto jump", "Step up one block without pressing jump.", o.autoJump()))));
-        Map<String, List<Row>> byCategory = new LinkedHashMap<>();
-        for (KeyMapping k : o.keyMappings) {
-            byCategory.computeIfAbsent(k.getCategory(), c -> new ArrayList<>()).add(keyRow(k));
+        Map<String, Map<String, List<Row>>> groups = new LinkedHashMap<>();
+        for (String name : List.of("Movement", "Gameplay", "Inventory", "Interface", "Pentecost", "Mods")) {
+            groups.put(name, new LinkedHashMap<>());
         }
-        for (Map.Entry<String, List<Row>> e : byCategory.entrySet()) {
-            out.add(new Folder(I18n.get(e.getKey()), e.getValue()));
+        for (KeyMapping k : o.keyMappings) {
+            groups.get(folderFor(k.getCategory())).computeIfAbsent(k.getCategory(), c -> new ArrayList<>()).add(keyRow(k));
+        }
+        for (Map.Entry<String, Map<String, List<Row>>> group : groups.entrySet()) {
+            List<Row> rows = new ArrayList<>();
+            boolean headers = group.getKey().equals("Mods") || group.getKey().equals("Interface");
+            for (Map.Entry<String, List<Row>> category : group.getValue().entrySet()) {
+                if (headers) {
+                    rows.add(Row.header(I18n.get(category.getKey())));
+                }
+                rows.addAll(category.getValue());
+            }
+            if (!rows.isEmpty()) {
+                out.add(new Folder(group.getKey(), rows));
+            }
         }
         return out;
     }
@@ -213,14 +241,14 @@ public final class PentecostSettingsScreen extends Screen {
     }
 
     private Row keyRow(KeyMapping k) {
-        String note = "Default: " + k.getDefaultKey().getDisplayName().getString();
-        return Row.choice(I18n.get(k.getName()), note, "Now", () -> {
+        String about = "Default key: " + k.getDefaultKey().getDisplayName().getString()
+                + ". Click, then press the new key or a mouse button. Escape clears it.";
+        return new Row(Kind.KEY, I18n.get(k.getName()), "", about, "Now", () -> {
             if (listening == k) {
                 return "Press a key...";
             }
-            String text = k.getTranslatedKeyMessage().getString();
-            return conflicts(k) ? "! " + text : text;
-        }, () -> listening = listening == k ? null : k);
+            return k.getTranslatedKeyMessage().getString();
+        }, () -> conflicts(k), () -> listening = listening == k ? null : k, null, () -> true);
     }
 
     private boolean conflicts(KeyMapping k) {
@@ -254,6 +282,41 @@ public final class PentecostSettingsScreen extends Screen {
             KeyMapping.resetMapping();
             minecraft.options.save();
         }));
+    }
+
+    /** A key bind on one short line: the action on the left, the key in a box on the right. */
+    private int keyRowDraw(GuiGraphics g, Row r, int x, int y, int w, int mx, int my, int top, int bottom) {
+        int h = 22;
+        boolean visible = y + h > top && y < bottom;
+        boolean inside = my >= top && my < bottom;
+        boolean over = visible && inside && Ui.over(mx, my, x, y, w, h);
+        boolean waiting = r.value().get().startsWith("Press");
+        boolean clash = r.on().getAsBoolean();
+        if (over) {
+            hovered = r;
+            g.fill(x, y, x + w, y + h, Ui.HOVER);
+        }
+        g.drawString(font, font.plainSubstrByWidth(r.title(), w - 150), x + 4, y + 7, Ui.TEXT, false);
+        String v = r.value().get();
+        int bw = Math.max(90, Math.min(140, font.width(v) + 18));
+        int bx = x + w - bw - 4;
+        int color = clash ? 0xFFE08080 : waiting ? Ui.TEXT : Ui.MUTED;
+        if (waiting) {
+            g.fill(bx, y + 2, bx + bw, y + h - 2, Ui.TEXT);
+        } else {
+            Ui.outline(g, bx, y + 2, bx + bw, y + h - 2, over ? Ui.TEXT : color);
+        }
+        String shown = font.plainSubstrByWidth(v, bw - 10);
+        g.drawString(font, shown, bx + bw / 2 - font.width(shown) / 2, y + 7,
+                waiting ? Ui.BLACK : clash ? 0xFFE08080 : Ui.SOFT, false);
+        if (clash) {
+            g.drawString(font, "shared", bx - 6 - font.width("shared"), y + 7, 0xFFE08080, false);
+        }
+        g.fill(x, y + h, x + w, y + h + 1, Ui.LINE);
+        if (visible && inside) {
+            hits.add(new Hit(x, Math.max(y, top), w, Math.min(y + h, bottom) - Math.max(y, top), r.action()));
+        }
+        return y + h + 1;
     }
 
     // ---------------------------------------------------------------- skin
@@ -308,76 +371,147 @@ public final class PentecostSettingsScreen extends Screen {
 
     // ---------------------------------------------------------------- resource packs
 
-    private List<String> packOrder;
+    private net.minecraft.client.gui.screens.packs.PackSelectionModel packModel;
+    private final Map<String, ResourceLocation> packIcons = new HashMap<>();
     private boolean packsChanged;
 
-    private List<Folder> resourcePackFolders() {
-        PackRepository repo = minecraft.getResourcePackRepository();
-        if (packOrder == null) {
-            packOrder = new ArrayList<>();
-            for (Pack p : repo.getSelectedPacks()) {
-                packOrder.add(p.getId());
-            }
+    private net.minecraft.client.gui.screens.packs.PackSelectionModel packModel() {
+        if (packModel == null) {
+            packModel = new net.minecraft.client.gui.screens.packs.PackSelectionModel(() -> packsChanged = true,
+                    this::packIcon, minecraft.getResourcePackRepository(), repo -> minecraft.options.updateResourcePacks(repo));
         }
-        List<Row> active = new ArrayList<>();
-        for (int i = packOrder.size() - 1; i >= 0; i--) {
-            Pack p = repo.getPack(packOrder.get(i));
-            if (p != null) {
-                active.add(packRow(p, true));
-            }
-        }
-        List<Row> available = new ArrayList<>();
-        for (Pack p : repo.getAvailablePacks()) {
-            if (!packOrder.contains(p.getId())) {
-                available.add(packRow(p, false));
-            }
-        }
-        if (available.isEmpty()) {
-            available.add(Row.info("No more packs", "Put packs in the resource pack folder"));
-        }
-        return List.of(new Folder("In use", active), new Folder("Available", available));
+        return packModel;
     }
 
-    private Row packRow(Pack p, boolean inUse) {
-        String note = p.getDescription().getString().replace('\n', ' ');
-        if (!p.getCompatibility().isCompatible()) {
-            note = "Made for another version. " + note;
-        }
-        String id = p.getId();
-        return new Row(Kind.SWITCH, p.getTitle().getString(), note, note, "Done", null, () -> packOrder.contains(id),
-                () -> {
-                    int at = packOrder.indexOf(id);
-                    if (at >= 0 && hasShiftDown()) {
-                        if (at < packOrder.size() - 1) {
-                            java.util.Collections.swap(packOrder, at, at + 1);
-                        }
-                    } else if (at >= 0) {
-                        packOrder.remove(id);
-                    } else {
-                        packOrder.add(id);
-                    }
-                    packsChanged = true;
-                    built.remove(page);
-                }, null, () -> !p.isRequired());
+    private ResourceLocation packIcon(Pack pack) {
+        return packIcons.computeIfAbsent(pack.getId(), id -> {
+            ResourceLocation fallback = new ResourceLocation("textures/misc/unknown_pack.png");
+            try (net.minecraft.server.packs.PackResources resources = pack.open()) {
+                net.minecraft.server.packs.resources.IoSupplier<java.io.InputStream> icon = resources.getRootResource("pack.png");
+                if (icon == null) {
+                    return fallback;
+                }
+                try (java.io.InputStream in = icon.get()) {
+                    com.mojang.blaze3d.platform.NativeImage image = com.mojang.blaze3d.platform.NativeImage.read(in);
+                    ResourceLocation location = new ResourceLocation("pentecost", "pack/" + Integer.toHexString(id.hashCode()) + "/icon");
+                    minecraft.getTextureManager().register(location, new net.minecraft.client.renderer.texture.DynamicTexture(image));
+                    return location;
+                }
+            } catch (java.io.IOException | RuntimeException e) {
+                return fallback;
+            }
+        });
+    }
+
+    private List<Folder> resourcePackFolders() {
+        return List.of(new Folder("Packs", List.of()));
     }
 
     private List<Shortcut> resourcePackShortcuts() {
         return List.of(
                 new Shortcut("Pack folder", () -> Util.getPlatform().openFile(minecraft.getResourcePackDirectory().toFile())),
                 new Shortcut("Refresh list", () -> {
+                    if (packsChanged) {
+                        applyPacks();
+                    }
                     minecraft.getResourcePackRepository().reload();
-                    built.remove(page);
+                    packModel = null;
                 }));
     }
 
     private void applyPacks() {
-        if (!packsChanged || packOrder == null) {
+        if (!packsChanged || packModel == null) {
             return;
         }
         packsChanged = false;
-        PackRepository repo = minecraft.getResourcePackRepository();
-        repo.setSelected(packOrder);
-        minecraft.options.updateResourcePacks(repo);
+        packModel.commit();
+    }
+
+    /** Two columns like the game's own screen: packs you can add on the left, packs in use on the right. */
+    private int packColumns(GuiGraphics g, int x, int y, int w, int mx, int my, int top, int bottom) {
+        var model = packModel();
+        int gap = 16;
+        int colW = (w - gap) / 2;
+        int rx = x + colW + gap;
+        List<net.minecraft.client.gui.screens.packs.PackSelectionModel.Entry> left = model.getUnselected().toList();
+        List<net.minecraft.client.gui.screens.packs.PackSelectionModel.Entry> right = model.getSelected().toList();
+        g.drawString(font, "AVAILABLE", x + 4, y, Ui.FAINT, false);
+        g.drawString(font, "IN USE  (the top one wins)", rx + 4, y, Ui.FAINT, false);
+        int ly = y + 16;
+        int ry = y + 16;
+        if (left.isEmpty()) {
+            g.drawString(font, "No more packs. Put packs in the pack folder.", x + 4, ly, Ui.MUTED, false);
+            ly += 14;
+        }
+        for (var e : left) {
+            ly = packCard(g, e, x, ly, colW, mx, my, top, bottom, false);
+        }
+        for (var e : right) {
+            ry = packCard(g, e, rx, ry, colW, mx, my, top, bottom, true);
+        }
+        return Math.max(ly, ry);
+    }
+
+    private int packCard(GuiGraphics g, net.minecraft.client.gui.screens.packs.PackSelectionModel.Entry e, int x, int y, int w,
+                         int mx, int my, int top, int bottom, boolean inUse) {
+        int h = 46;
+        boolean visible = y + h > top && y < bottom;
+        boolean inside = my >= top && my < bottom;
+        boolean over = visible && inside && Ui.over(mx, my, x, y, w, h);
+        boolean canAdd = !inUse && e.canSelect();
+        if (over && canAdd) {
+            g.fill(x, y, x + w, y + h, Ui.HOVER);
+        }
+        Ui.outline(g, x, y, x + w, y + h, over && canAdd ? Ui.MUTED : 0x33FFFFFF);
+        if (visible) {
+            RenderSystem.enableBlend();
+            g.blit(e.getIconTexture(), x + 6, y + 7, 0, 0, 32, 32, 32, 32);
+            RenderSystem.disableBlend();
+        }
+        int tx = x + 46;
+        int room = w - 52 - (inUse ? 48 : 14);
+        g.drawString(font, font.plainSubstrByWidth(e.getTitle().getString(), room), tx, y + 7, Ui.TEXT, false);
+        List<String> desc = Ui.wrap(font, e.getDescription().getString().replace('\n', ' '), w - 52);
+        for (int i = 0; i < Math.min(2, desc.size()); i++) {
+            String line = desc.get(i);
+            if (i == 1 && desc.size() > 2) {
+                line = font.plainSubstrByWidth(line, w - 64) + "...";
+            }
+            g.drawString(font, line, tx, y + 19 + i * 10, Ui.MUTED, false);
+        }
+        if (!e.getCompatibility().isCompatible()) {
+            String warn = "Other version";
+            g.drawString(font, warn, x + w - 8 - font.width(warn), y + h - 11, 0xFFE0B080, false);
+        }
+        if (inUse) {
+            int bx = x + w - 18;
+            if (packButton(g, "x", bx, y + 5, mx, my, e.canUnselect(), visible && inside, top, bottom, e::unselect)) {
+                // drawn
+            }
+            packButton(g, "v", bx - 16, y + 5, mx, my, e.canMoveDown(), visible && inside, top, bottom, e::moveDown);
+            packButton(g, "^", bx - 32, y + 5, mx, my, e.canMoveUp(), visible && inside, top, bottom, e::moveUp);
+        } else {
+            g.drawString(font, ">", x + w - 14, y + 7, canAdd ? Ui.SOFT : Ui.FAINT, false);
+            if (canAdd && visible && inside) {
+                hits.add(new Hit(x, Math.max(y, top), w, Math.min(y + h, bottom) - Math.max(y, top), e::select));
+            }
+        }
+        return y + h + 4;
+    }
+
+    private boolean packButton(GuiGraphics g, String label, int x, int y, int mx, int my, boolean enabled, boolean live,
+                               int top, int bottom, Runnable action) {
+        boolean hover = enabled && live && Ui.over(mx, my, x, y, 14, 14);
+        if (hover) {
+            g.fill(x, y, x + 14, y + 14, Ui.TEXT);
+        } else {
+            Ui.outline(g, x, y, x + 14, y + 14, enabled ? 0x66FFFFFF : 0x22FFFFFF);
+        }
+        g.drawString(font, label, x + 7 - font.width(label) / 2, y + 3, hover ? Ui.BLACK : enabled ? Ui.TEXT : Ui.FAINT, false);
+        if (enabled && live && y + 14 > top && y < bottom) {
+            hits.add(new Hit(x, y, 14, 14, action));
+        }
+        return enabled;
     }
 
     // ---------------------------------------------------------------- video and shaders
@@ -789,7 +923,11 @@ public final class PentecostSettingsScreen extends Screen {
         }
         g.enableScissor((int) (cx * ui), (int) (rowsTop * ui), (int) ((cx + cw + 4) * ui), (int) (bottom * ui));
         int py = rowsTop - (int) scroll;
-        List<Row> rows = folders.isEmpty() ? List.of() : folders.get(folder).rows();
+        boolean packPage = "Resource packs".equals(p.name());
+        List<Row> rows = packPage || folders.isEmpty() ? List.of() : folders.get(folder).rows();
+        if (packPage) {
+            py = packColumns(g, cx, py, cw, mx, my, rowsTop, bottom);
+        }
         boolean picks = rows.stream().anyMatch(r -> r.kind() == Kind.PICK);
         int pickTarget = -1;
         for (Row r : rows) {
@@ -949,6 +1087,13 @@ public final class PentecostSettingsScreen extends Screen {
     private int row(GuiGraphics g, Row r, int x, int y, int w, int mx, int my, int top, int bottom) {
         if (r.kind() == Kind.SKIN) {
             return skinRow(g, x, y, w);
+        }
+        if (r.kind() == Kind.KEY) {
+            return keyRowDraw(g, r, x, y, w, mx, my, top, bottom);
+        }
+        if (r.kind() == Kind.HEADER) {
+            g.drawString(font, r.title().toUpperCase(Locale.ROOT), x + 4, y + 10, Ui.FAINT, false);
+            return y + 24;
         }
         List<String> noteLines = r.note().isEmpty() ? List.of() : Ui.wrap(font, r.note(), w - 12);
         if (noteLines.size() > 3) {
