@@ -30,6 +30,8 @@ import java.util.stream.Stream;
  */
 final class ExternalOptions {
     static final String EMBEDDIUM_SCREEN = "me.jellysquid.mods.sodium.client.gui.SodiumOptionsGUI";
+    /** Oculus and Iris share this screen. The shader key opens it. Pentecost shows its Shaders page instead. */
+    static final String SHADER_SCREEN = "net.irisshaders.iris.gui.screen.ShaderPackScreen";
 
     /** One Embeddium option, reduced to what Pentecost's rows need. */
     record VideoOption(String name, String tooltip, String about, String kind, boolean restart, Object option, Object control) {}
@@ -245,6 +247,15 @@ final class ExternalOptions {
             } finally {
                 bypass = false;
             }
+        }
+    }
+
+    /** The screen the shader pack screen would return to. */
+    static Screen shaderParentOf(Screen shaderScreen) {
+        try {
+            return (Screen) field(shaderScreen, "parent");
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return null;
         }
     }
 
@@ -584,8 +595,13 @@ final class ExternalOptions {
 
     static void openPackSettings(Screen parent) {
         try {
-            Class<?> c = find("net.irisshaders.iris.gui.screen.ShaderPackScreen");
-            Minecraft.getInstance().setScreen((Screen) c.getConstructor(Screen.class).newInstance(parent));
+            Class<?> c = find(SHADER_SCREEN);
+            bypass = true;
+            try {
+                Minecraft.getInstance().setScreen((Screen) c.getConstructor(Screen.class).newInstance(parent));
+            } finally {
+                bypass = false;
+            }
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
             Log.error("Cannot open the shader pack screen: " + e);
         }

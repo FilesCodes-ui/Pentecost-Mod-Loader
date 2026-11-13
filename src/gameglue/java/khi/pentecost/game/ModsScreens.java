@@ -34,7 +34,7 @@ public final class ModsScreens {
     public static void init() {
         Hooks.packSources = ModPacks::extend;
         Hooks.frame = () -> {
-            PerfHud.frame();
+            PerfHud.frame();            Zoom.frame();
             WindowIcon.frame();
             testPause();
         };
@@ -120,6 +120,12 @@ public final class ModsScreens {
             Log.info("Test: opening the mods screen");
             return new PentecostModsScreen(incoming);
         }
+        // The shader key opens the Shaders page of Pentecost's settings.
+        if (name.equals(ExternalOptions.SHADER_SCREEN) && !ExternalOptions.bypass
+                && khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.RESTYLE)) {
+            Screen back = ExternalOptions.shaderParentOf(incoming);
+            return new PentecostSettingsScreen(back != null ? back : Minecraft.getInstance().screen, "Shaders");
+        }
         // Embeddium's video settings open as the Video page of Pentecost's settings.
         if (name.equals(ExternalOptions.EMBEDDIUM_SCREEN) && !ExternalOptions.bypass
                 && khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.RESTYLE)) {
@@ -139,6 +145,10 @@ public final class ModsScreens {
             }
         }
         return incoming;
+    }
+
+    private static Screen mcScreen() {
+        return Minecraft.getInstance().screen;
     }
 
     private static java.lang.reflect.Field showPauseMenu;
@@ -211,6 +221,11 @@ public final class ModsScreens {
                 && khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.RESTYLE)) {
             Screen back = embeddiumScreen ? ExternalOptions.parentOf(shown) : videoParent(shown);
             return new PentecostSettingsScreen(back, "Video");
+        }
+        if (shown != null && shown.getClass().getName().equals(ExternalOptions.SHADER_SCREEN) && !ExternalOptions.bypass
+                && khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.RESTYLE)) {
+            Screen back = ExternalOptions.shaderParentOf(shown);
+            return new PentecostSettingsScreen(back != null ? back : mcScreen(), "Shaders");
         }
         if (shown != null && shown == asked) {
             return reopened(shown);
