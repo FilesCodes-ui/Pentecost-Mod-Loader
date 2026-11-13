@@ -10,7 +10,18 @@ import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvents;
 
+import com.mojang.blaze3d.platform.InputConstants;
+import com.mojang.blaze3d.systems.RenderSystem;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.client.Options;
+import net.minecraft.client.resources.language.I18n;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.packs.repository.Pack;
+import net.minecraft.server.packs.repository.PackRepository;
+import net.minecraft.world.entity.HumanoidArm;
+import net.minecraft.world.entity.player.PlayerModelPart;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -27,7 +38,7 @@ import java.util.function.Supplier;
  * Video holds Embeddium's options and Shaders drives Oculus, when those mods are installed.
  */
 public final class PentecostSettingsScreen extends Screen {
-    private enum Kind { INFO, BUTTON, SWITCH, CHOICE, SLIDER, PICK }
+    private enum Kind { INFO, BUTTON, SWITCH, CHOICE, SLIDER, PICK, SKIN }
 
     private record Slider(int min, int max, int step, IntSupplier value, IntConsumer set, Supplier<String> text) {}
 
@@ -136,6 +147,14 @@ public final class PentecostSettingsScreen extends Screen {
         pages.add(new Page("Shader pack", "The options of the pack in use, grouped the way the pack groups them. "
                 + "Changes wait until you press Apply, then the pack reloads once.",
                 this::packFolders, List.of(), this::packShortcuts));
+        pages.add(new Page("Controls", "Mouse, movement and every key bind, mods' included. Click a key, then press the new one. "
+                + "Escape clears it. A ! marks a key two actions share.",
+                this::controlFolders, List.of(), this::controlShortcuts));
+        pages.add(new Page("Skin", "Your skin and which layers show. The skin comes from your account.",
+                this::skinFolders, List.of(), List::of));
+        pages.add(new Page("Resource packs", "Turn packs on or off. Shift-click a pack in use to give it more priority. "
+                + "Changes apply when you press Done.",
+                this::resourcePackFolders, List.of(), this::resourcePackShortcuts));
         pages.add(planned("Performance", "Launch cache", "Chunk building threads", "Far mob throttle", "Virtual threads on Java 25"));
         pages.add(planned("Java", "Memory", "Garbage collector", "Extra flags", "Java version"));
         pages.add(planned("Gameplay", "Faster mobs", "Smarter mobs", "Stall warning"));
@@ -155,6 +174,210 @@ public final class PentecostSettingsScreen extends Screen {
 
     private List<Folder> folders(int index) {
         return built.computeIfAbsent(index, i -> pages.get(i).build().get());
+    }
+
+    // ---------------------------------------------------------------- controls
+
+    private KeyMapping listening;
+
+    private List<Folder> controlFolders() {
+        Options o = minecraft.options;
+        List<Folder> out = new ArrayList<>();
+        out.add(new Folder("Mouse and movement", List.of(
+                new Row(Kind.SLIDER, "Mouse sensitivity", "How far the view turns for each move of the mouse.",
+                        "How far the view turns for each move of the mouse. While you zoom, it slows down by itself.", "Now",
+                        () -> (int) Math.round(o.sensitivity().get() * 200) + "%", null, null,
+                        new Slider(0, 200, 1, () -> (int) Math.round(o.sensitivity().get() * 200),
+                                n -> o.sensitivity().set(n / 200.0), () -> (int) Math.round(o.sensitivity().get() * 200) + "%"),
+                        () -> true),
+                optionToggle("Invert mouse", "Pushing the mouse forward looks down.", o.invertYMouse()),
+                optionToggle("Smooth scrolling off", "Each wheel notch moves exactly one step.", o.discreteMouseScroll()),
+                optionToggle("Toggle sneak", "Press once to sneak, again to stop.", o.toggleCrouch()),
+                optionToggle("Toggle sprint", "Press once to sprint, again to stop.", o.toggleSprint()),
+                optionToggle("Auto jump", "Step up one block without pressing jump.", o.autoJump()))));
+        Map<String, List<Row>> byCategory = new LinkedHashMap<>();
+        for (KeyMapping k : o.keyMappings) {
+            byCategory.computeIfAbsent(k.getCategory(), c -> new ArrayList<>()).add(keyRow(k));
+        }
+        for (Map.Entry<String, List<Row>> e : byCategory.entrySet()) {
+            out.add(new Folder(I18n.get(e.getKey()), e.getValue()));
+        }
+        return out;
+    }
+
+    private Row optionToggle(String title, String note, net.minecraft.client.OptionInstance<Boolean> option) {
+        return Row.toggle(title, note, "Now", () -> Boolean.TRUE.equals(option.get()), () -> {
+            option.set(!Boolean.TRUE.equals(option.get()));
+            minecraft.options.save();
+        });
+    }
+
+    private Row keyRow(KeyMapping k) {
+        String note = "Default: " + k.getDefaultKey().getDisplayName().getString();
+        return Row.choice(I18n.get(k.getName()), note, "Now", () -> {
+            if (listening == k) {
+                return "Press a key...";
+            }
+            String text = k.getTranslatedKeyMessage().getString();
+            return conflicts(k) ? "! " + text : text;
+        }, () -> listening = listening == k ? null : k);
+    }
+
+    private boolean conflicts(KeyMapping k) {
+        if (k.isUnbound()) {
+            return false;
+        }
+        for (KeyMapping other : minecraft.options.keyMappings) {
+            if (other != k && k.same(other)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void bindListening(InputConstants.Key key) {
+        KeyMapping k = listening;
+        listening = null;
+        if (k == null) {
+            return;
+        }
+        minecraft.options.setKey(k, key);
+        KeyMapping.resetMapping();
+        minecraft.options.save();
+    }
+
+    private List<Shortcut> controlShortcuts() {
+        return List.of(new Shortcut("Reset all keys", () -> {
+            for (KeyMapping k : minecraft.options.keyMappings) {
+                k.setKey(k.getDefaultKey());
+            }
+            KeyMapping.resetMapping();
+            minecraft.options.save();
+        }));
+    }
+
+    // ---------------------------------------------------------------- skin
+
+    private List<Folder> skinFolders() {
+        Options o = minecraft.options;
+        List<Row> layers = new ArrayList<>();
+        for (PlayerModelPart part : PlayerModelPart.values()) {
+            layers.add(Row.toggle(part.getName().getString(), "A layer of your skin.", "Now",
+                    () -> o.isModelPartEnabled(part), () -> {
+                        o.toggleModelPart(part, !o.isModelPartEnabled(part));
+                        o.save();
+                    }));
+        }
+        layers.add(Row.choice("Main hand", "The hand that holds items.", "Now",
+                () -> o.mainHand().get() == HumanoidArm.LEFT ? "Left" : "Right",
+                () -> {
+                    o.mainHand().set(o.mainHand().get().getOpposite());
+                    o.save();
+                }));
+        Row preview = new Row(Kind.SKIN, minecraft.getUser().getName(), "", "", "", () -> minecraft.getUser().getName(),
+                null, null, null, () -> true);
+        return List.of(new Folder("Preview", List.of(preview)), new Folder("Layers", layers));
+    }
+
+    /** The front of the skin, drawn from the texture: head, body, arms and legs, with the outer layer on top. */
+    private int skinRow(GuiGraphics g, int x, int y, int w) {
+        ResourceLocation skin = AccountSkin.location();
+        if (skin == null) {
+            skin = minecraft.getSkinManager().getInsecureSkinLocation(minecraft.getUser().getGameProfile());
+        }
+        int s = 4;
+        int cx = x + w / 2 - 8 * s / 2;
+        RenderSystem.enableBlend();
+        for (int layer = 0; layer < 2; layer++) {
+            int dx = layer == 0 ? 0 : 0;
+            // head, body, right arm, left arm, right leg, left leg: target x, y, size, then texture u, v
+            int[][] parts = layer == 0
+                    ? new int[][] {{0, 0, 8, 8, 8, 8}, {0, 8, 8, 12, 20, 20}, {-4, 8, 4, 12, 44, 20}, {8, 8, 4, 12, 36, 52},
+                            {0, 20, 4, 12, 4, 20}, {4, 20, 4, 12, 20, 52}}
+                    : new int[][] {{0, 0, 8, 8, 40, 8}, {0, 8, 8, 12, 20, 36}, {-4, 8, 4, 12, 44, 36}, {8, 8, 4, 12, 52, 52},
+                            {0, 20, 4, 12, 4, 36}, {4, 20, 4, 12, 4, 52}};
+            for (int[] p : parts) {
+                g.blit(skin, cx + p[0] * s + dx, y + 8 + p[1] * s, p[2] * s, p[3] * s, p[4], p[5], p[2], p[3], 64, 64);
+            }
+        }
+        RenderSystem.disableBlend();
+        String name = minecraft.getUser().getName();
+        g.drawString(font, name, x + w / 2 - font.width(name) / 2, y + 8 + 32 * s + 8, Ui.TEXT, false);
+        return y + 8 + 32 * s + 28;
+    }
+
+    // ---------------------------------------------------------------- resource packs
+
+    private List<String> packOrder;
+    private boolean packsChanged;
+
+    private List<Folder> resourcePackFolders() {
+        PackRepository repo = minecraft.getResourcePackRepository();
+        if (packOrder == null) {
+            packOrder = new ArrayList<>();
+            for (Pack p : repo.getSelectedPacks()) {
+                packOrder.add(p.getId());
+            }
+        }
+        List<Row> active = new ArrayList<>();
+        for (int i = packOrder.size() - 1; i >= 0; i--) {
+            Pack p = repo.getPack(packOrder.get(i));
+            if (p != null) {
+                active.add(packRow(p, true));
+            }
+        }
+        List<Row> available = new ArrayList<>();
+        for (Pack p : repo.getAvailablePacks()) {
+            if (!packOrder.contains(p.getId())) {
+                available.add(packRow(p, false));
+            }
+        }
+        if (available.isEmpty()) {
+            available.add(Row.info("No more packs", "Put packs in the resource pack folder"));
+        }
+        return List.of(new Folder("In use", active), new Folder("Available", available));
+    }
+
+    private Row packRow(Pack p, boolean inUse) {
+        String note = p.getDescription().getString().replace('\n', ' ');
+        if (!p.getCompatibility().isCompatible()) {
+            note = "Made for another version. " + note;
+        }
+        String id = p.getId();
+        return new Row(Kind.SWITCH, p.getTitle().getString(), note, note, "Done", null, () -> packOrder.contains(id),
+                () -> {
+                    int at = packOrder.indexOf(id);
+                    if (at >= 0 && hasShiftDown()) {
+                        if (at < packOrder.size() - 1) {
+                            java.util.Collections.swap(packOrder, at, at + 1);
+                        }
+                    } else if (at >= 0) {
+                        packOrder.remove(id);
+                    } else {
+                        packOrder.add(id);
+                    }
+                    packsChanged = true;
+                    built.remove(page);
+                }, null, () -> !p.isRequired());
+    }
+
+    private List<Shortcut> resourcePackShortcuts() {
+        return List.of(
+                new Shortcut("Pack folder", () -> Util.getPlatform().openFile(minecraft.getResourcePackDirectory().toFile())),
+                new Shortcut("Refresh list", () -> {
+                    minecraft.getResourcePackRepository().reload();
+                    built.remove(page);
+                }));
+    }
+
+    private void applyPacks() {
+        if (!packsChanged || packOrder == null) {
+            return;
+        }
+        packsChanged = false;
+        PackRepository repo = minecraft.getResourcePackRepository();
+        repo.setSelected(packOrder);
+        minecraft.options.updateResourcePacks(repo);
     }
 
     // ---------------------------------------------------------------- video and shaders
@@ -409,6 +632,7 @@ public final class PentecostSettingsScreen extends Screen {
     @Override
     public void onClose() {
         runPendingPick();
+        applyPacks();
         minecraft.setScreen(parent);
     }
 
@@ -652,7 +876,12 @@ public final class PentecostSettingsScreen extends Screen {
             }
             ty += 4;
             if (!hovered.when().isEmpty()) {
-                String when = "Applies " + ("Now".equals(hovered.when()) ? "right away" : "after a restart");
+                String when = "Applies " + switch (hovered.when()) {
+                    case "Now" -> "right away";
+                    case "Done" -> "when you press Done";
+                    case "On apply" -> "when you press Apply";
+                    default -> "after a restart";
+                };
                 g.drawString(font, when, ix, ty, Ui.SOFT, false);
                 ty += 14;
             }
@@ -718,6 +947,9 @@ public final class PentecostSettingsScreen extends Screen {
      * the whole row under them, and the row grows to fit it.
      */
     private int row(GuiGraphics g, Row r, int x, int y, int w, int mx, int my, int top, int bottom) {
+        if (r.kind() == Kind.SKIN) {
+            return skinRow(g, x, y, w);
+        }
         List<String> noteLines = r.note().isEmpty() ? List.of() : Ui.wrap(font, r.note(), w - 12);
         if (noteLines.size() > 3) {
             noteLines = new ArrayList<>(noteLines.subList(0, 3));
@@ -825,7 +1057,21 @@ public final class PentecostSettingsScreen extends Screen {
     }
 
     @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (listening != null) {
+            bindListening(keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE ? InputConstants.UNKNOWN
+                    : InputConstants.getKey(keyCode, scanCode));
+            return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (listening != null && button != 0) {
+            bindListening(InputConstants.Type.MOUSE.getOrCreate(button));
+            return true;
+        }
         if (button != 0) {
             return super.mouseClicked(mouseX, mouseY, button);
         }
@@ -858,7 +1104,10 @@ public final class PentecostSettingsScreen extends Screen {
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         if (dragKey != null) {
             // Sliders apply once, when let go, so a long drag does not reload chunks at every step.
-            ExternalOptions.apply(embeddium);
+            if (embeddium != null) {
+                ExternalOptions.apply(embeddium);
+            }
+            minecraft.options.save();
         }
         dragKey = null;
         return super.mouseReleased(mouseX, mouseY, button);

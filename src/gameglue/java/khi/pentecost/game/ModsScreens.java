@@ -132,6 +132,12 @@ public final class ModsScreens {
             Screen back = ExternalOptions.parentOf(incoming);
             return new PentecostSettingsScreen(back != null ? back : Minecraft.getInstance().screen, "Video");
         }
+        // The game's controls, skin and resource pack screens open as pages of Pentecost's settings.
+        String optionPage = optionPageFor(incoming);
+        if (optionPage != null && !ExternalOptions.bypass
+                && khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.RESTYLE)) {
+            return new PentecostSettingsScreen(lastScreenOf(incoming), optionPage);
+        }
         if (OTHER_MODS_SCREENS.contains(name)) {
             return new PentecostModsScreen(Minecraft.getInstance().screen);
         }
@@ -145,6 +151,35 @@ public final class ModsScreens {
             }
         }
         return incoming;
+    }
+
+    private static String optionPageFor(Screen s) {
+        String n = s.getClass().getName();
+        if (n.equals("net.minecraft.client.gui.screens.controls.KeyBindsScreen")
+                || n.equals("net.minecraft.client.gui.screens.controls.ControlsScreen")) {
+            return "Controls";
+        }
+        if (n.equals("net.minecraft.client.gui.screens.SkinCustomizationScreen")) {
+            return "Skin";
+        }
+        if (n.equals("net.minecraft.client.gui.screens.packs.PackSelectionScreen")
+                && mcScreen() instanceof net.minecraft.client.gui.screens.OptionsScreen) {
+            return "Resource packs";
+        }
+        return null;
+    }
+
+    private static Screen lastScreenOf(Screen s) {
+        for (Class<?> c = s.getClass(); c != null && c != Screen.class; c = c.getSuperclass()) {
+            try {
+                java.lang.reflect.Field f = c.getDeclaredField("lastScreen");
+                f.setAccessible(true);
+                return (Screen) f.get(s);
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                // try the parent class
+            }
+        }
+        return mcScreen();
     }
 
     private static Screen mcScreen() {
