@@ -83,7 +83,7 @@ final class DebugView {
             leftCol.add(new Panel("FROM MODS", raw(lastFromMods)));
         }
 
-        GuiGraphics g = new GuiGraphics(mc, mc.renderBuffers().bufferSource());
+        GuiGraphics g = GuiBatch.on(new GuiGraphics(mc, mc.renderBuffers().bufferSource()));
         g.pose().pushPose();
         g.pose().translate(0, 0, 200);
         g.pose().scale(ui, ui, 1);
