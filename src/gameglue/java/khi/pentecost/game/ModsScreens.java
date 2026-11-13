@@ -150,6 +150,11 @@ public final class ModsScreens {
                 && !khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.VANILLA_SETTINGS)) {
             return new PentecostSettingsScreen(lastScreenOf(incoming), optionPage);
         }
+        // The game's Open to LAN screen becomes World Wide Local Server.
+        if (name.equals("net.minecraft.client.gui.screens.ShareToLanScreen")
+                && !khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.VANILLA_SETTINGS)) {
+            return new WwlsScreen(lastScreenOf(incoming));
+        }
         if (OTHER_MODS_SCREENS.contains(name)) {
             return new PentecostModsScreen(Minecraft.getInstance().screen);
         }

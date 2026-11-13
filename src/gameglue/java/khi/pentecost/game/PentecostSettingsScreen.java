@@ -1101,9 +1101,13 @@ public final class PentecostSettingsScreen extends Screen {
                 new Folder("Server tick", List.of(
                         settingToggle("Spread chunk saving", "Chunks you leave unload a few at a time.", "Restart", Settings.SPREAD_UNLOADS),
                         settingToggle("Far mob throttle", "Mobs far from every player think less often.", "Now", Settings.FAR_MOBS))),
+                new Folder("World Wide Local Server", List.of(
+                        Row.button("Open or join a world", "Friends join your world with a short code. No port forwarding. "
+                                + "Open a world first to host, or type a friend's code to join.",
+                                () -> minecraft.setScreen(new WwlsScreen(this))))),
                 new Folder("Planned", List.of(
-                        Row.info("World Wide Local Server", "Needs the handshake service"),
-                        Row.info("Operators", "Needs the handshake service"))));
+                        Row.info("Operators", "Planned"),
+                        Row.info("playit.gg helper", "Planned, for homes that cannot connect directly"))));
     }
 
     // ---------------------------------------------------------------- profiles
