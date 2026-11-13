@@ -32,6 +32,58 @@ public final class CoreMods {
 
     private CoreMods() {}
 
+    private static volatile Thread worker;
+    private static final Set<String> SKIPPED = ConcurrentHashMap.newKeySet();
+
+    /** Reads the scripts on a background thread. Call awaitLoaded before the game starts. */
+    static void loadAsync(List<ModFile> files) {
+        Thread t = new Thread(() -> {
+            try {
+                load(files);
+            } finally {
+                worker = null;
+            }
+            for (String n : SKIPPED) {
+                if (byClass.containsKey(n)) {
+                    System.out.println("[Pentecost] WARNING: coremods target " + n + ", which loaded before they were ready");
+                }
+            }
+        }, "pentecost-coremods");
+        t.setDaemon(true);
+        worker = t;
+        t.start();
+    }
+
+    /** Blocks until the scripts are read. */
+    public static void awaitLoaded() {
+        join(worker);
+    }
+
+    private static void join(Thread t) {
+        if (t == null || t == Thread.currentThread()) {
+            return;
+        }
+        try {
+            t.join();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /** True while the scripts are still loading and this class cannot wait for them. */
+    private static boolean pendingFor(String className) {
+        Thread t = worker;
+        if (t == null || t == Thread.currentThread()) {
+            return false;
+        }
+        if (className.startsWith("net.minecraft.")) {
+            join(t);
+            return false;
+        }
+        SKIPPED.add(className);
+        return true;
+    }
+
     /** Landing point for Forge code that asks its launcher for the shared settings board. */
     public static cpw.mods.modlauncher.api.TypesafeMap blackboard(cpw.mods.modlauncher.Launcher launcher) {
         return launcher != null ? launcher.blackboard() : BOARD;
@@ -63,6 +115,9 @@ public final class CoreMods {
     }
 
     static boolean has(String className) {
+        if (pendingFor(className)) {
+            return false;
+        }
         return byClass.containsKey(className);
     }
 

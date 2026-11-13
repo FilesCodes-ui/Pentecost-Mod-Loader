@@ -99,9 +99,20 @@ public final class ForgeBoot {
         ModFile minecraft = new ModFile(SecureJar.from(gameJar), new Provider(false), ForgeBoot::minecraftInfo);
         files.add(minecraft);
         files.add(new ModFile(SecureJar.from(forgeJar), new Provider(true), ModFileParser::modsTomlParser));
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(
+                Math.max(2, Math.min(8, Runtime.getRuntime().availableProcessors())), r -> {
+                    Thread th = new Thread(r, "pentecost-jar-open");
+                    th.setDaemon(true);
+                    return th;
+                });
+        List<java.util.concurrent.Future<SecureJar>> opening = new ArrayList<>();
         for (Path jar : modJars) {
-            files.add(new ModFile(SecureJar.from(jar), new Provider(true), ModFileParser::modsTomlParser));
+            opening.add(pool.submit(() -> SecureJar.from(jar)));
         }
+        for (java.util.concurrent.Future<SecureJar> open : opening) {
+            files.add(new ModFile(open.get(), new Provider(true), ModFileParser::modsTomlParser));
+        }
+        pool.shutdown();
 
         lap("opening mod jars");
         List<ModFile> usable = new ArrayList<>();
@@ -125,6 +136,7 @@ public final class ForgeBoot {
         }
 
         lap("reading mod descriptions");
+        CoreMods.loadAsync(usable);
         // Forge reports loading progress through this handler. Give it a progress bar to write to.
         Field progress = ImmediateWindowHandler.class.getDeclaredField("earlyProgress");
         progress.setAccessible(true);
@@ -141,8 +153,6 @@ public final class ForgeBoot {
         list.addForScanning(FMLLoader.backgroundScanHandler);
         lap("starting the background class scan");
 
-        CoreMods.load(usable);
-        lap("core mods");
 
         // Forge shows an early loading window through this handler. The plain window path is enough here.
         Field provider = ImmediateWindowHandler.class.getDeclaredField("provider");

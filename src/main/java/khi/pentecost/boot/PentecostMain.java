@@ -219,6 +219,7 @@ public final class PentecostMain {
         loader.addTransformer(Hooks.fabricRegistryTransformer());
         loader.addTransformer(Hooks.tickTransformer());
         loader.addTransformer(Hooks.lootNameTransformer());
+        loader.addTransformer(khi.pentecost.core.Background.transformer());
         if (forgeOn) {
             java.util.Set<String> softMods = new java.util.HashSet<>();
             for (ModInfo m : usable) {
@@ -240,6 +241,10 @@ public final class PentecostMain {
         khi.pentecost.core.Timeline.step("Mixin started");
         loader.useCache(khi.pentecost.loader.ClassCache.openFor(loader, khi.pentecost.control.Choices.launchFingerprint()));
         khi.pentecost.core.Timeline.step("class cache opened");
+        if (forgeOn) {
+            Class.forName("khi.pentecost.forgeglue.CoreMods", true, loader).getMethod("awaitLoaded").invoke(null);
+            khi.pentecost.core.Timeline.step("core mods ready");
+        }
         return runner;
     }
 
