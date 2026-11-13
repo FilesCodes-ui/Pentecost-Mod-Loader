@@ -321,6 +321,21 @@ public final class Hooks {
         }
     }
 
+    /** Set by the game glue. Gets the game window right after the game set its own icon. */
+    public static volatile java.util.function.Consumer<Object> iconSet;
+
+    /** Called by the game at the end of its own icon call, so the Pentecost icon replaces the grass block. */
+    public static void afterIcon(Object window) {
+        java.util.function.Consumer<Object> c = iconSet;
+        if (c != null) {
+            try {
+                c.accept(window);
+            } catch (RuntimeException | LinkageError e) {
+                Log.error("Window icon failed: " + e);
+            }
+        }
+    }
+
     /** The window mode goes on as the game window is made, so borderless is the first thing you see. */
     public static ClassTransformer windowTransformer() {
         return (name, bytes) -> {
@@ -333,6 +348,24 @@ public final class Hooks {
                 @Override
                 public MethodVisitor visitMethod(int access, String n, String d, String s, String[] e) {
                     MethodVisitor mv = super.visitMethod(access, n, d, s, e);
+                    if (n.equals("setIcon") && d.endsWith(")V")) {
+                        return new MethodVisitor(Opcodes.ASM9, mv) {
+                            @Override
+                            public void visitInsn(int op) {
+                                if (op == Opcodes.RETURN) {
+                                    super.visitVarInsn(Opcodes.ALOAD, 0);
+                                    super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks",
+                                            "afterIcon", "(Ljava/lang/Object;)V", false);
+                                }
+                                super.visitInsn(op);
+                            }
+
+                            @Override
+                            public void visitMaxs(int maxStack, int maxLocals) {
+                                super.visitMaxs(Math.max(maxStack, 1) + 1, maxLocals);
+                            }
+                        };
+                    }
                     if (!n.equals("<init>")) {
                         return mv;
                     }
