@@ -117,6 +117,11 @@ public final class PentecostLoginScreen extends Screen {
         }
         g.drawString(font, back, bx + 12, by + 5, hover ? Ui.BLACK : Ui.TEXT, false);
         hits.add(new Hit(bx, by, bw, 18, this::onClose));
+        String promise = "Pentecost never sees your Microsoft password. You sign in on microsoft.com. Pentecost keeps one "
+                + "sign-in token on this PC so you stay signed in, and signing out deletes it. The Minecraft token is used "
+                + "only to start your own game session and to join servers.";
+        int noteH = Ui.wrap(font, promise, Math.min(420, vw - 96)).size() * 11;
+        lines(g, promise, 48, vh - noteH - 18, Math.min(420, vw - 96), Ui.FAINT);
         g.pose().popPose();
     }
 
