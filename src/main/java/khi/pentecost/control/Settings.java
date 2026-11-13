@@ -36,6 +36,11 @@ public final class Settings {
     /** How much the F3 screen shows: standard or full. */
     public static final String OVERLAY_DETAIL = "interface.overlayDetail";
 
+    /** Mobs far from every player think every third tick. */
+    public static final String FAR_MOBS = "server.farMobs";
+    /** Chunks unload a few at a time instead of all in one tick. */
+    public static final String SPREAD_UNLOADS = "server.spreadUnloads";
+
     private static final Map<String, String> DEFAULTS = Map.of(
             WINDOW, "windowed",
             MENUS, "true",
@@ -44,7 +49,9 @@ public final class Settings {
             LOADING, "true",
             RESTYLE, "true",
             OVERLAY, "true",
-            OVERLAY_DETAIL, "standard");
+            OVERLAY_DETAIL, "standard",
+            FAR_MOBS, "true",
+            SPREAD_UNLOADS, "true");
 
     private static final Map<String, String> VALUES = new TreeMap<>();
     private static boolean loaded;

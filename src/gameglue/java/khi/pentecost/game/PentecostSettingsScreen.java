@@ -165,7 +165,15 @@ public final class PentecostSettingsScreen extends Screen {
         pages.add(new Page("Resource packs", "Turn packs on or off. Shift-click a pack in use to give it more priority. "
                 + "Changes apply when you press Done.",
                 this::resourcePackFolders, List.of(), this::resourcePackShortcuts));
-        pages.add(planned("Performance", "Launch cache", "Chunk building threads", "Far mob throttle", "Virtual threads on Java 25"));
+        pages.add(new Page("Performance", "Ways Pentecost shortens the server tick, the time the game spends on the world each tick.",
+                () -> List.of(new Folder("Server tick", List.of(
+                        Row.toggle("Far mob throttle", "Mobs more than 48 blocks from every player think every third tick. "
+                                + "Mobs near you, with a target, leashed or ridden are never slowed.", "Now",
+                                () -> Settings.on(Settings.FAR_MOBS), () -> Settings.toggle(Settings.FAR_MOBS)),
+                        Row.toggle("Spread chunk saving", "Chunks you leave unload a few at a time, so one tick does not "
+                                + "save dozens of them at once.", "Restart",
+                                () -> Settings.on(Settings.SPREAD_UNLOADS), () -> Settings.toggle(Settings.SPREAD_UNLOADS))))),
+                List.of("Launch cache", "Chunk building threads", "Virtual threads on Java 25"), List::of));
         pages.add(planned("Java", "Memory", "Garbage collector", "Extra flags", "Java version"));
         pages.add(planned("Gameplay", "Faster mobs", "Smarter mobs", "Stall warning"));
         pages.add(planned("Building", "Block rotation", "Block outline"));

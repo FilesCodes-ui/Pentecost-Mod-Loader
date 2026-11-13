@@ -42,6 +42,7 @@ public final class ModsScreens {
         };
         WidgetStyle.install();
         NameTags.install();
+        FarMobs.install();
         Hooks.windowHints = WindowMode::beforeWindow;
         Hooks.windowBorn = WindowMode::windowBorn;
         Hooks.iconSet = WindowIcon::apply;
