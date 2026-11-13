@@ -53,7 +53,10 @@ public final class PerfHud {
             shown = !shown;
         }
         keyWasDown = down;
-        if (!shown || mc.options.hideGui) {
+        // F6 slides in from the right edge and back out. While it is open, F3's right column moves down under it.
+        float e = Ui.ease("pentecost:f6", shown && !mc.options.hideGui ? 1f : 0f, 12f);
+        if (e <= 0.001f) {
+            DebugView.render(0f);
             return;
         }
 
@@ -78,8 +81,8 @@ public final class PerfHud {
         rows.add(new String[]{"Memory", used + " / " + max + " MB"});
         rows.add(new String[]{"Mods", forge + " Forge   " + fabric + " Fabric and Quilt"});
         rows.add(null);
-        for (Map.Entry<String, Double> e : Timeline.marks().entrySet()) {
-            rows.add(new String[]{e.getKey(), String.format("%.1f s", e.getValue())});
+        for (Map.Entry<String, Double> mark : Timeline.marks().entrySet()) {
+            rows.add(new String[]{mark.getKey(), String.format("%.1f s", mark.getValue())});
         }
 
         Font font = mc.font;
@@ -96,24 +99,41 @@ public final class PerfHud {
         }
         int w = labelW + valueW + 28;
         int h = 22 + rows.size() * 11;
-        int x = vw - w - 8;
+        float slide = 1f - (1f - e) * (1f - e);
+        int x = vw - w - 8 + Math.round((1f - slide) * (w + 16));
         int y = 8;
+        int alpha = Math.round(e * 255);
+
+        // Room F6 takes at the top right, in the game's scaled pixels, grown and shrunk with the animation.
+        DebugView.render((y + h + 6) * ui * slide);
 
         GuiGraphics g = new GuiGraphics(mc, mc.renderBuffers().bufferSource());
         g.pose().pushPose();
+        g.pose().translate(0, 0, 210);
         g.pose().scale(ui, ui, 1);
-        g.fill(x, y, x + w, y + h, 0xD00A0A0B);
-        g.drawString(font, "Pentecost " + PentecostMain.VERSION, x + 8, y + 6, 0xFFF2F2F2, false);
-        g.fill(x + 8, y + 17, x + w - 8, y + 18, 0x24FFFFFF);
+        g.fill(x, y, x + w, y + h, fade(0xD00A0A0B, alpha));
+        text(g, font, "Pentecost " + PentecostMain.VERSION, x + 8, y + 6, fade(0xFFF2F2F2, alpha));
+        g.fill(x + 8, y + 17, x + w - 8, y + 18, fade(0x24FFFFFF, alpha));
         int ry = y + 22;
         for (String[] r : rows) {
             if (r != null) {
-                g.drawString(font, r[0], x + 8, ry, 0xFF9A9A9A, false);
-                g.drawString(font, r[1], x + w - 8 - font.width(r[1]), ry, 0xFFF2F2F2, false);
+                text(g, font, r[0], x + 8, ry, fade(0xFF9A9A9A, alpha));
+                text(g, font, r[1], x + w - 8 - font.width(r[1]), ry, fade(0xFFF2F2F2, alpha));
             }
             ry += 11;
         }
         g.pose().popPose();
         g.flush();
+    }
+
+    private static int fade(int color, int alpha) {
+        return (((color >>> 24) * alpha / 255) << 24) | (color & 0xFFFFFF);
+    }
+
+    /** The game draws text with almost no alpha as fully solid, so nearly invisible text is skipped. */
+    private static void text(GuiGraphics g, Font font, String s, int x, int y, int color) {
+        if ((color >>> 24) >= 4) {
+            g.drawString(font, s, x, y, color, false);
+        }
     }
 }

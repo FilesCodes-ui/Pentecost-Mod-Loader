@@ -74,9 +74,10 @@ public final class Hooks {
     }
 
     /**
-     * Called at the top of Forge's client hooks setup. Forge has filled its registries by then,
-     * and is about to ask mods for their model layers and reload listeners once.
-     * Fabric mods must be started before that question, so they start here.
+     * Called when Forge's first client loading phase ends (ClientModLoader.begin), and again at the top
+     * of Forge's client hooks setup as a fallback. Forge has filled its registries by then. The game has not
+     * yet built its item models, colors and renderers, and Forge has not yet asked for model layers.
+     * On Fabric, mods start before all of that too, so Fabric mods start here. Only the first call starts them.
      */
     public static void forgeClientHooks() {
         if (!"1".equals(System.getenv("PENTECOST_FABRIC_EARLY"))) {

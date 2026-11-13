@@ -272,7 +272,20 @@ public final class ForgeRedirects {
                             && n.equals("dispatchAndHandleError");
                     boolean clientHooksDoor = name.equals("net.minecraftforge.client.ForgeHooksClient")
                             && n.equals("initClientHooks");
+                    // The end of Forge's first loading phase on the client: registries are filled, and the game
+                    // has not yet built its item models, colors and renderers. Fabric mods start here.
+                    boolean beginDoor = name.equals("net.minecraftforge.client.loading.ClientModLoader")
+                            && n.equals("begin");
                     return new MethodVisitor(Opcodes.ASM9, mv) {
+                        @Override
+                        public void visitInsn(int op) {
+                            if (beginDoor && op == Opcodes.RETURN) {
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks",
+                                        "forgeClientHooks", "()V", false);
+                            }
+                            super.visitInsn(op);
+                        }
+
                         @Override
                         public void visitCode() {
                             super.visitCode();

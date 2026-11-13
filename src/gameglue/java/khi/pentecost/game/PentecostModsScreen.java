@@ -117,8 +117,53 @@ public final class PentecostModsScreen extends Screen {
             return true;
         }
         String id = m.id();
-        return ((id.startsWith("fabric-") || id.startsWith("fabric_")) && !id.equals("fabric-api") && !id.equals("fabric_api"))
-                || id.equals("mixinextras");
+        if (((id.startsWith("fabric-") || id.startsWith("fabric_")) && !id.equals("fabric-api") && !id.equals("fabric_api"))
+                || id.equals("mixinextras")) {
+            return true;
+        }
+        return markedLibrary(m);
+    }
+
+    /**
+     * A mod that calls itself a library in its own metadata: Mod Menu's "library" badge, or a Mod Menu parent
+     * (a module of a bigger mod, such as the parts of Porting Lib). These go to the Libraries filter.
+     */
+    private static boolean markedLibrary(ModInfo m) {
+        try {
+            com.google.gson.JsonObject raw = m.raw();
+            if (raw == null || !raw.has("custom") || !raw.get("custom").isJsonObject()) {
+                return false;
+            }
+            com.google.gson.JsonObject custom = raw.getAsJsonObject("custom");
+            if (!custom.has("modmenu") || !custom.get("modmenu").isJsonObject()) {
+                return false;
+            }
+            com.google.gson.JsonObject mm = custom.getAsJsonObject("modmenu");
+            if (mm.has("parent")) {
+                return true;
+            }
+            if (mm.has("badges") && mm.get("badges").isJsonArray()) {
+                for (com.google.gson.JsonElement b : mm.getAsJsonArray("badges")) {
+                    if (b.isJsonPrimitive() && "library".equals(b.getAsString())) {
+                        return true;
+                    }
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // odd metadata: treat as a normal mod
+        }
+        return false;
+    }
+
+    /** Libraries a player may still want to see: everything marked a library, minus Fabric API's own modules. */
+    private static List<ModInfo> libraries() {
+        List<ModInfo> out = new ArrayList<>();
+        for (ModInfo m : PentecostRuntime.allMods.isEmpty() ? PentecostRuntime.mods : PentecostRuntime.allMods) {
+            if (m.loader() != LoaderKind.LIBRARY && markedLibrary(m)) {
+                out.add(m);
+            }
+        }
+        return out;
     }
 
     private static List<ModInfo> allMods() {
@@ -138,9 +183,10 @@ public final class PentecostModsScreen extends Screen {
     private void refill() {
         String query = search.getValue().toLowerCase(Locale.ROOT).trim();
         List<ModInfo> list = new ArrayList<>();
-        for (ModInfo m : allMods()) {
+        boolean libs = filter.equals("Libraries");
+        for (ModInfo m : libs ? libraries() : allMods()) {
             boolean off = Choices.isModOff(m.id());
-            if (filter.equals("Off") ? !off : !filter.equals("All") && !loaderOf(m).equals(filter)) {
+            if (!libs && (filter.equals("Off") ? !off : !filter.equals("All") && !loaderOf(m).equals(filter))) {
                 continue;
             }
             if (query.isEmpty() || m.name().toLowerCase(Locale.ROOT).contains(query)
@@ -397,6 +443,9 @@ public final class PentecostModsScreen extends Screen {
         }
         if (off > 0 || filter.equals("Off")) {
             filters.add("Off");
+        }
+        if (!libraries().isEmpty()) {
+            filters.add("Libraries");
         }
         for (String f : filters) {
             int w = font.width(f);
