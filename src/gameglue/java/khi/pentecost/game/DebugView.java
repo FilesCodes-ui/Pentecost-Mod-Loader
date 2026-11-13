@@ -301,7 +301,8 @@ final class DebugView {
             return y + height;
         }
         int tw = font.width(p.title()) + 8;
-        int tx = alignRight ? x - tw + shift : x - shift;
+        // Left column: the label sits at the block's right end. Right column: flush right, as before.
+        int tx = alignRight ? x - tw + shift : x - shift + width - tw;
         g.fill(tx, y, tx + tw, y + 11, fade(Ui.TEXT, alpha));
         text(g, font, p.title(), tx + 4, y + 2, fade(Ui.BLACK, alpha));
         int ly = y + 12;
