@@ -201,6 +201,7 @@ public final class PentecostMain {
         loader.addTransformer(Hooks.packTransformer());
         loader.addTransformer(Hooks.hudTransformer());
         loader.addTransformer(Hooks.forgeHudTransformer());
+        loader.addTransformer(khi.pentecost.core.HudOwner.forgeTransformer());
         loader.addTransformer(Hooks.styleTransformer());
         loader.addTransformer(Hooks.registryTransformer());
         loader.addTransformer(Hooks.windowTransformer());

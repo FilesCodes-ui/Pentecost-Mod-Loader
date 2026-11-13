@@ -250,6 +250,7 @@ public final class GameClassLoader extends URLClassLoader {
                 bytes = mx.transform(name, bytes);
             }
             bytes = DefaultConflicts.transform(this, name, bytes);
+            khi.pentecost.core.HudOwner.afterMixin(name, bytes);
             bytes = khi.pentecost.mixin.MixinReport.instrument(this, name, bytes);
             int dot = name.lastIndexOf('.');
             if (dot > 0) {
