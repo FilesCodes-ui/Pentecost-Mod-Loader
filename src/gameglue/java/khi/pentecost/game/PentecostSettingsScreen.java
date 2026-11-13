@@ -87,6 +87,12 @@ public final class PentecostSettingsScreen extends Screen {
     private final List<Hit> hits = new ArrayList<>();
     private final Map<String, SliderSpot> sliderSpots = new HashMap<>();
     private int page = 1;
+    private final Scrollbar bar = new Scrollbar();
+    private String search = "";
+    private boolean searchFocus;
+    private String searchBuilt = "\u0000";
+    private List<Row> searchOut = List.of();
+    private boolean showModPacks;
     private double scroll;
     private int scrollMax;
     private double lastMouseX;
@@ -407,8 +413,15 @@ public final class PentecostSettingsScreen extends Screen {
         return List.of(new Folder("Packs", List.of()));
     }
 
+    /** Packs the loaders add for each mod's own files. They cannot be turned off, so they stay out of the way. */
+    private boolean modPack(net.minecraft.client.gui.screens.packs.PackSelectionModel.Entry e) {
+        String id = e.getId();
+        return id.startsWith("pentecost/") || id.startsWith("mod:") || (e.isRequired() && !id.equals("vanilla"));
+    }
+
     private List<Shortcut> resourcePackShortcuts() {
         return List.of(
+                new Shortcut(showModPacks ? "Hide mod packs" : "Show mod packs", () -> showModPacks = !showModPacks),
                 new Shortcut("Pack folder", () -> Util.getPlatform().openFile(minecraft.getResourcePackDirectory().toFile())),
                 new Shortcut("Refresh list", () -> {
                     if (packsChanged) {
@@ -433,8 +446,11 @@ public final class PentecostSettingsScreen extends Screen {
         int gap = 16;
         int colW = (w - gap) / 2;
         int rx = x + colW + gap;
-        List<net.minecraft.client.gui.screens.packs.PackSelectionModel.Entry> left = model.getUnselected().toList();
-        List<net.minecraft.client.gui.screens.packs.PackSelectionModel.Entry> right = model.getSelected().toList();
+        List<net.minecraft.client.gui.screens.packs.PackSelectionModel.Entry> left = model.getUnselected()
+                .filter(e -> showModPacks || !modPack(e)).toList();
+        List<net.minecraft.client.gui.screens.packs.PackSelectionModel.Entry> right = model.getSelected()
+                .filter(e -> showModPacks || !modPack(e)).toList();
+        long hiddenCount = model.getSelected().filter(this::modPack).count() + model.getUnselected().filter(this::modPack).count();
         g.drawString(font, "AVAILABLE", x + 4, y, Ui.FAINT, false);
         g.drawString(font, "IN USE  (the top one wins)", rx + 4, y, Ui.FAINT, false);
         int ly = y + 16;
@@ -442,6 +458,10 @@ public final class PentecostSettingsScreen extends Screen {
         if (left.isEmpty()) {
             g.drawString(font, "No more packs. Put packs in the pack folder.", x + 4, ly, Ui.MUTED, false);
             ly += 14;
+        }
+        if (!showModPacks && hiddenCount > 0) {
+            String note = hiddenCount + " mod packs hidden";
+            g.drawString(font, note, rx + colW - 4 - font.width(note), y, Ui.FAINT, false);
         }
         for (var e : left) {
             ly = packCard(g, e, x, ly, colW, mx, my, top, bottom, false);
@@ -842,6 +862,8 @@ public final class PentecostSettingsScreen extends Screen {
             hits.add(new Hit(margin - 6, sy, sideW, 18, () -> {
                 page = index;
                 scroll = 0;
+                search = "";
+                searchFocus = false;
             }));
             sy += 20;
         }
@@ -855,6 +877,10 @@ public final class PentecostSettingsScreen extends Screen {
         // Middle: folders as tabs, then rows.
         Page p = pages.get(page);
         List<Folder> folders = folders(page);
+        boolean searching = !search.isBlank();
+        if (searching) {
+            folders = List.of(new Folder("Results", searchRows()));
+        }
         int folder = Math.min(folderOf.getOrDefault(page, 0), Math.max(0, folders.size() - 1));
         int rowsTop = top;
         if (folders.size() > 1) {
@@ -894,7 +920,7 @@ public final class PentecostSettingsScreen extends Screen {
             g.fill(cx, rowsTop - 6, cx + cw, rowsTop - 5, Ui.LINE);
         }
 
-        if (folders.size() <= 1 && "Shader pack".equals(pages.get(page).name()) && !packCrumbs().isEmpty()) {
+        if (!searching && folders.size() <= 1 && "Shader pack".equals(pages.get(page).name()) && !packCrumbs().isEmpty()) {
             List<String> crumbs = packCrumbs();
             int tx = cx;
             int ty = top;
@@ -923,7 +949,7 @@ public final class PentecostSettingsScreen extends Screen {
         }
         g.enableScissor((int) (cx * ui), (int) (rowsTop * ui), (int) ((cx + cw + 4) * ui), (int) (bottom * ui));
         int py = rowsTop - (int) scroll;
-        boolean packPage = "Resource packs".equals(p.name());
+        boolean packPage = !searching && "Resource packs".equals(p.name());
         List<Row> rows = packPage || folders.isEmpty() ? List.of() : folders.get(folder).rows();
         if (packPage) {
             py = packColumns(g, cx, py, cw, mx, my, rowsTop, bottom);
@@ -952,7 +978,7 @@ public final class PentecostSettingsScreen extends Screen {
                 pickReady = true;
             }
         }
-        if (!p.planned().isEmpty()) {
+        if (!searching && !p.planned().isEmpty()) {
             g.drawString(font, "COMING", cx, py + 4, Ui.FAINT, false);
             py += 18;
             for (String s : p.planned()) {
@@ -963,12 +989,31 @@ public final class PentecostSettingsScreen extends Screen {
         g.disableScissor();
         scrollMax = Math.max(0, py + (int) scroll - bottom + 8);
         scroll = Math.max(0, Math.min(scrollMax, scroll));
-        if (scrollMax > 0) {
-            int track = bottom - rowsTop;
-            int bar = Math.max(16, track * track / (track + scrollMax));
-            int by = rowsTop + (int) ((track - bar) * scroll / scrollMax);
-            g.fill(cx + cw + 6, by, cx + cw + 7, by + bar, Ui.MUTED);
+        bar.draw(g, cx + cw + 6, rowsTop, bottom, scroll, scrollMax, mx, my);
+
+        // Search box, top right.
+        int sw = 200;
+        int sx = vw - margin - sw;
+        int sy0 = 18;
+        boolean sHover = Ui.over(mx, my, sx, sy0, sw, 18);
+        Ui.outline(g, sx, sy0, sx + sw, sy0 + 18, searchFocus ? Ui.TEXT : sHover ? Ui.MUTED : 0x47FFFFFF);
+        if (search.isEmpty() && !searchFocus) {
+            g.drawString(font, "Search settings", sx + 8, sy0 + 5, Ui.FAINT, false);
+            String hint = "/";
+            g.drawString(font, hint, sx + sw - 8 - font.width(hint), sy0 + 5, Ui.FAINT, false);
+        } else {
+            String shown = font.plainSubstrByWidth(search, sw - 24, true);
+            g.drawString(font, shown, sx + 8, sy0 + 5, Ui.TEXT, false);
+            if (searchFocus && (System.currentTimeMillis() / 500) % 2 == 0) {
+                g.fill(sx + 9 + font.width(shown), sy0 + 4, sx + 10 + font.width(shown), sy0 + 14, Ui.TEXT);
+            }
+            if (!search.isEmpty()) {
+                g.drawString(font, "x", sx + sw - 14, sy0 + 5, sHover ? Ui.TEXT : Ui.MUTED, false);
+            }
         }
+        hits.add(new Hit(sx, sy0, sw, 18, () -> {
+            searchFocus = true;
+        }));
 
         if (rightW > 0) {
             details(g, p, rx, top, rightW, bottom, mx, my);
@@ -1203,6 +1248,30 @@ public final class PentecostSettingsScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (listening == null && searchFocus) {
+            if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE) {
+                if (search.isEmpty()) {
+                    searchFocus = false;
+                } else {
+                    search = "";
+                }
+            } else if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER || keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_KP_ENTER) {
+                searchFocus = false;
+            } else if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_BACKSPACE && !search.isEmpty()) {
+                search = hasControlDown() ? "" : search.substring(0, search.length() - 1);
+                scroll = 0;
+            }
+            return true;
+        }
+        if (listening == null && (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_SLASH
+                || (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_F && hasControlDown()))) {
+            searchFocus = true;
+            return true;
+        }
+        if (listening == null && keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE && !search.isEmpty()) {
+            search = "";
+            return true;
+        }
         if (listening != null) {
             bindListening(keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE ? InputConstants.UNKNOWN
                     : InputConstants.getKey(keyCode, scanCode));
@@ -1224,6 +1293,11 @@ public final class PentecostSettingsScreen extends Screen {
         float ui = Ui.scale(minecraft);
         double mx = mouseX / ui;
         double my = mouseY / ui;
+        if (bar.press((int) mx, (int) my)) {
+            scroll = bar.scrollAt((int) my);
+            return true;
+        }
+        searchFocus = false;
         for (int i = hits.size() - 1; i >= 0; i--) {
             Hit h = hits.get(i);
             if (mx >= h.x() && mx < h.x() + h.w() && my >= h.y() && my < h.y() + h.h()) {
@@ -1237,6 +1311,10 @@ public final class PentecostSettingsScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dx, double dy) {
+        if (bar.dragging()) {
+            scroll = bar.scrollAt((int) (mouseY / Ui.scale(minecraft)));
+            return true;
+        }
         if (dragKey != null) {
             lastMouseX = mouseX;
             slide(sliderSpots.get(dragKey));
@@ -1247,6 +1325,7 @@ public final class PentecostSettingsScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        bar.release();
         if (dragKey != null) {
             // Sliders apply once, when let go, so a long drag does not reload chunks at every step.
             if (embeddium != null) {
@@ -1256,6 +1335,53 @@ public final class PentecostSettingsScreen extends Screen {
         }
         dragKey = null;
         return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean charTyped(char c, int modifiers) {
+        if (searchFocus && listening == null && c >= ' ' && search.length() < 40) {
+            search += c;
+            scroll = 0;
+            return true;
+        }
+        return super.charTyped(c, modifiers);
+    }
+
+    /** Every setting that matches the search, grouped under the page and folder it lives in. */
+    private List<Row> searchRows() {
+        String q = search.toLowerCase(Locale.ROOT).trim();
+        if (q.equals(searchBuilt)) {
+            return searchOut;
+        }
+        List<Row> out = new ArrayList<>();
+        for (int i = 0; i < pages.size(); i++) {
+            String pageName = pages.get(i).name();
+            if (pageName.equals("Shader pack") || pageName.equals("Resource packs") || !pages.get(i).planned().isEmpty()) {
+                continue;
+            }
+            for (Folder f : folders(i)) {
+                List<Row> found = new ArrayList<>();
+                for (Row r : f.rows()) {
+                    if (r.kind() == Kind.HEADER || r.kind() == Kind.SKIN) {
+                        continue;
+                    }
+                    String hay = (r.title() + " " + r.note() + " " + r.about() + " " + f.name() + " " + pageName).toLowerCase(Locale.ROOT);
+                    if (hay.contains(q)) {
+                        found.add(r);
+                    }
+                }
+                if (!found.isEmpty()) {
+                    out.add(Row.header(pageName + "  /  " + f.name()));
+                    out.addAll(found);
+                }
+            }
+        }
+        if (out.isEmpty()) {
+            out.add(Row.info("No settings match", search));
+        }
+        searchBuilt = q;
+        searchOut = out;
+        return out;
     }
 
     @Override

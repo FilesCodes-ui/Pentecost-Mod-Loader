@@ -49,9 +49,9 @@ final class NameTags implements TagHooks.Drawer, TagHooks.Marker {
             return name;
         }
         return Component.empty()
-                .append(Component.literal(PREFIX).withStyle(ChatFormatting.GOLD))
+                .append(Component.literal(PREFIX).withStyle(ChatFormatting.WHITE))
                 .append(name)
-                .append(Component.literal(BOAT).withStyle(ChatFormatting.AQUA));
+                .append(Component.literal(BOAT).withStyle(ChatFormatting.GRAY));
     }
 
     @Override
@@ -103,13 +103,17 @@ final class NameTags implements TagHooks.Drawer, TagHooks.Marker {
         pose.scale(-0.025F, -0.025F, 0.025F);
         Matrix4f matrix = pose.last().pose();
 
-        Component tag = Component.literal("[dev]");
-        float tagX = -font.width(tag) / 2.0F;
-        font.drawInBatch(tag, tagX, -11.0F, 0x20FFAA00, false, matrix, buffer,
-                visible ? Font.DisplayMode.SEE_THROUGH : Font.DisplayMode.NORMAL, 0, light);
-        if (visible) {
-            font.drawInBatch(tag, tagX, -11.0F, 0xFFFFAA00, false, matrix, buffer, Font.DisplayMode.NORMAL, 0, light);
-        }
+        // A small black label with a white hairline and white letters, over the name.
+        Component tag = Component.literal("DEV");
+        float tw = font.width(tag);
+        float tagX = -tw / 2.0F;
+        VertexConsumer back = buffer.getBuffer(RenderType.textBackground());
+        quad(back, matrix, tagX - 4, -14.0F, tw + 8, 11.0F, 0xE00A0A0B, light);
+        quad(back, matrix, tagX - 4, -14.0F, tw + 8, 1.0F, 0xFFF2F2F2, light);
+        quad(back, matrix, tagX - 4, -4.0F, tw + 8, 1.0F, 0xFFF2F2F2, light);
+        quad(back, matrix, tagX - 4, -14.0F, 1.0F, 11.0F, 0xFFF2F2F2, light);
+        quad(back, matrix, tagX + tw + 3, -14.0F, 1.0F, 11.0F, 0xFFF2F2F2, light);
+        font.drawInBatch(tag, tagX, -12.0F, 0xFFF2F2F2, false, matrix, buffer, Font.DisplayMode.NORMAL, 0, light);
         drawBoat(pose, buffer, font.width(name) / 2.0F + 5.0F, light);
         pose.popPose();
     }
@@ -129,10 +133,10 @@ final class NameTags implements TagHooks.Drawer, TagHooks.Marker {
             String row = rows[r];
             for (int c = 0; c < row.length(); c++) {
                 int color = switch (row.charAt(c)) {
-                    case 'M' -> 0xFF8B5A2B;
+                    case 'M' -> 0xFF9A9A9A;
                     case 'S' -> 0xFFF2F2F2;
-                    case 'H' -> 0xFF7A4B1F;
-                    case 'W' -> 0xFF3A8CFF;
+                    case 'H' -> 0xFFF2F2F2;
+                    case 'W' -> 0xFF636363;
                     default -> 0;
                 };
                 if (color != 0) {

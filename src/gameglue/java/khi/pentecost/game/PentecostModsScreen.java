@@ -72,6 +72,8 @@ public final class PentecostModsScreen extends Screen {
     private EditBox search;
     private String filter = "All";
     private ModInfo selected;
+    private final Scrollbar listBar = new Scrollbar();
+    private final Scrollbar detailBar = new Scrollbar();
     private double listScroll;
     private double detailScroll;
     private int listMax;
@@ -497,12 +499,7 @@ public final class PentecostModsScreen extends Screen {
         if (shown.isEmpty()) {
             text(g, "Nothing matches.", lx, ly1 + 8, FAINT);
         }
-        if (listMax > 0) {
-            int track = ly2 - ly1;
-            int bar = Math.max(16, track * track / (track + listMax));
-            int by = ly1 + (int) ((track - bar) * listScroll / listMax);
-            g.fill(lx + listWidth - 2, by, lx + listWidth - 1, by + bar, MUTED);
-        }
+        listBar.draw(g, lx + listWidth - 2, ly1, ly2, listScroll, listMax, mx, my);
 
         // ---- right: the selected mod
         g.fill(rx - 12, top, rx - 11, bottom, LINE);
@@ -595,12 +592,7 @@ public final class PentecostModsScreen extends Screen {
         int contentHeight = y + (int) detailScroll - (y1 + 4) + 12;
         detailMax = Math.max(0, contentHeight - (y2 - y1 - 4));
         detailScroll = Math.max(0, Math.min(detailMax, detailScroll));
-        if (detailMax > 0) {
-            int track = y2 - y1 - 4;
-            int bar = Math.max(16, track * track / (track + detailMax));
-            int by = y1 + (int) ((track - bar) * detailScroll / detailMax);
-            g.fill(x2 - 1, by, x2, by + bar, MUTED);
-        }
+        detailBar.draw(g, x2 - 1, y1, y2 - 4, detailScroll, detailMax, mx, my);
     }
 
     /** One line with a title, a quieter note under it, and a switch. A hairline closes it. */
@@ -640,6 +632,14 @@ public final class PentecostModsScreen extends Screen {
     public boolean mouseClicked(double mx, double my, int button) {
         mx /= ui;
         my /= ui;
+        if (button == 0 && listBar.press((int) mx, (int) my)) {
+            listScroll = listBar.scrollAt((int) my);
+            return true;
+        }
+        if (button == 0 && detailBar.press((int) mx, (int) my)) {
+            detailScroll = detailBar.scrollAt((int) my);
+            return true;
+        }
         if (button == 0) {
             for (int i = hits.size() - 1; i >= 0; i--) {
                 Hit h = hits.get(i);
@@ -652,6 +652,26 @@ public final class PentecostModsScreen extends Screen {
             }
         }
         return super.mouseClicked(mx, my, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mx, double my, int button, double dx, double dy) {
+        if (listBar.dragging()) {
+            listScroll = listBar.scrollAt((int) (my / ui));
+            return true;
+        }
+        if (detailBar.dragging()) {
+            detailScroll = detailBar.scrollAt((int) (my / ui));
+            return true;
+        }
+        return super.mouseDragged(mx, my, button, dx, dy);
+    }
+
+    @Override
+    public boolean mouseReleased(double mx, double my, int button) {
+        listBar.release();
+        detailBar.release();
+        return super.mouseReleased(mx, my, button);
     }
 
     @Override
