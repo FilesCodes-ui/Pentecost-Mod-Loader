@@ -11,60 +11,72 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvents;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.function.BooleanSupplier;
 import java.util.function.IntConsumer;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
 /**
- * Pentecost's own settings. Pages on the left, the chosen page on the right, scrolling when long.
- * Every row says what it does and when it takes effect.
+ * Pentecost's settings, in three columns.
+ * Left: pages. Middle: the page's folders as tabs, then that folder's settings.
+ * Right: details for the setting under the pointer, and the page's shortcuts.
  * Video holds Embeddium's options and Shaders drives Oculus, when those mods are installed.
  */
 public final class PentecostSettingsScreen extends Screen {
-    /** A slider: range, current value, setter, and the text for a value. */
+    private enum Kind { INFO, BUTTON, SWITCH, CHOICE, SLIDER, PICK }
+
     private record Slider(int min, int max, int step, IntSupplier value, IntConsumer set, Supplier<String> text) {}
 
-    /**
-     * One line on a page. value: text shown for a choice. on: state of a switch. action: what a click does.
-     * enabled: false greys the row out. A "#" in when marks a section header.
-     */
-    private record Row(String title, String note, String when, Supplier<String> value, BooleanSupplier on,
-                       Runnable action, Slider slider, BooleanSupplier enabled) {
-        Row(String title, String note, String when, Supplier<String> value, BooleanSupplier on, Runnable action) {
-            this(title, note, when, value, on, action, null, () -> true);
-        }
-
+    /** One setting. note: one line under the title. about: the full text for the details panel. */
+    private record Row(Kind kind, String title, String note, String about, String when, Supplier<String> value,
+                       BooleanSupplier on, Runnable action, Slider slider, BooleanSupplier enabled) {
         static Row info(String title, String value) {
-            return new Row(title, "", "", () -> value, null, null);
+            return new Row(Kind.INFO, title, "", "", "", () -> value, null, null, null, () -> true);
         }
 
         static Row button(String title, String note, Runnable action) {
-            return new Row(title, note, "", () -> "Open", null, action);
+            return new Row(Kind.BUTTON, title, note, note, "", () -> "Open", null, action, null, () -> true);
         }
 
-        static Row header(String title) {
-            return new Row(title, "", "#", null, null, null);
+        static Row toggle(String title, String note, String when, BooleanSupplier on, Runnable action) {
+            return new Row(Kind.SWITCH, title, note, note, when, null, on, action, null, () -> true);
         }
 
-        boolean isHeader() {
-            return "#".equals(when);
+        static Row choice(String title, String note, String when, Supplier<String> value, Runnable action) {
+            return new Row(Kind.CHOICE, title, note, note, when, value, null, action, null, () -> true);
+        }
+
+        static Row pick(String title, String note, BooleanSupplier on, Runnable action) {
+            return new Row(Kind.PICK, title, note, note, "Now", null, on, action, null, () -> true);
         }
     }
 
-    private record Page(String name, Supplier<List<Row>> rows, List<String> planned) {}
+    private record Folder(String name, List<Row> rows) {}
+
+    private record Shortcut(String label, Runnable action) {}
+
+    private record Page(String name, String about, Supplier<List<Folder>> build, List<String> planned, Supplier<List<Shortcut>> shortcuts) {}
 
     private record Hit(int x, int y, int w, int h, Runnable action) {}
 
+    private record SliderSpot(int x, int w, Slider slider) {}
+
     private final Screen parent;
     private final List<Page> pages = new ArrayList<>();
+    private final Map<Integer, List<Folder>> built = new HashMap<>();
+    private final Map<Integer, Integer> folderOf = new HashMap<>();
     private final List<Hit> hits = new ArrayList<>();
+    private final Map<String, SliderSpot> sliderSpots = new HashMap<>();
     private int page = 1;
     private double scroll;
     private int scrollMax;
     private double lastMouseX;
+    private String dragKey;
+    private Row hovered;
     /** Embeddium's screen, built but not shown: holds its option pages and its apply step. */
     private Object embeddium;
 
@@ -75,48 +87,53 @@ public final class PentecostSettingsScreen extends Screen {
     public PentecostSettingsScreen(Screen parent, String startPage) {
         super(Component.literal("Pentecost settings"));
         this.parent = parent;
-        pages.add(new Page("General", () -> List.of(
-                Row.info("Pentecost", PentecostMain.VERSION),
-                Row.info("Minecraft", SharedConstants.getCurrentVersion().getName()),
-                Row.info("Java", System.getProperty("java.version")),
-                Row.button("Game folder", "Saves, mods, configs and logs.",
-                        () -> Util.getPlatform().openFile(net.minecraft.client.Minecraft.getInstance().gameDirectory))),
-                List.of()));
-        List<Row> iface = List.of(
-                new Row("Window", "Borderless covers the screen with no frame. Switching apps stays instant.", "Now",
-                        () -> WindowMode.label(Settings.get(Settings.WINDOW)), null,
-                        () -> WindowMode.set(WindowMode.next(Settings.get(Settings.WINDOW)))),
-                new Row("Pentecost menus", "Pentecost draws the main and pause menus.", "Now",
-                        null, () -> Settings.on(Settings.MENUS), () -> Settings.toggle(Settings.MENUS)),
-                new Row("Restyle every screen", "Buttons, sliders, checkboxes and backgrounds everywhere, mods' too.", "Now",
-                        null, () -> Settings.on(Settings.RESTYLE), () -> Settings.toggle(Settings.RESTYLE)),
-                new Row("Pentecost F3 screen", "Readable panels in place of the long text columns.", "Now",
-                        null, () -> Settings.on(Settings.OVERLAY), () -> Settings.toggle(Settings.OVERLAY)),
-                new Row("F3 detail", "Standard shows the usual facts. Full shows every line.", "Now",
-                        () -> "full".equals(Settings.get(Settings.OVERLAY_DETAIL)) ? "Full" : "Standard", null,
-                        () -> Settings.set(Settings.OVERLAY_DETAIL,
-                                "full".equals(Settings.get(Settings.OVERLAY_DETAIL)) ? "standard" : "full")),
-                new Row("Pentecost loading screen", "Logo, progress line, RAM gauge and time left while loading.", "Now",
-                        null, () -> Settings.on(Settings.LOADING), () -> Settings.toggle(Settings.LOADING)),
-                new Row("Mod buttons in black and white", "Buttons mods add to the menus match the rest.", "Now",
-                        null, () -> Settings.on(Settings.GRAY_BUTTONS), () -> Settings.toggle(Settings.GRAY_BUTTONS)),
-                new Row("Background pattern", "The slow dot pattern behind Pentecost's screens.", "Now",
-                        null, () -> Settings.on(Settings.PATTERN), () -> Settings.toggle(Settings.PATTERN)));
-        pages.add(new Page("Interface", () -> iface, List.of("Boot splash style", "Text size")));
-        pages.add(new Page("Video", this::videoRows, List.of()));
-        pages.add(new Page("Shaders", this::shaderRows, List.of()));
-        pages.add(new Page("Performance", List::of,
-                List.of("Launch cache", "Chunk building threads", "Far mob throttle", "Virtual threads on Java 25")));
-        pages.add(new Page("Java", List::of,
-                List.of("Memory", "Garbage collector", "Extra flags", "Java version")));
-        pages.add(new Page("Gameplay", List::of,
-                List.of("Faster mobs", "Smarter mobs", "Stall warning")));
-        pages.add(new Page("Building", List::of,
-                List.of("Block rotation", "Block outline")));
-        pages.add(new Page("Server", List::of,
-                List.of("World Wide Local Server", "Operators", "Server tools")));
-        pages.add(new Page("Profiles", List::of,
-                List.of("Save a setup", "Switch setups", "Export and import")));
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+        pages.add(new Page("General", "Versions and folders. Everything Pentecost keeps lives in the game folder.",
+                () -> List.of(new Folder("About", List.of(
+                        Row.info("Pentecost", PentecostMain.VERSION),
+                        Row.info("Minecraft", SharedConstants.getCurrentVersion().getName()),
+                        Row.info("Java", System.getProperty("java.version"))))),
+                List.of(),
+                () -> List.of(
+                        new Shortcut("Game folder", () -> Util.getPlatform().openFile(mc.gameDirectory)),
+                        new Shortcut("Logs", () -> Util.getPlatform().openFile(new java.io.File(mc.gameDirectory, "logs"))),
+                        new Shortcut("Screenshots", () -> Util.getPlatform().openFile(new java.io.File(mc.gameDirectory, "screenshots"))))));
+        pages.add(new Page("Interface", "How Pentecost looks: the window, the menus, the F3 screen and the loading screen.",
+                () -> List.of(
+                        new Folder("Window", List.of(
+                                Row.choice("Window", "Borderless covers the screen with no frame. Switching apps stays instant.", "Now",
+                                        () -> WindowMode.label(Settings.get(Settings.WINDOW)),
+                                        () -> WindowMode.set(WindowMode.next(Settings.get(Settings.WINDOW)))))),
+                        new Folder("Menus", List.of(
+                                Row.toggle("Pentecost menus", "Pentecost draws the main and pause menus.", "Now",
+                                        () -> Settings.on(Settings.MENUS), () -> Settings.toggle(Settings.MENUS)),
+                                Row.toggle("Restyle every screen", "Buttons, sliders, checkboxes and backgrounds everywhere, mods' too.", "Now",
+                                        () -> Settings.on(Settings.RESTYLE), () -> Settings.toggle(Settings.RESTYLE)),
+                                Row.toggle("Mod buttons in black and white", "Buttons mods add to the menus match the rest.", "Now",
+                                        () -> Settings.on(Settings.GRAY_BUTTONS), () -> Settings.toggle(Settings.GRAY_BUTTONS)),
+                                Row.toggle("Background pattern", "The slow dot pattern behind Pentecost's screens.", "Now",
+                                        () -> Settings.on(Settings.PATTERN), () -> Settings.toggle(Settings.PATTERN)))),
+                        new Folder("F3", List.of(
+                                Row.toggle("Pentecost F3 screen", "Readable panels in place of the long text columns.", "Now",
+                                        () -> Settings.on(Settings.OVERLAY), () -> Settings.toggle(Settings.OVERLAY)),
+                                Row.choice("F3 detail", "Standard shows the usual facts. Full shows every line.", "Now",
+                                        () -> "full".equals(Settings.get(Settings.OVERLAY_DETAIL)) ? "Full" : "Standard",
+                                        () -> Settings.set(Settings.OVERLAY_DETAIL,
+                                                "full".equals(Settings.get(Settings.OVERLAY_DETAIL)) ? "standard" : "full")))),
+                        new Folder("Loading", List.of(
+                                Row.toggle("Pentecost loading screen", "Logo, progress line, RAM gauge and time left while loading.", "Now",
+                                        () -> Settings.on(Settings.LOADING), () -> Settings.toggle(Settings.LOADING))))),
+                List.of("Boot splash style", "Text size"), List::of));
+        pages.add(new Page("Video", "The game's video options, from Embeddium when it is installed. Changes apply at once.",
+                this::videoFolders, List.of(), this::videoShortcuts));
+        pages.add(new Page("Shaders", "Pick a shader pack, or Off. Pentecost drives Oculus (Forge) or Iris (Fabric).",
+                this::shaderFolders, List.of(), this::shaderShortcuts));
+        pages.add(planned("Performance", "Launch cache", "Chunk building threads", "Far mob throttle", "Virtual threads on Java 25"));
+        pages.add(planned("Java", "Memory", "Garbage collector", "Extra flags", "Java version"));
+        pages.add(planned("Gameplay", "Faster mobs", "Smarter mobs", "Stall warning"));
+        pages.add(planned("Building", "Block rotation", "Block outline"));
+        pages.add(planned("Server", "World Wide Local Server", "Operators", "Server tools"));
+        pages.add(planned("Profiles", "Save a setup", "Switch setups", "Export and import"));
         for (int i = 0; i < pages.size(); i++) {
             if (pages.get(i).name().equalsIgnoreCase(startPage)) {
                 page = i;
@@ -124,84 +141,92 @@ public final class PentecostSettingsScreen extends Screen {
         }
     }
 
+    private static Page planned(String name, String... items) {
+        return new Page(name, "Coming to Pentecost.", List::of, List.of(items), List::of);
+    }
+
+    private List<Folder> folders(int index) {
+        return built.computeIfAbsent(index, i -> pages.get(i).build().get());
+    }
+
     // ---------------------------------------------------------------- video and shaders
 
-    private List<ExternalOptions.VideoPage> videoPages;
-
-    private List<Row> videoRows() {
-        List<Row> rows = new ArrayList<>();
+    private List<Folder> videoFolders() {
+        List<Folder> out = new ArrayList<>();
         if (!ExternalOptions.hasEmbeddium()) {
-            rows.add(Row.button("Video settings", "The game's own video settings.",
-                    () -> minecraft.setScreen(new net.minecraft.client.gui.screens.VideoSettingsScreen(this, minecraft.options))));
-            return rows;
+            out.add(new Folder("Video", List.of(Row.button("Video settings", "The game's own video settings.",
+                    () -> minecraft.setScreen(new net.minecraft.client.gui.screens.VideoSettingsScreen(this, minecraft.options))))));
+            return out;
         }
-        if (embeddium == null) {
-            embeddium = ExternalOptions.embeddiumScreen(this);
-            videoPages = ExternalOptions.pages(embeddium);
-        }
-        for (ExternalOptions.VideoPage vp : videoPages) {
-            rows.add(Row.header(vp.name()));
+        embeddium = ExternalOptions.embeddiumScreen(this);
+        for (ExternalOptions.VideoPage vp : ExternalOptions.pages(embeddium)) {
+            List<Row> rows = new ArrayList<>();
             for (ExternalOptions.VideoOption v : vp.options()) {
                 rows.add(videoRow(v));
             }
+            out.add(new Folder(vp.name(), rows));
         }
-        rows.add(Row.header("More"));
-        rows.add(Row.button("Embeddium's own screen", "The same options in Embeddium's layout.",
-                () -> ExternalOptions.openEmbeddium(this)));
-        return rows;
+        return out;
+    }
+
+    private List<Shortcut> videoShortcuts() {
+        return ExternalOptions.hasEmbeddium()
+                ? List.of(new Shortcut("Embeddium's own screen", () -> ExternalOptions.openEmbeddium(this)))
+                : List.of();
     }
 
     private Row videoRow(ExternalOptions.VideoOption v) {
         String when = v.restart() ? "Restart" : "Now";
         BooleanSupplier enabled = () -> ExternalOptions.available(v);
         return switch (v.kind()) {
-            case "switch" -> new Row(v.name(), v.tooltip(), when, null,
+            case "switch" -> new Row(Kind.SWITCH, v.name(), v.tooltip(), v.about(), when, null,
                     () -> Boolean.TRUE.equals(ExternalOptions.value(v)),
-                    () -> ExternalOptions.set(embeddium, v, !Boolean.TRUE.equals(ExternalOptions.value(v))),
-                    null, enabled);
-            case "choice" -> new Row(v.name(), v.tooltip(), when, () -> ExternalOptions.choiceText(v), null,
+                    () -> ExternalOptions.set(embeddium, v, !Boolean.TRUE.equals(ExternalOptions.value(v))), null, enabled);
+            case "choice" -> new Row(Kind.CHOICE, v.name(), v.tooltip(), v.about(), when, () -> ExternalOptions.choiceText(v), null,
                     () -> ExternalOptions.nextChoice(embeddium, v, hasShiftDown()), null, enabled);
             case "slider" -> {
                 int[] range = ExternalOptions.sliderRange(v);
-                yield new Row(v.name(), v.tooltip(), when, null, null, null,
+                yield new Row(Kind.SLIDER, v.name(), v.tooltip(), v.about(), when, () -> ExternalOptions.sliderText(v), null, null,
                         new Slider(range[0], range[1], Math.max(1, range[2]),
                                 () -> ExternalOptions.value(v) instanceof Integer n ? n : range[0],
-                                n -> ExternalOptions.set(embeddium, v, n),
+                                n -> ExternalOptions.setOnly(v, n),
                                 () -> ExternalOptions.sliderText(v)), enabled);
             }
-            default -> new Row(v.name(), v.tooltip(), when, () -> String.valueOf(ExternalOptions.value(v)), null, null);
+            default -> new Row(Kind.INFO, v.name(), v.tooltip(), v.about(), when, () -> String.valueOf(ExternalOptions.value(v)),
+                    null, null, null, enabled);
         };
     }
 
-    private List<Row> shaderRows() {
+    private List<Folder> shaderFolders() {
         List<Row> rows = new ArrayList<>();
         if (!ExternalOptions.hasShaders()) {
             rows.add(Row.info("Shaders", "Install Oculus (Forge) or Iris (Fabric)"));
-            return rows;
+            return List.of(new Folder("Packs", rows));
         }
-        rows.add(new Row("Shaders", "Turns the chosen shader pack on or off.", "Now", null,
-                ExternalOptions::shadersOn, () -> ExternalOptions.setShaders(!ExternalOptions.shadersOn())));
-        rows.add(Row.button("Pack settings", "The chosen pack's own options.", () -> ExternalOptions.openPackSettings(this)));
-        rows.add(Row.button("Shader folder", "Put shader packs here.", () -> {
-            java.nio.file.Path dir = ExternalOptions.packFolder();
-            if (dir != null) {
-                Util.getPlatform().openFile(dir.toFile());
-            }
-        }));
-        rows.add(Row.header("Packs"));
-        String current = ExternalOptions.currentPack();
-        List<String> packs = ExternalOptions.packs();
-        if (packs.isEmpty()) {
-            rows.add(Row.info("No packs yet", "Add one to the shader folder"));
-        }
-        for (String pack : packs) {
-            boolean picked = pack.equals(current);
-            rows.add(new Row(pack.endsWith(".zip") ? pack.substring(0, pack.length() - 4) : pack,
-                    picked ? "In use." : "Click to use this pack.", "Now", null,
-                    () -> picked && ExternalOptions.shadersOn(),
+        rows.add(Row.pick("Off", "No shader pack. The game's own look.", () -> !ExternalOptions.shadersOn(),
+                () -> ExternalOptions.setShaders(false)));
+        for (String pack : ExternalOptions.packs()) {
+            String shown = pack.endsWith(".zip") ? pack.substring(0, pack.length() - 4) : pack;
+            rows.add(Row.pick(shown, pack.endsWith(".zip") ? "Zip pack." : "Folder pack.",
+                    () -> ExternalOptions.shadersOn() && pack.equals(ExternalOptions.currentPack()),
                     () -> ExternalOptions.usePack(pack)));
         }
-        return rows;
+        return List.of(new Folder("Packs", rows));
+    }
+
+    private List<Shortcut> shaderShortcuts() {
+        if (!ExternalOptions.hasShaders()) {
+            return List.of();
+        }
+        return List.of(
+                new Shortcut("Pack settings", () -> ExternalOptions.openPackSettings(this)),
+                new Shortcut("Shader folder", () -> {
+                    java.nio.file.Path dir = ExternalOptions.packFolder();
+                    if (dir != null) {
+                        Util.getPlatform().openFile(dir.toFile());
+                    }
+                }),
+                new Shortcut("Refresh list", () -> built.remove(page)));
     }
 
     // ---------------------------------------------------------------- drawing
@@ -221,78 +246,145 @@ public final class PentecostSettingsScreen extends Screen {
         int mx = (int) (mouseX / ui);
         int my = (int) (mouseY / ui);
         hits.clear();
-        sliders.clear();
-        sliderRows.clear();
+        sliderSpots.clear();
+        hovered = null;
         g.pose().pushPose();
         g.pose().scale(ui, ui, 1);
 
-        int x = 56;
-        int y = 30;
-        Ui.logo(g, x, y - 2, 2, Ui.TEXT);
-        Ui.wordmark(g, "SETTINGS", x + (Ui.LOGO_W + 5) * 2, y, 2, Ui.TEXT);
-        y += 28 + 14;
-        g.fill(x, y, vw - 56, y + 1, Ui.LINE);
-        y += 16;
+        int margin = 48;
+        int y = 26;
+        Ui.logo(g, margin, y - 2, 2, Ui.TEXT);
+        Ui.wordmark(g, "SETTINGS", margin + (Ui.LOGO_W + 5) * 2, y, 2, Ui.TEXT);
+        String version = "Pentecost " + PentecostMain.VERSION;
+        g.drawString(font, version, vw - margin - font.width(version), y + 18, Ui.FAINT, false);
+        y += 28 + 12;
+        g.fill(margin, y, vw - margin, y + 1, Ui.LINE);
+        int top = y + 16;
+        int bottom = vh - 44;
 
-        // Pages.
-        int sideWidth = 120;
-        int sy = y;
+        // Left: pages.
+        int sideW = 118;
+        int sy = top;
         for (int i = 0; i < pages.size(); i++) {
             boolean active = i == page;
-            boolean hover = Ui.over(mx, my, x - 6, sy, sideWidth, 18);
-            if (active) {
-                g.fill(x - 6, sy, x - 6 + sideWidth, sy + 18, Ui.TEXT);
-            } else if (hover) {
-                g.fill(x - 6, sy, x - 6 + sideWidth, sy + 18, Ui.HOVER);
+            boolean hover = Ui.over(mx, my, margin - 6, sy, sideW, 18);
+            if (hover && !active) {
+                g.fill(margin - 6, sy, margin - 6 + sideW, sy + 18, Ui.HOVER);
             }
-            g.drawString(font, (active ? "> " : "") + pages.get(i).name(), x, sy + 5,
-                    active ? Ui.BLACK : hover ? Ui.TEXT : Ui.MUTED, false);
+            sy += 20;
+        }
+        // The chosen page's bar glides between pages.
+        float barY = Ui.ease("settings:pagebar", top + page * 20, 16f);
+        g.fill(margin - 6, Math.round(barY), margin - 6 + sideW, Math.round(barY) + 18, Ui.TEXT);
+        sy = top;
+        for (int i = 0; i < pages.size(); i++) {
+            boolean active = i == page;
+            boolean under = Math.abs(barY - sy) < 9;
+            g.drawString(font, (active ? "> " : "") + pages.get(i).name(), margin, sy + 5,
+                    under ? Ui.BLACK : Ui.over(mx, my, margin - 6, sy, sideW, 18) ? Ui.TEXT : Ui.MUTED, false);
             int index = i;
-            hits.add(new Hit(x - 6, sy, sideWidth, 18, () -> {
+            hits.add(new Hit(margin - 6, sy, sideW, 18, () -> {
                 page = index;
                 scroll = 0;
             }));
             sy += 20;
         }
 
-        // The chosen page, clipped and scrolled.
-        int px = x + sideWidth + 24;
-        int pw = Math.min(560, vw - 56 - px);
-        int top = y;
-        int bottom = vh - 48;
+        // Right: details and shortcuts, when there is room.
+        int rightW = vw >= 820 ? 220 : 0;
+        int rx = vw - margin - rightW;
+        int cx = margin + sideW + 22;
+        int cw = (rightW > 0 ? rx - 22 : vw - margin) - cx;
+
+        // Middle: folders as tabs, then rows.
         Page p = pages.get(page);
-        g.enableScissor((int) (px * ui), (int) (top * ui), (int) ((px + pw + 4) * ui), (int) (bottom * ui));
-        int py = top - (int) scroll;
-        g.drawString(font, p.name().toUpperCase(Locale.ROOT), px, py, Ui.FAINT, false);
-        py += 14;
-        List<Row> rows = p.rows().get();
+        List<Folder> folders = folders(page);
+        int folder = Math.min(folderOf.getOrDefault(page, 0), Math.max(0, folders.size() - 1));
+        int rowsTop = top;
+        if (folders.size() > 1) {
+            int tx = cx;
+            int ty = top;
+            int pickedX = cx;
+            int pickedW = 0;
+            int pickedY = ty;
+            for (int i = 0; i < folders.size(); i++) {
+                String name = folders.get(i).name();
+                int w = font.width(name);
+                if (tx + w > cx + cw) {
+                    tx = cx;
+                    ty += 18;
+                }
+                boolean active = i == folder;
+                boolean hover = Ui.over(mx, my, tx - 4, ty - 4, w + 8, 16);
+                g.drawString(font, name, tx, ty, active ? Ui.TEXT : hover ? Ui.SOFT : Ui.MUTED, false);
+                if (active) {
+                    pickedX = tx;
+                    pickedW = w;
+                    pickedY = ty;
+                }
+                int index = i;
+                hits.add(new Hit(tx - 4, ty - 4, w + 8, 16, () -> {
+                    folderOf.put(page, index);
+                    scroll = 0;
+                }));
+                tx += w + 16;
+            }
+            // The underline glides to the chosen folder.
+            float ux = Ui.ease("settings:tabx:" + page, pickedX, 16f);
+            float uw = Ui.ease("settings:tabw:" + page, pickedW, 16f);
+            float uy = Ui.ease("settings:taby:" + page, pickedY, 16f);
+            g.fill(Math.round(ux), Math.round(uy) + 11, Math.round(ux + uw), Math.round(uy) + 12, Ui.TEXT);
+            rowsTop = ty + 22;
+            g.fill(cx, rowsTop - 6, cx + cw, rowsTop - 5, Ui.LINE);
+        }
+
+        g.enableScissor((int) (cx * ui), (int) (rowsTop * ui), (int) ((cx + cw + 4) * ui), (int) (bottom * ui));
+        int py = rowsTop - (int) scroll;
+        List<Row> rows = folders.isEmpty() ? List.of() : folders.get(folder).rows();
+        boolean picks = rows.stream().anyMatch(r -> r.kind() == Kind.PICK);
+        int pickTarget = -1;
         for (Row r : rows) {
-            py = r.isHeader() ? header(g, r, px, py, pw) : row(g, r, px, py, pw, mx, my, top, bottom);
+            if (r.kind() == Kind.PICK) {
+                if (r.on().getAsBoolean()) {
+                    pickTarget = py;
+                }
+                py = pick(g, r, cx, py, cw, mx, my, rowsTop, bottom);
+            } else {
+                py = row(g, r, cx, py, cw, mx, my, rowsTop, bottom);
+            }
+        }
+        if (picks && pickTarget >= 0) {
+            // The arrow glides to the chosen button.
+            float ay = Ui.ease("settings:pick:" + page, pickTarget + (int) scroll, 14f) - (int) scroll;
+            arrow(g, cx + 10, Math.round(ay) + 8, Ui.TEXT);
         }
         if (!p.planned().isEmpty()) {
-            py += rows.isEmpty() ? 0 : 16;
-            g.drawString(font, "COMING", px, py, Ui.FAINT, false);
-            py += 14;
+            g.drawString(font, "COMING", cx, py + 4, Ui.FAINT, false);
+            py += 18;
             for (String s : p.planned()) {
-                g.drawString(font, s, px + 4, py, Ui.FAINT, false);
-                py += 13;
+                g.drawString(font, s, cx + 4, py, Ui.MUTED, false);
+                py += 14;
             }
         }
         g.disableScissor();
         scrollMax = Math.max(0, py + (int) scroll - bottom + 8);
         scroll = Math.max(0, Math.min(scrollMax, scroll));
         if (scrollMax > 0) {
-            int track = bottom - top;
+            int track = bottom - rowsTop;
             int bar = Math.max(16, track * track / (track + scrollMax));
-            int by = top + (int) ((track - bar) * scroll / scrollMax);
-            g.fill(px + pw + 6, by, px + pw + 7, by + bar, Ui.MUTED);
+            int by = rowsTop + (int) ((track - bar) * scroll / scrollMax);
+            g.fill(cx + cw + 6, by, cx + cw + 7, by + bar, Ui.MUTED);
+        }
+
+        if (rightW > 0) {
+            details(g, p, rx, top, rightW, bottom, mx, my);
         }
 
         // Done, bottom right.
         String done = "Done";
         int dw = font.width(done) + 24;
-        int dx = vw - 56 - dw;
-        int dy = vh - 34;
+        int dx = vw - margin - dw;
+        int dy = vh - 32;
         boolean hover = Ui.over(mx, my, dx, dy, dw, 18);
         if (hover) {
             g.fill(dx, dy, dx + dw, dy + 18, Ui.TEXT);
@@ -304,66 +396,160 @@ public final class PentecostSettingsScreen extends Screen {
         g.pose().popPose();
     }
 
-    private int header(GuiGraphics g, Row r, int x, int y, int w) {
-        y += 10;
-        g.drawString(font, r.title().toUpperCase(Locale.ROOT), x + 4, y, Ui.MUTED, false);
-        g.fill(x, y + 12, x + w, y + 13, 0x40FFFFFF);
-        return y + 16;
+    /** A small pixel arrow pointing right. */
+    private static void arrow(GuiGraphics g, int x, int y, int color) {
+        for (int r = 0; r < 7; r++) {
+            int w = r <= 3 ? r + 1 : 7 - r;
+            g.fill(x, y - 3 + r, x + w, y - 2 + r, color);
+        }
     }
 
-    /** One row: title, quieter note under it, when it applies, and its control. A hairline closes it. */
+    /** Right column: what the hovered setting does, then the page's shortcuts. */
+    private void details(GuiGraphics g, Page p, int x, int y, int w, int bottom, int mx, int my) {
+        g.fill(x, y, x + w, bottom, 0x660A0A0B);
+        Ui.outline(g, x, y, x + w, bottom, Ui.LINE);
+        int ix = x + 12;
+        int iw = w - 24;
+        int ty = y + 12;
+        g.drawString(font, "DETAILS", ix, ty, Ui.FAINT, false);
+        ty += 16;
+        if (hovered != null) {
+            for (String line : Ui.wrap(font, hovered.title(), iw)) {
+                g.drawString(font, line, ix, ty, Ui.TEXT, false);
+                ty += 11;
+            }
+            ty += 4;
+            if (!hovered.when().isEmpty()) {
+                String when = "Applies " + ("Now".equals(hovered.when()) ? "right away" : "after a restart");
+                g.drawString(font, when, ix, ty, Ui.SOFT, false);
+                ty += 14;
+            }
+            String about = hovered.about().isEmpty() ? hovered.note() : hovered.about();
+            for (String line : Ui.wrap(font, about, iw)) {
+                if (ty > bottom - 80) {
+                    break;
+                }
+                g.drawString(font, line, ix, ty, Ui.MUTED, false);
+                ty += 11;
+            }
+        } else {
+            for (String line : Ui.wrap(font, p.about(), iw)) {
+                g.drawString(font, line, ix, ty, Ui.MUTED, false);
+                ty += 11;
+            }
+        }
+        List<Shortcut> shortcuts = p.shortcuts().get();
+        if (!shortcuts.isEmpty()) {
+            int sy = bottom - 12 - shortcuts.size() * 22;
+            g.drawString(font, "SHORTCUTS", ix, sy - 14, Ui.FAINT, false);
+            for (Shortcut s : shortcuts) {
+                boolean hover = Ui.over(mx, my, ix, sy, iw, 18);
+                if (hover) {
+                    g.fill(ix, sy, ix + iw, sy + 18, Ui.TEXT);
+                } else {
+                    Ui.outline(g, ix, sy, ix + iw, sy + 18, 0x47FFFFFF);
+                }
+                g.drawString(font, s.label(), ix + 8, sy + 5, hover ? Ui.BLACK : Ui.TEXT, false);
+                hits.add(new Hit(ix, sy, iw, 18, () -> {
+                    s.action().run();
+                }));
+                sy += 22;
+            }
+        }
+    }
+
+    /** A choice drawn as a button. The arrow marks the one in use. */
+    private int pick(GuiGraphics g, Row r, int x, int y, int w, int mx, int my, int top, int bottom) {
+        boolean visible = y + 24 > top && y < bottom;
+        boolean inside = my >= top && my < bottom;
+        boolean hover = visible && inside && Ui.over(mx, my, x, y, w, 24);
+        boolean on = r.on().getAsBoolean();
+        if (hover) {
+            hovered = r;
+            g.fill(x, y, x + w, y + 24, Ui.HOVER);
+        }
+        Ui.outline(g, x, y, x + w, y + 24, on ? Ui.TEXT : hover ? Ui.MUTED : 0x33FFFFFF);
+        g.drawString(font, r.title(), x + 24, y + 8, on ? Ui.TEXT : Ui.SOFT, false);
+        if (on) {
+            String tag = "In use";
+            g.drawString(font, tag, x + w - 10 - font.width(tag), y + 8, Ui.FAINT, false);
+        }
+        if (visible && inside) {
+            hits.add(new Hit(x, Math.max(y, top), w, Math.min(y + 24, bottom) - Math.max(y, top), r.action()));
+        }
+        return y + 28;
+    }
+
+    /** One setting row: title, note under it, when it applies, and its control. */
     private int row(GuiGraphics g, Row r, int x, int y, int w, int mx, int my, int top, int bottom) {
         boolean enabled = r.enabled().getAsBoolean();
         boolean visible = y + 30 > top && y < bottom;
-        boolean clickable = enabled && (r.action() != null || r.slider() != null) && visible;
         boolean inside = my >= top && my < bottom;
-        boolean hover = clickable && inside && Ui.over(mx, my, x, y, w, 30);
-        if (hover && r.slider() == null) {
+        boolean over = visible && inside && Ui.over(mx, my, x, y, w, 30);
+        if (over) {
+            hovered = r;
+        }
+        boolean clickable = enabled && visible && (r.action() != null || r.slider() != null);
+        if (over && clickable && r.kind() != Kind.SLIDER) {
             g.fill(x, y, x + w, y + 30, Ui.HOVER);
         }
         g.drawString(font, r.title(), x + 4, y + 5, enabled ? Ui.TEXT : Ui.FAINT, false);
         int right = x + w - 6;
-        if (r.on() != null) {
-            int sx = right - 24;
-            Ui.toggle(g, "settings:" + pages.get(page).name() + ":" + r.title(), sx, y + 10, r.on().getAsBoolean() && enabled);
-            right = sx - 10;
-        } else if (r.slider() != null) {
-            Slider s = r.slider();
-            int bw = 140;
-            int bx = right - bw;
-            int value = s.value().getAsInt();
-            float t = s.max() > s.min() ? (value - s.min()) / (float) (s.max() - s.min()) : 0f;
-            g.fill(bx, y + 14, bx + bw, y + 15, Ui.FAINT);
-            g.fill(bx, y + 14, bx + Math.round(bw * t), y + 15, enabled ? Ui.TEXT : Ui.FAINT);
-            int kx = bx + Math.round((bw - 4) * t);
-            g.fill(kx, y + 9, kx + 4, y + 20, enabled && (hover || dragging == s) ? Ui.TEXT : Ui.SOFT);
-            String text = s.text().get();
-            g.drawString(font, text, bx - 10 - font.width(text), y + 11, enabled ? Ui.SOFT : Ui.FAINT, false);
-            right = bx - 20 - font.width(text);
-            if (clickable) {
-                hits.add(new Hit(bx - 4, y, bw + 8, 30, () -> {
-                    dragging = s;
-                    slide(s, bx, bw);
-                }));
-                sliders.add(new int[]{bx, bw});
-                sliderRows.add(s);
+        String key = pages.get(page).name() + ":" + r.title();
+        switch (r.kind()) {
+            case SWITCH -> {
+                int sx = right - 24;
+                Ui.toggle(g, "settings:" + key, sx, y + 10, r.on().getAsBoolean() && enabled);
+                right = sx - 10;
             }
-        } else if (r.value() != null) {
-            String v = r.value().get();
-            int vwid = font.width(v);
-            if (clickable) {
-                Ui.outline(g, right - vwid - 14, y + 7, right, y + 23, hover ? Ui.TEXT : Ui.FAINT);
-                g.drawString(font, v, right - vwid - 7, y + 11, Ui.TEXT, false);
+            case SLIDER -> {
+                Slider s = r.slider();
+                int bw = Math.min(160, w / 3);
+                int bx = right - bw;
+                int value = s.value().getAsInt();
+                float target = s.max() > s.min() ? (value - s.min()) / (float) (s.max() - s.min()) : 0f;
+                float t = Ui.ease("settings:slider:" + key, target * 1000f, 20f) / 1000f;
+                g.fill(bx, y + 14, bx + bw, y + 15, Ui.FAINT);
+                g.fill(bx, y + 14, bx + Math.round(bw * t), y + 15, enabled ? Ui.TEXT : Ui.FAINT);
+                int kx = bx + Math.round((bw - 4) * t);
+                boolean active = key.equals(dragKey);
+                g.fill(kx, y + 9, kx + 4, y + 20, enabled && (over || active) ? Ui.TEXT : Ui.SOFT);
+                String text = s.text().get();
+                g.drawString(font, text, bx - 10 - font.width(text), y + 11, enabled ? Ui.SOFT : Ui.FAINT, false);
+                right = bx - 20 - font.width(text);
+                if (clickable && inside) {
+                    sliderSpots.put(key, new SliderSpot(bx, bw, s));
+                    hits.add(new Hit(bx - 6, y, bw + 12, 30, () -> {
+                        dragKey = key;
+                        slide(sliderSpots.get(key));
+                    }));
+                }
+            }
+            case CHOICE, BUTTON -> {
+                String v = r.value().get();
+                int vwid = font.width(v);
+                boolean hot = over && clickable;
+                if (hot) {
+                    g.fill(right - vwid - 14, y + 7, right, y + 23, Ui.TEXT);
+                } else {
+                    Ui.outline(g, right - vwid - 14, y + 7, right, y + 23, enabled ? 0x66FFFFFF : 0x22FFFFFF);
+                }
+                g.drawString(font, v, right - vwid - 7, y + 11, hot ? Ui.BLACK : enabled ? Ui.TEXT : Ui.FAINT, false);
                 right -= vwid + 24;
-            } else {
-                g.drawString(font, v, right - vwid, y + 11, enabled ? Ui.SOFT : Ui.FAINT, false);
-                right -= vwid + 10;
             }
+            case INFO -> {
+                if (r.value() != null) {
+                    String v = r.value().get();
+                    g.drawString(font, v, right - font.width(v), y + 11, Ui.SOFT, false);
+                    right -= font.width(v) + 10;
+                }
+            }
+            default -> { }
         }
-        if (!r.when().isEmpty()) {
-            int tw = font.width(r.when());
+        if ("Restart".equals(r.when())) {
+            int tw = font.width("Restart");
             Ui.outline(g, right - tw - 8, y + 9, right, y + 21, Ui.LINE);
-            g.drawString(font, r.when(), right - tw - 4, y + 11, Ui.FAINT, false);
+            g.drawString(font, "Restart", right - tw - 4, y + 11, Ui.FAINT, false);
             right -= tw + 16;
         }
         if (!r.note().isEmpty()) {
@@ -378,14 +564,14 @@ public final class PentecostSettingsScreen extends Screen {
 
     // ---------------------------------------------------------------- input
 
-    private Slider dragging;
-    private final List<int[]> sliders = new ArrayList<>();
-    private final List<Slider> sliderRows = new ArrayList<>();
-
-    private void slide(Slider s, int bx, int bw) {
+    private void slide(SliderSpot spot) {
+        if (spot == null) {
+            return;
+        }
+        Slider s = spot.slider();
         float ui = Ui.scale(minecraft);
         double mx = lastMouseX / ui;
-        float t = (float) Math.max(0, Math.min(1, (mx - bx) / bw));
+        float t = (float) Math.max(0, Math.min(1, (mx - spot.x()) / spot.w()));
         int raw = s.min() + Math.round(t * (s.max() - s.min()));
         int snapped = s.min() + Math.round((raw - s.min()) / (float) s.step()) * s.step();
         snapped = Math.max(s.min(), Math.min(s.max(), snapped));
@@ -416,12 +602,9 @@ public final class PentecostSettingsScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dx, double dy) {
-        if (dragging != null) {
+        if (dragKey != null) {
             lastMouseX = mouseX;
-            int i = sliderRows.indexOf(dragging);
-            if (i >= 0) {
-                slide(dragging, sliders.get(i)[0], sliders.get(i)[1]);
-            }
+            slide(sliderSpots.get(dragKey));
             return true;
         }
         return super.mouseDragged(mouseX, mouseY, button, dx, dy);
@@ -429,7 +612,11 @@ public final class PentecostSettingsScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        dragging = null;
+        if (dragKey != null) {
+            // Sliders apply once, when let go, so a long drag does not reload chunks at every step.
+            ExternalOptions.apply(embeddium);
+        }
+        dragKey = null;
         return super.mouseReleased(mouseX, mouseY, button);
     }
 

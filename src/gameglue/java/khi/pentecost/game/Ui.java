@@ -186,6 +186,18 @@ final class Ui {
         GLYPHS.put('S', new String[]{"01111", "10000", "10000", "01110", "00001", "00001", "11110"});
         GLYPHS.put('T', new String[]{"11111", "00100", "00100", "00100", "00100", "00100", "00100"});
         GLYPHS.put('U', new String[]{"10001", "10001", "10001", "10001", "10001", "10001", "01110"});
+        GLYPHS.put('B', new String[]{"11110", "10001", "10001", "11110", "10001", "10001", "11110"});
+        GLYPHS.put('G', new String[]{"01111", "10000", "10000", "10011", "10001", "10001", "01111"});
+        GLYPHS.put('H', new String[]{"10001", "10001", "10001", "11111", "10001", "10001", "10001"});
+        GLYPHS.put('J', new String[]{"00111", "00010", "00010", "00010", "00010", "10010", "01100"});
+        GLYPHS.put('K', new String[]{"10001", "10010", "10100", "11000", "10100", "10010", "10001"});
+        GLYPHS.put('L', new String[]{"10000", "10000", "10000", "10000", "10000", "10000", "11111"});
+        GLYPHS.put('Q', new String[]{"01110", "10001", "10001", "10001", "10101", "10010", "01101"});
+        GLYPHS.put('V', new String[]{"10001", "10001", "10001", "10001", "10001", "01010", "00100"});
+        GLYPHS.put('W', new String[]{"10001", "10001", "10001", "10101", "10101", "10101", "01010"});
+        GLYPHS.put('X', new String[]{"10001", "10001", "01010", "00100", "01010", "10001", "10001"});
+        GLYPHS.put('Y', new String[]{"10001", "10001", "01010", "00100", "00100", "00100", "00100"});
+        GLYPHS.put('Z', new String[]{"11111", "00001", "00010", "00100", "01000", "10000", "11111"});
         GLYPHS.put('0', new String[]{"01110", "10001", "10011", "10101", "11001", "10001", "01110"});
         GLYPHS.put('1', new String[]{"00100", "01100", "00100", "00100", "00100", "00100", "01110"});
         GLYPHS.put('2', new String[]{"01110", "10001", "00001", "00010", "00100", "01000", "11111"});
@@ -430,5 +442,37 @@ final class Ui {
             r |= (Math.round(ca + (cb - ca) * t) & 0xFF) << shift;
         }
         return r;
+    }
+
+    private static final Map<String, float[]> EASED = new HashMap<>();
+
+    /**
+     * A value that glides toward its target instead of jumping. key: unique per animated thing.
+     * speed: how quickly it closes the gap, about 12 to 20 feels smooth.
+     */
+    static float ease(String key, float target, float speed) {
+        long now = net.minecraft.Util.getMillis();
+        float[] st = EASED.computeIfAbsent(key, k -> new float[]{target, now});
+        float dt = Math.min(0.1f, (now - st[1]) / 1000f);
+        st[1] = now;
+        st[0] += (target - st[0]) * Math.min(1f, dt * speed);
+        if (Math.abs(target - st[0]) < 0.05f) {
+            st[0] = target;
+        }
+        return st[0];
+    }
+
+    /** Wraps text into lines no wider than width. */
+    static java.util.List<String> wrap(net.minecraft.client.gui.Font font, String text, int width) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (net.minecraft.util.FormattedCharSequence line : font.split(net.minecraft.network.chat.Component.literal(text), width)) {
+            StringBuilder b = new StringBuilder();
+            line.accept((index, style, cp) -> {
+                b.appendCodePoint(cp);
+                return true;
+            });
+            out.add(b.toString());
+        }
+        return out;
     }
 }

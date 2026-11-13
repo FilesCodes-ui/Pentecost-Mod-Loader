@@ -26,7 +26,7 @@ final class ExternalOptions {
     static final String EMBEDDIUM_SCREEN = "me.jellysquid.mods.sodium.client.gui.SodiumOptionsGUI";
 
     /** One Embeddium option, reduced to what Pentecost's rows need. */
-    record VideoOption(String name, String tooltip, String kind, boolean restart, Object option, Object control) {}
+    record VideoOption(String name, String tooltip, String about, String kind, boolean restart, Object option, Object control) {}
 
     record VideoPage(String name, List<VideoOption> options) {}
 
@@ -86,11 +86,12 @@ final class ExternalOptions {
                         }
                     }
                     String tip = ((Component) call(o, "getTooltip")).getString();
+                    String about = tip;
                     int dot = tip.indexOf(". ");
                     if (dot > 0) {
                         tip = tip.substring(0, dot + 1);
                     }
-                    opts.add(new VideoOption(((Component) call(o, "getName")).getString(), tip, k, restart, o, control));
+                    opts.add(new VideoOption(((Component) call(o, "getName")).getString(), tip, about, k, restart, o, control));
                 }
                 out.add(new VideoPage(name, opts));
             }
@@ -119,6 +120,35 @@ final class ExternalOptions {
             return call(v.option(), "getValue");
         } catch (ReflectiveOperationException | RuntimeException e) {
             return null;
+        }
+    }
+
+    /** Sets a value without applying it yet (sliders while dragging). */
+    static void setOnly(VideoOption v, Object value) {
+        try {
+            for (Method m : v.option().getClass().getMethods()) {
+                if (m.getName().equals("setValue") && m.getParameterCount() == 1) {
+                    m.setAccessible(true);
+                    m.invoke(v.option(), value);
+                    return;
+                }
+            }
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            Log.error("Cannot change " + v.name() + ": " + e);
+        }
+    }
+
+    /** Runs Embeddium's apply step for every changed option. */
+    static void apply(Object gui) {
+        if (gui == null) {
+            return;
+        }
+        try {
+            Method apply = gui.getClass().getDeclaredMethod("applyChanges");
+            apply.setAccessible(true);
+            apply.invoke(gui);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            Log.error("Cannot apply video settings: " + e);
         }
     }
 
