@@ -2,14 +2,11 @@
 
 # Pentecost
 
-Pentecost is a Minecraft 1.20.1 mod loader. It runs Forge, Fabric, and Quilt mods together in one game. It is made by Files.
+Pentecost is a Minecraft 1.20.1 mod loader. It runs Forge, Fabric, and Quilt mods together in one game. Files make it.
 
-## Multi-player and Mojang Account support
-<img width="1919" height="1079" alt="Screenshot 2026-11-14 003015" src="https://github.com/user-attachments/assets/230c3b88-9460-4269-83f7-19fbd1a68c38" />
 
-<img width="1919" height="1079" alt="Screenshot 2026-11-13 214529" src="https://github.com/user-attachments/assets/0a784d63-5002-4e7d-b46b-a70f3be95659" />
 
-<img width="1919" height="1079" alt="Screenshot 2026-11-13 165646" src="https://github.com/user-attachments/assets/9a4dd73a-4f0a-4b71-8371-ede71d79f4db" />
+
 
 ## What it does
 
@@ -26,6 +23,7 @@ Pentecost uses the Microsoft device code flow. You sign in on microsoft.com, so 
 - Pentecost keeps one refresh token on your PC so you stay signed in. Signing out deletes it.
 - The Minecraft token is used only to start your own game session and to join servers.
 - Pentecost sends no account data to any server run by KHI.
+<img width="1919" height="1079" alt="Screenshot 2026-11-13 165646" src="https://github.com/user-attachments/assets/9a4dd73a-4f0a-4b71-8371-ede71d79f4db" />
 
 ## Status
 
@@ -35,3 +33,7 @@ Pentecost is in active development. Version 1 targets Minecraft 1.20.1 on Java 2
 
 Project lead: Files
 
+## WWLS and prototype main menu
+<img width="1919" height="1079" alt="Screenshot 2026-11-14 003015" src="https://github.com/user-attachments/assets/230c3b88-9460-4269-83f7-19fbd1a68c38" />
+
+<img width="1919" height="1079" alt="Screenshot 2026-11-13 214529" src="https://github.com/user-attachments/assets/0a784d63-5002-4e7d-b46b-a70f3be95659" />
