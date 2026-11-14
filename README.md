@@ -27,7 +27,7 @@ Pentecost uses the Microsoft device code flow. You sign in on microsoft.com, so 
 
 ## Status
 
-Pentecost is in active development. Version 1 targets Minecraft 1.20.1 on Java 21.
+Pentecost is in active development. Version 1 targets Minecraft 1.20.1 and runs on Java 21 instead of Java 17
 
 ## Contact
 
