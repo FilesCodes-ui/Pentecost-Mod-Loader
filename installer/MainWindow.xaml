@@ -72,7 +72,7 @@
                         <CheckBox x:Name="WorldsBox" IsChecked="True" Margin="2,24,0,0">
                             <StackPanel>
                                 <TextBlock x:Name="WorldsTitle" FontSize="14"/>
-                                <TextBlock Text="Pentecost shows these behind the title screen. You can skip them and run this installer again later."
+                                <TextBlock x:Name="WorldsNote" Text="Pentecost shows these behind the title screen. You can skip them and run this installer again later."
                                            FontSize="12.5" Foreground="{StaticResource Muted}" Margin="0,4,0,0" MaxWidth="470"/>
                             </StackPanel>
                         </CheckBox>

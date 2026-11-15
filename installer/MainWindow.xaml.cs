@@ -75,9 +75,30 @@ public partial class MainWindow : Window
         UninstallBtn.Visibility = installed == null ? Visibility.Collapsed : Visibility.Visible;
         FolderText.Text = mc;
         FolderText.ToolTip = mc;
-        var bytes = Worlds.TotalBytes();
-        WorldsBox.Visibility = bytes > 0 ? Visibility.Visible : Visibility.Collapsed;
-        WorldsTitle.Text = $"Download the main menu worlds (about {bytes / 1048576} MB)";
+        // Look in run\menu_world first, so the box only offers the worlds that are actually missing.
+        var allWorlds = Worlds.Load().Worlds.Count;
+        var missing = Worlds.Missing(Setup.HomeOf(mc));
+        var bytes = missing.Sum(w => w.Size);
+        WorldsBox.Visibility = allWorlds > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (allWorlds > 0 && missing.Count == 0)
+        {
+            WorldsBox.IsChecked = false;
+            WorldsBox.IsEnabled = false;
+            WorldsTitle.Text = "The main menu worlds are already installed";
+            WorldsNote.Text = "Nothing to download. Your copies are left as they are.";
+        }
+        else
+        {
+            if (!WorldsBox.IsEnabled) WorldsBox.IsChecked = true;
+            WorldsBox.IsEnabled = true;
+            var some = missing.Count < allWorlds;
+            WorldsTitle.Text = some
+                ? $"Download the {missing.Count} missing main menu worlds (about {bytes / 1048576} MB)"
+                : $"Download the main menu worlds (about {bytes / 1048576} MB)";
+            WorldsNote.Text = some
+                ? "The ones you already have are left as they are."
+                : "Pentecost shows these behind the title screen. You can skip them and run this installer again later.";
+        }
 
         // Look in run\mods first, so the box only offers what is actually missing.
         var have = VideoMods.Installed(Setup.HomeOf(mc));

@@ -22,6 +22,17 @@ public static class Worlds
 
     public static long TotalBytes() => Load().Worlds.Sum(w => w.Size);
 
+    /// <summary>The worlds that are not in menu_world yet. A world counts as installed when its zip has the expected size, the same check the download uses.</summary>
+    public static List<WorldEntry> Missing(string home)
+    {
+        var dir = Path.Combine(home, "menu_world");
+        return Load().Worlds.Where(w =>
+        {
+            var f = Path.Combine(dir, w.Seed + ".zip");
+            return !(File.Exists(f) && new FileInfo(f).Length == w.Size);
+        }).ToList();
+    }
+
     /// <summary>Downloads every missing world. Returns how many could not be downloaded; those do not fail the install.</summary>
     public static async Task<int> DownloadAsync(string home, Action<double, string> report, CancellationToken ct)
     {
