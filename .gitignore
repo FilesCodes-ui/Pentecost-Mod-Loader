@@ -17,3 +17,8 @@ HANDOFF.md
 logs/
 menu_world/
 mods_disabled/
+installer/bin/
+installer/obj/
+installer/payload.zip
+installer/worlds.json
+installer/app.ico

@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Pentecost-Installer</AssemblyName>
+    <RootNamespace>Pentecost.Installer</RootNamespace>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <Version>0.3.0</Version>
+    <Product>Pentecost</Product>
+    <Description>Pentecost installer</Description>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Both files are made by build.ps1 before the build. -->
+    <EmbeddedResource Include="payload.zip" LogicalName="payload.zip" />
+    <EmbeddedResource Include="worlds.json" LogicalName="worlds.json" />
+    <Resource Include="app.ico" />
+  </ItemGroup>
+
+</Project>
