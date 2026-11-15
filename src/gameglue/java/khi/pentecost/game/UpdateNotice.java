@@ -66,8 +66,8 @@ final class UpdateNotice {
         // Slides in from the right edge, then stays.
         float p = Math.min(1f, age / (float) SLIDE_MS);
         float slide = 1f - (1f - p) * (1f - p) * (1f - p);
-        int x = vw - 40 - W + Math.round((1f - slide) * (W + 60));
-        int y = vh - 92 - H;
+        int x = vw - 28 - W + Math.round((1f - slide) * (W + 40));
+        int y = vh - 28 - H;
         hx = x;
         hy = y;
         drawn = true;
