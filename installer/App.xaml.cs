@@ -32,7 +32,7 @@ public partial class App : Application
 
         if (Has("--install") || Has("--uninstall"))
         {
-            Shutdown(RunSilent(mc, uninstall: Has("--uninstall"), worlds: !Has("--no-worlds"), removeData: Has("--remove-data")));
+            Shutdown(RunSilent(mc, uninstall: Has("--uninstall"), worlds: !Has("--no-worlds"), removeData: Has("--remove-data"), videoMods: Has("--video-mods")));
             return;
         }
 
@@ -48,7 +48,7 @@ public partial class App : Application
         }
     }
 
-    static int RunSilent(string mc, bool uninstall, bool worlds, bool removeData)
+    static int RunSilent(string mc, bool uninstall, bool worlds, bool removeData, bool videoMods)
     {
         var progress = new Progress<Progress>(p => Console.WriteLine($"{(int)(p.Fraction * 100),3} %  {p.Step}  {p.Detail}"));
         try
@@ -56,7 +56,7 @@ public partial class App : Application
             if (uninstall) Task.Run(() => Setup.Uninstall(mc, removeData, progress)).GetAwaiter().GetResult();
             else
             {
-                var r = Task.Run(() => Setup.InstallAsync(mc, worlds, progress, CancellationToken.None)).GetAwaiter().GetResult();
+                var r = Task.Run(() => Setup.InstallAsync(mc, worlds, videoMods, progress, CancellationToken.None)).GetAwaiter().GetResult();
                 Console.WriteLine($"installed {r.Version}, worlds failed: {r.WorldsFailed}");
             }
             return 0;

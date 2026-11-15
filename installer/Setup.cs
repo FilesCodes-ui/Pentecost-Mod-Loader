@@ -10,7 +10,7 @@ namespace Pentecost.Installer;
 
 public sealed record Progress(string Step, string Detail, double Fraction);
 
-public sealed record InstallResult(string Version, int WorldsFailed);
+public sealed record InstallResult(string Version, int WorldsFailed, int ModsFailed = 0);
 
 /// <summary>An error whose message is meant for the person running the installer.</summary>
 public sealed class SetupException : Exception
@@ -88,13 +88,13 @@ public static class Setup
 
     // ---------------------------------------------------------------- install
 
-    public static async Task<InstallResult> InstallAsync(string mc, bool downloadWorlds, IProgress<Progress> progress, CancellationToken ct)
+    public static async Task<InstallResult> InstallAsync(string mc, bool downloadWorlds, bool installVideoMods, IProgress<Progress> progress, CancellationToken ct)
     {
         Preflight(mc);
         var version = PayloadVersion();
         var versionId = "Pentecost-" + version;
         var home = HomeOf(mc);
-        Log.Write($"install {version} into {mc} worlds={downloadWorlds}");
+        Log.Write($"install {version} into {mc} worlds={downloadWorlds} videoMods={installVideoMods}");
 
         progress.Report(new("Copying program files", "", 0.03));
         await Task.Run(() => CopyPayload(home, version), ct);
@@ -106,16 +106,23 @@ public static class Setup
             WriteProfile(mc, home, versionId);
         }, ct);
 
+        var modsFailed = 0;
+        if (installVideoMods)
+        {
+            modsFailed = await VideoMods.InstallAsync(home, (f, detail) =>
+                progress.Report(new("Getting Embeddium and Oculus", detail, 0.31 + 0.09 * f)), ct);
+        }
+
         var failed = 0;
         if (downloadWorlds)
         {
             failed = await Worlds.DownloadAsync(home, (f, detail) =>
-                progress.Report(new("Downloading the main menu worlds", detail, 0.35 + 0.63 * f)), ct);
+                progress.Report(new("Downloading the main menu worlds", detail, 0.40 + 0.58 * f)), ct);
         }
 
         progress.Report(new("Done", "", 1.0));
         Log.Write($"install finished, worldsFailed={failed}");
-        return new InstallResult(version, failed);
+        return new InstallResult(version, failed, modsFailed);
     }
 
     static bool ExtractTo(ZipArchiveEntry e, string root, string relative)

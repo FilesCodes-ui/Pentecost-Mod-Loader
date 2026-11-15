@@ -43,6 +43,7 @@ public partial class MainWindow : Window
     async Task RunUpdateAsync(int waitPid)
     {
         WorldsBox.IsChecked = false;
+        ModsBox.IsChecked = false;
         ProgWord.Text = "UPDATING";
         ProgTitle.Text = "Waiting for Pentecost to close";
         ProgDetail.Text = "";
@@ -129,7 +130,7 @@ public partial class MainWindow : Window
             }
             else
             {
-                var result = await Setup.InstallAsync(mc, WorldsBox.IsChecked == true && WorldsBox.Visibility == Visibility.Visible, progress, cts.Token);
+                var result = await Setup.InstallAsync(mc, WorldsBox.IsChecked == true && WorldsBox.Visibility == Visibility.Visible, ModsBox.IsChecked == true, progress, cts.Token);
                 ShowDone(uninstall: false, result);
             }
         }
@@ -162,10 +163,12 @@ public partial class MainWindow : Window
                 : "1.  Open the Minecraft Launcher.\n2.  Pick Pentecost next to the Play button.\n3.  Press Play. The first start downloads Minecraft and Forge and takes a few minutes.";
             ModsBtn.Visibility = Visibility.Visible;
             var failed = result?.WorldsFailed ?? 0;
-            DoneWarn.Visibility = failed > 0 ? Visibility.Visible : Visibility.Collapsed;
-            DoneWarn.Text = failed > 0
-                ? $"{failed} of the main menu worlds could not be downloaded. Pentecost works without them. Run this installer again with a working connection to get them."
-                : "";
+            var modsFailed = result?.ModsFailed ?? 0;
+            var warn = new List<string>();
+            if (failed > 0) warn.Add($"{failed} of the main menu worlds could not be downloaded. Pentecost works without them. Run this installer again with a working connection to get them.");
+            if (modsFailed > 0) warn.Add("Embeddium or Oculus could not be downloaded. Pentecost works without them. You can add them later from its Video page.");
+            DoneWarn.Visibility = warn.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            DoneWarn.Text = string.Join("\n\n", warn);
         }
         Show(DonePanel);
     }
