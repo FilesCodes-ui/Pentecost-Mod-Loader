@@ -68,7 +68,7 @@ tasks.register('testmods') {
     dependsOn 'testmodFabricJar', 'testmodForgeJar', 'testmodQuiltJar'
 }
 
-// The Forge glue compiles against Forge's own jars, so it exists only after .tools/forge-install.ps1 ran.
+// The Forge glue compiles against Forge's own jars, so it exists only after the setup command ran.
 def forgeLibs = file('cache/forge-install/libraries')
 def forgeNamed = fileTree('cache/remapped') { include 'forge-*-universal-named.jar', 'client-*-forge-named.jar' }
 def forgeReady = forgeLibs.isDirectory() && !forgeNamed.isEmpty()
@@ -161,6 +161,8 @@ tasks.named('selftest') { dependsOn 'testmods' }
 pentecostExec('runTry', ['launch', '--mods', file('cache/try').path])
 // The same, with Forge's real code loaded so Forge mods run.
 pentecostExec('runForge', ['launch', '--forge', '--mods', file('cache/try').path])
+// Headless check of the mods in cache/try with the Forge layer: no window.
+pentecostExec('verifyTry', ['verify', '--forge', '--mods', file('cache/try').path])
 pentecostExec('runPlay', ['launch', '--forge', '--mods', file('mods').path])
 
 // Test suite. Example: gradle fetchMods -Pcount=25, then gradle verifyMods
@@ -172,3 +174,6 @@ tasks.register('fetchMods') { dependsOn 'fetchFabric', 'fetchForge' }
 pentecostExec('verifyTarget', ['verify', '--mods', file('cache/testmods/target').path])
 pentecostExec('verifyTargetForge', ['verify', '--forge', '--mods', file('cache/testmods/target').path])
 pentecostExec('verifyMods', ['verify', '--mods', file('cache/testmods/fabric').path, '--mods', file('cache/testmods/forge').path])
+ 
+apply from: 'tools/pregen.gradle'
+apply from: 'packaging/dist.gradle'

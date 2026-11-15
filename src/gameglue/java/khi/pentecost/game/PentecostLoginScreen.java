@@ -66,11 +66,16 @@ public final class PentecostLoginScreen extends Screen {
                 y += 26;
                 y = lines(g, "Signed in with Microsoft. Multiplayer is open.", x, y, w, Ui.MUTED);
                 y += 14;
+                y = button(g, "Account details", x, y, mx, my, () -> minecraft.setScreen(new AccountScreen(this)));
                 y = button(g, "Developer tag: " + (PentecostDev.ownIsListed() ? "On" : "Off"), x, y, mx, my, PentecostDev::toggleOwn);
                 if (then != null) {
                     y = button(g, "Continue", x, y, mx, my, () -> minecraft.setScreen(then));
                 }
-                y = button(g, "Sign out", x, y, mx, my, Account::signOut);
+                if (Account.source() == Account.Source.LAUNCHER) {
+                    y = lines(g, "Signed in through your launcher. Sign out there.", x, y, w, Ui.FAINT);
+                } else {
+                    y = button(g, "Sign out", x, y, mx, my, Account::signOut);
+                }
             }
             case WAITING -> {
                 y = lines(g, "Go to " + Account.verifyUrl() + " and type this code.", x, y, w, Ui.SOFT);
@@ -91,7 +96,8 @@ public final class PentecostLoginScreen extends Screen {
                     y = lines(g, "Pentecost needs a Microsoft app ID to sign you in. Make a free app in Microsoft Entra "
                             + "(App registrations, personal accounts, public client, allow public client flows), "
                             + "ask Mojang to approve it at aka.ms/AppRegInfo, then put its ID in pentecost-client-id.txt "
-                            + "in your game folder.", x, y, w, Ui.MUTED);
+                            + "in your game folder. Or start Pentecost from the Modrinth App or the Minecraft Launcher: "
+                            + "it then uses the account you signed in there.", x, y, w, Ui.MUTED);
                     y += 10;
                     y = button(g, "Open the game folder", x, y, mx, my,
                             () -> Util.getPlatform().openFile(minecraft.gameDirectory));

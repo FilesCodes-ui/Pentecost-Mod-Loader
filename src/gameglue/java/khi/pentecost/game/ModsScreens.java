@@ -40,9 +40,13 @@ public final class ModsScreens {
             Account.frame();
             WindowIcon.frame();
             testPause();
+            khi.pentecost.game.menuworld.MenuHost.release(Minecraft.getInstance());
         };
         WidgetStyle.install();
+        khi.pentecost.core.ZoomHooks.frameStart = PauseCinema::frame;
+        Zoom.install();
         NameTags.install();
+        ChatStyle.install();
         FarMobs.install();
         SoundControl.install();
         Hooks.windowHints = WindowMode::beforeWindow;
@@ -126,6 +130,10 @@ public final class ModsScreens {
             Log.info("Test: opening the mods screen");
             return new PentecostModsScreen(incoming);
         }
+        // Online play is covered by the Minecraft EULA and Usage Guidelines: asked once, before sign in, whichever button leads there.
+        if (EulaScreen.leadsOnline(name) && !EulaScreen.agreed()) {
+            return EulaScreen.gate(Minecraft.getInstance().screen, incoming);
+        }
         // Multiplayer and Realms need a signed in account.
         if (!Account.signedIn() && Account.gated(name)) {
             Screen back = Minecraft.getInstance().screen;
@@ -157,6 +165,51 @@ public final class ModsScreens {
         }
         if (OTHER_MODS_SCREENS.contains(name)) {
             return new PentecostModsScreen(Minecraft.getInstance().screen);
+        }
+        // The game's world list becomes Pentecost's: search, pins, backups, Continue.
+        if (incoming.getClass() == net.minecraft.client.gui.screens.worldselection.SelectWorldScreen.class
+                && khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.MENUS)) {
+            return new PentecostWorldsScreen(lastScreenOf(incoming));
+        }
+        // The game's server list becomes Pentecost's: search, status per server, reordering, direct connect.
+        if (incoming.getClass() == net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen.class
+                && khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.MENUS)) {
+            return new PentecostServersScreen(lastScreenOf(incoming));
+        }
+        // Creating a world: Pentecost's screen edits the game's own creation state. "Game rules, packs" shows the game's screen.
+        if (incoming == PentecostCreateWorldScreen.showVanilla) {
+            PentecostCreateWorldScreen.showVanilla = null;
+            return incoming;
+        }
+        if (incoming.getClass() == net.minecraft.client.gui.screens.worldselection.CreateWorldScreen.class
+                && khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.MENUS)) {
+            return new PentecostCreateWorldScreen((net.minecraft.client.gui.screens.worldselection.CreateWorldScreen) incoming);
+        }
+        // The screens between a click and a world.
+        if (khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.MENUS)) {
+            if (incoming.getClass() == net.minecraft.client.gui.screens.LevelLoadingScreen.class) {
+                Screen made = PentecostLevelLoadingScreen.replace((net.minecraft.client.gui.screens.LevelLoadingScreen) incoming);
+                if (made != null) {
+                    return made;
+                }
+            }
+            if (incoming.getClass() == net.minecraft.client.gui.screens.GenericDirtMessageScreen.class) {
+                return new PentecostLevelLoadingScreen.Message(incoming.getTitle());
+            }
+            Screen flow = null;
+            if (incoming.getClass() == net.minecraft.client.gui.screens.ConnectScreen.class) {
+                flow = PentecostFlowScreens.connecting(incoming);
+            } else if (incoming.getClass() == net.minecraft.client.gui.screens.DisconnectedScreen.class) {
+                flow = PentecostFlowScreens.disconnected(incoming);
+            } else if (incoming.getClass() == net.minecraft.client.gui.screens.ConfirmScreen.class) {
+                flow = PentecostFlowScreens.confirm(incoming);
+            }
+            if (flow != null) {
+                return flow;
+            }
+            if (incoming.getClass() == net.minecraft.client.gui.screens.ReceivingLevelScreen.class) {
+                return new PentecostLevelLoadingScreen.Receiving();
+            }
         }
         // The game's own menus get Pentecost's layout. Mods still see the game's menu underneath.
         if (khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.MENUS)) {
@@ -277,6 +330,7 @@ public final class ModsScreens {
      * They differ when a mod swapped one for the other.
      */
     public static Screen settle(Screen asked, Screen shown) {
+        PauseCinema.screenChanging(shown);
         if (System.getenv("PENTECOST_TEST_SCREEN") != null) {
             Log.info("Test: screen asked " + (asked == null ? "none" : asked.getClass().getName()) + ", shown "
                     + (shown == null ? "none" : shown.getClass().getName()));

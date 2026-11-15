@@ -366,7 +366,11 @@ final class WidgetStyle implements Hooks.Style {
         if (!on() || !(graphics instanceof GuiGraphics g) || !(screen instanceof Screen s)) {
             return;
         }
-        long now = net.minecraft.Util.getMillis();
+        // The chat sits over the world and is not a menu: no fade from dark when T opens it.
+        if (screen instanceof net.minecraft.client.gui.screens.ChatScreen) {
+            shownScreen = screen;
+            return;
+        }        long now = net.minecraft.Util.getMillis();
         if (screen != shownScreen) {
             shownScreen = screen;
             shownAt = now;
@@ -385,6 +389,70 @@ final class WidgetStyle implements Hooks.Style {
         }
     }
 
+    private static java.lang.reflect.Method addWidget;
+    private static boolean cornerOpen;
+
+    /**
+     * A mod's own main menu has none of Pentecost's entries. A small Pentecost button in its top right corner
+     * opens a short list: Mods, Join a friend and Settings.
+     */
+    private static void cornerButtons(Screen s) {
+        String where = Settings.get(Settings.MENU_BUTTONS);
+        String cls = s.getClass().getName();
+        // A mod's main menu is a TitleScreen, or a screen the mod swapped in for it (Management Wanted).
+        boolean mainMenu = s instanceof net.minecraft.client.gui.screens.TitleScreen
+                || khi.pentecost.control.Choices.swapsOf(net.minecraft.client.gui.screens.TitleScreen.class.getName())
+                        .containsValue(cls);
+        if (!mainMenu || s instanceof PentecostTitleScreen || cls.startsWith("net.minecraft.") || where.equals("off")) {
+            return;
+        }
+        for (GuiEventListener child : s.children()) {
+            if (child instanceof net.minecraft.client.gui.components.Button b && "Pentecost".equals(b.getMessage().getString())) {
+                return;
+            }
+        }
+        Minecraft mc = Minecraft.getInstance();
+        int w = 78;
+        boolean left = where.equals("topLeft") || where.equals("bottomLeft");
+        boolean bottom = where.startsWith("bottom");
+        int x = left ? 6 : s.width - w - 6;
+        int top = bottom ? s.height - 24 : 6;
+        String[] labels = {"Mods", "Join a friend", "Settings"};
+        Runnable[] actions = {
+                () -> mc.setScreen(new PentecostModsScreen(s)),
+                () -> mc.setScreen(new WwlsScreen(s)),
+                () -> mc.setScreen(new PentecostSettingsScreen(s, "Interface"))};
+        java.util.List<net.minecraft.client.gui.components.Button> extra = new java.util.ArrayList<>();
+        cornerOpen = false;
+        net.minecraft.client.gui.components.Button main = net.minecraft.client.gui.components.Button.builder(
+                net.minecraft.network.chat.Component.literal("Pentecost"), b -> {
+                    cornerOpen = !cornerOpen;
+                    extra.forEach(e -> e.visible = cornerOpen);
+                }).bounds(x, top, w, 18).build();
+        add(s, main);
+        for (int i = 0; i < labels.length; i++) {
+            Runnable action = actions[i];
+            net.minecraft.client.gui.components.Button e = net.minecraft.client.gui.components.Button.builder(
+                    net.minecraft.network.chat.Component.literal(labels[i]), b -> action.run())
+                    .bounds(x, bottom ? top - 20 * (labels.length - i) : top + 20 + i * 20, w, 18).build();
+            e.visible = false;
+            extra.add(e);
+            add(s, e);
+        }
+    }
+
+    private static void add(Screen s, AbstractWidget widget) {
+        try {
+            if (addWidget == null) {
+                addWidget = Screen.class.getDeclaredMethod("addRenderableWidget", GuiEventListener.class);
+                addWidget.setAccessible(true);
+            }
+            addWidget.invoke(s, widget);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            khi.pentecost.boot.Log.error("Cannot add the Pentecost button to " + s.getClass().getName() + ": " + e);
+        }
+    }
+
     private static final String[] DIRT = {"textures/gui/options_background.png", "textures/gui/light_dirt_background.png"};
     private static boolean darkDirt;
 
@@ -395,6 +463,9 @@ final class WidgetStyle implements Hooks.Style {
     @Override
     public void inited(Object screen) {
         Minecraft mc = Minecraft.getInstance();
+        if (screen instanceof Screen s) {
+            cornerButtons(s);
+        }
         boolean want = on();
         if (want == darkDirt) {
             return;

@@ -2,12 +2,15 @@ package khi.pentecost.game;
 
 import khi.pentecost.boot.PentecostMain;
 import khi.pentecost.core.PentecostRuntime;
+import khi.pentecost.game.menuworld.MenuHost;
 import khi.pentecost.mods.LoaderKind;
 import khi.pentecost.mods.ModInfo;
 import net.minecraft.SharedConstants;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.renderer.PanoramaRenderer;
+import net.minecraft.sounds.Music;
+import net.minecraft.sounds.Musics;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -38,16 +41,35 @@ public final class PentecostTitleScreen extends TitleScreen {
     protected void init() {
         view.reset();
         super.init();
+        MenuHost.attach(minecraft);
+    }
+
+    @Override
+    public void removed() {
+        MenuHost.detach(minecraft);
+        super.removed();
+    }
+
+    /** With the menu world showing the game has a player, which would pick the in-game music. The menu keeps its own. */
+    @Override
+    public Music getBackgroundMusic() {
+        return Musics.MENU;
     }
 
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         WindowMode.fixStaleSize(this);
         view.harvest(children());
-        // The game's turning landscape, behind a dark veil.
-        backdrop.render(partialTick, 1.0F);
-        g.fill(0, 0, width, height, 0x580A0A0B);
-        Ui.dither(g, width, height);
+        MenuHost.frame(minecraft);
+        if (MenuHost.showing()) {
+            // The live world is already drawn by the game. Black over it while it loads and at each cut.
+            int black = Math.round(MenuHost.cover() * 255F);
+            if (black > 0) g.fill(0, 0, width, height, black << 24);
+        } else {
+            // The game's turning landscape. Dark only behind the menu column, clear on the right.
+            backdrop.render(partialTick, 1.0F);
+        }
+        shade(g);
         int mods = 0;
         for (ModInfo m : PentecostRuntime.mods) {
             String id = m.id();
@@ -60,6 +82,19 @@ public final class PentecostTitleScreen extends TitleScreen {
                 List.of("Pentecost " + PentecostMain.VERSION + "   " + SharedConstants.getCurrentVersion().getName()
                         + "   " + mods + " mods", "Copyright Mojang AB. Do not distribute!"),
                 MAIN, LINKS);
+    }
+
+    /** A dark gradient that fades out left to right, plus a light vignette top and bottom. */
+    private void shade(GuiGraphics g) {
+        int reach = (int) (width * 0.55F);
+        int step = 4;
+        for (int x = 0; x < reach; x += step) {
+            float t = 1.0F - (float) x / reach;
+            int alpha = (int) (0xC0 * t * t);
+            g.fill(x, 0, Math.min(x + step, reach), height, (alpha << 24) | 0x0A0A0B);
+        }
+        g.fillGradient(0, 0, width, height / 5, 0x70000000, 0x00000000);
+        g.fillGradient(0, height - height / 5, width, height, 0x00000000, 0x70000000);
     }
 
     @Override

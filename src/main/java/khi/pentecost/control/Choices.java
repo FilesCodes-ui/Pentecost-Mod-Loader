@@ -146,6 +146,18 @@ public final class Choices {
         }
     }
 
+    /** Every mod seen replacing the given vanilla screen, with the screen class it showed instead. */
+    public static synchronized Map<String, String> swapsOf(String vanillaClass) {
+        Map<String, String> out = new TreeMap<>();
+        SEEN_SCREENS.forEach((mod, m) -> {
+            String c = m.get(vanillaClass);
+            if (c != null) {
+                out.put(mod, c);
+            }
+        });
+        return out;
+    }
+
     public static synchronized Map<String, String> seenScreens(String modId) {
         Map<String, String> m = SEEN_SCREENS.get(modId);
         return m == null ? Map.of() : new TreeMap<>(m);

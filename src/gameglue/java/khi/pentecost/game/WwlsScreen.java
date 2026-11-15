@@ -1,8 +1,12 @@
 package khi.pentecost.game;
 
+import khi.pentecost.core.ConnectionLimiter;
+import khi.pentecost.core.HostGuard;
+import khi.pentecost.core.JoinApprovals;
 import khi.pentecost.core.Wwls;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.toasts.SystemToast;
 import net.minecraft.client.gui.screens.ConnectScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.multiplayer.ServerData;
@@ -19,16 +23,27 @@ import java.util.List;
 /**
  * World Wide Local Server: friends join a world by a short code. No port forwarding, no accounts for them to make.
  * Drawn like the other Pentecost screens: black and white, one centered column.
+ *
+ * A world open to friends is protected four ways: a connection guard turns away floods and repeat connections,
+ * the host says yes or no to every account before it can play, a watchdog closes the sharing when nobody joins
+ * for 30 minutes or when floods keep coming, and the buttons here have cooldowns so nothing can be hammered.
+ * When the sharing ends for any reason, the world stops listening for new connections.
  */
 public final class WwlsScreen extends Screen {
     private record Hit(int x, int y, int w, int h, Runnable action) {}
 
-    /** The world open to friends right now, if any. It outlives the screen. */
-    private static volatile String hostedCode;
-    private static volatile Wwls.Mapping hostedMapping;
+    /** The world open to friends right now, if any. It outlives the screen and closes itself when the world stops. */
+    private static volatile Wwls.Session session;
+    private static volatile HostGuard guard;
+    private static volatile JoinApprovals approvals;
     private static volatile String status = "";
     private static volatile boolean busy;
     private static String typed = "";
+
+    /** Failed joins in a row, and the time before which another try is refused. */
+    private static volatile int failures;
+    private static volatile long lockedUntil;
+    private static volatile long nextHostAt;
 
     private final Screen parent;
     private final List<Hit> hits = new ArrayList<>();
@@ -36,6 +51,29 @@ public final class WwlsScreen extends Screen {
     public WwlsScreen(Screen parent) {
         super(Component.literal("World Wide Local Server"));
         this.parent = parent;
+    }
+
+    /** The session, or null when none is open or it has closed itself. */
+    private static Wwls.Session live() {
+        Wwls.Session s = session;
+        return s != null && !s.closed() ? s : null;
+    }
+
+    private static void closeAsync(Wwls.Session s) {
+        if (s == null) {
+            return;
+        }
+        Thread t = new Thread(s::close, "Pentecost WWLS stop");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** Tells the host that someone is waiting: a pop-up and a line in chat. Runs on the game's main thread. */
+    private static void announce(Minecraft mc, JoinApprovals.Request r) {
+        SystemToast.addOrUpdate(mc.getToasts(), SystemToast.SystemToastIds.PERIODIC_NOTIFICATION,
+                Component.literal(r.name() + " wants to join"), Component.literal("Open WWLS to let them in."));
+        mc.gui.getChat().addMessage(Component.literal("[Pentecost] " + r.name()
+                + " wants to join your world. Open WWLS to say yes or no."));
     }
 
     // ---------------------------------------------------------------- actions
@@ -46,24 +84,48 @@ public final class WwlsScreen extends Screen {
         if (server == null || busy) {
             return;
         }
+        if (!EulaScreen.agreed()) {
+            EulaScreen.ask(mc, this, this::host);
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (now < nextHostAt) {
+            status = "Wait a few seconds before opening again.";
+            return;
+        }
+        nextHostAt = now + 5000;
         busy = true;
+        guard = null;
+        approvals = null;
         status = "Asking your router to open a port...";
         Thread t = new Thread(() -> {
             int port = HttpUtil.getAvailablePort();
             try {
-                Wwls.Mapping mapping = Wwls.openPort(port);
-                String code = Wwls.newCode();
-                Wwls.register(code, mapping.publicIp() + ":" + port);
+                Wwls.Session s = Wwls.host(port, server::isRunning);
                 mc.execute(() -> {
+                    ConnectionLimiter limiter = new ConnectionLimiter();
                     boolean ok = server.publishServer(mc.gameMode.getPlayerMode(), server.getWorldData().getAllowCommands(), port);
                     if (!ok) {
-                        Wwls.unregister(code);
-                        Wwls.closePort(mapping);
+                        closeAsync(s);
                         status = "The game could not open the world on port " + port + ".";
                     } else {
-                        hostedMapping = mapping;
-                        hostedCode = code;
-                        status = "Open. Give friends the code. It works until you stop sharing or close the world.";
+                        // However the sharing ends, the world stops listening for new connections.
+                        s.onClose(() -> ConnectionGuard.stopListening(server, port));
+                        try {
+                            ConnectionGuard.install(server, limiter);
+                            JoinApprovals ap = new JoinApprovals(r -> mc.execute(() -> announce(mc, r)));
+                            JoinGate gate = JoinGate.start(server, ap);
+                            s.onClose(gate::stop);
+                            session = s;
+                            approvals = ap;
+                            guard = HostGuard.start(s, () -> Math.max(0, server.getPlayerCount() - 1), limiter);
+                            status = "Open. Friends you give the code to can ask to join, and you say yes or no here. "
+                                    + "They can see your internet address. It closes when you stop sharing, close the world, "
+                                    + "quit the game, or nobody joins for 30 minutes.";
+                        } catch (RuntimeException e) {
+                            closeAsync(s);
+                            status = "Pentecost could not protect the open world, so it was not shared. " + e.getMessage();
+                        }
                     }
                     busy = false;
                 });
@@ -77,21 +139,12 @@ public final class WwlsScreen extends Screen {
     }
 
     private void stop() {
-        String code = hostedCode;
-        Wwls.Mapping mapping = hostedMapping;
-        hostedCode = null;
-        hostedMapping = null;
-        status = "Stopped. Friends already inside stay until they leave.";
-        Thread t = new Thread(() -> {
-            if (code != null) {
-                Wwls.unregister(code);
-            }
-            if (mapping != null) {
-                Wwls.closePort(mapping);
-            }
-        }, "Pentecost WWLS stop");
-        t.setDaemon(true);
-        t.start();
+        Wwls.Session s = session;
+        session = null;
+        guard = null;
+        approvals = null;
+        status = "Stopped. The world no longer takes new connections. Friends already inside stay until they leave.";
+        closeAsync(s);
     }
 
     private void join() {
@@ -99,8 +152,17 @@ public final class WwlsScreen extends Screen {
         if (busy) {
             return;
         }
-        if (code.length() < 6) {
-            status = "Type the room code first.";
+        if (!EulaScreen.agreed()) {
+            EulaScreen.ask(Minecraft.getInstance(), this, this::join);
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (now < lockedUntil) {
+            status = "Too many tries. Wait " + ((lockedUntil - now + 999) / 1000) + " seconds.";
+            return;
+        }
+        if (code.length() != Wwls.CODE_LENGTH) {
+            status = "Room codes have " + Wwls.CODE_LENGTH + " letters and numbers.";
             return;
         }
         busy = true;
@@ -109,9 +171,17 @@ public final class WwlsScreen extends Screen {
         Thread t = new Thread(() -> {
             try {
                 String address = Wwls.find(code);
+                failures = 0;
                 mc.execute(() -> ConnectScreen.startConnecting(this, mc, ServerAddress.parseString(address),
                         new ServerData("Friend's world", address, false), false));
+                status = "Connecting. If the host has not said yes to you yet, they were just asked: try again in a minute.";
             } catch (Wwls.WwlsException e) {
+                int n = failures + 1;
+                failures = n;
+                if (n >= 3) {
+                    // 30 seconds after the third miss, then a minute, 90 seconds and so on, up to 5 minutes.
+                    lockedUntil = System.currentTimeMillis() + Math.min(300_000L, 30_000L * (n - 2));
+                }
                 status = e.getMessage();
             }
             busy = false;
@@ -158,6 +228,17 @@ public final class WwlsScreen extends Screen {
         int x0 = cx - colW / 2;
         boolean inWorld = minecraft.getSingleplayerServer() != null;
 
+        // When the watchdog closed the sharing, say why once.
+        Wwls.Session open = live();
+        HostGuard watch = guard;
+        if (open == null && watch != null && !watch.reason().isEmpty()) {
+            status = watch.reason();
+            guard = null;
+        }
+        if (open == null) {
+            approvals = null;
+        }
+
         // Header, centered: logo and wordmark, the full name under it, a hairline.
         int y = Math.max(20, vh / 12);
         String word = "WWLS";
@@ -174,7 +255,7 @@ public final class WwlsScreen extends Screen {
         // Host.
         centered(g, "HOST", cx, y, Ui.FAINT);
         y += 14;
-        String code = hostedCode;
+        String code = open == null ? null : open.code();
         if (code == null) {
             button(g, "Open this world to friends", x0, y, colW, mx, my, inWorld && !busy, this::host);
             y += 26;
@@ -183,14 +264,47 @@ public final class WwlsScreen extends Screen {
                 y += 14;
             }
         } else {
-            float scale = 3f;
+            float scale = 2.4f;
             Ui.text(g, font, code, cx - font.width(code) * scale / 2f, y, Ui.TEXT, scale);
             y += 34;
             int half = (colW - 6) / 2;
-            button(g, "Copy code", x0, y, half, mx, my, true,
-                    () -> minecraft.keyboardHandler.setClipboard(hostedCode == null ? "" : hostedCode));
+            button(g, "Copy code", x0, y, half, mx, my, true, () -> {
+                Wwls.Session s = live();
+                minecraft.keyboardHandler.setClipboard(s == null ? "" : s.code());
+            });
             button(g, "Stop sharing", x0 + half + 6, y, half, mx, my, true, this::stop);
             y += 26;
+            if (watch != null && watch.limiter().paused()) {
+                centered(g, "Heavy traffic: new connections are paused for a moment.", cx, y, Ui.SOFT);
+                y += 14;
+            }
+
+            // Anyone waiting for a yes or a no.
+            JoinApprovals ap = approvals;
+            List<JoinApprovals.Request> asking = ap == null ? List.of() : ap.pending();
+            if (!asking.isEmpty()) {
+                y += 4;
+                centered(g, "ASKING TO JOIN", cx, y, Ui.FAINT);
+                y += 14;
+                int shown = Math.min(3, asking.size());
+                for (int i = 0; i < shown; i++) {
+                    JoinApprovals.Request r = asking.get(i);
+                    g.drawString(font, r.name(), x0, y + 6, Ui.TEXT, false);
+                    int noW = 36;
+                    int yesW = 64;
+                    button(g, "No", x0 + colW - noW, y, noW, mx, my, true, () -> ap.deny(r.id()));
+                    button(g, "Let in", x0 + colW - noW - 6 - yesW, y, yesW, mx, my, true, () -> {
+                        if (ap.approve(r.id())) {
+                            status = r.name() + " can join now. Ask them to try the code again.";
+                        }
+                    });
+                    y += 26;
+                }
+                if (asking.size() > shown) {
+                    centered(g, "+" + (asking.size() - shown) + " more waiting", cx, y, Ui.MUTED);
+                    y += 14;
+                }
+            }
         }
         y += 14;
 
@@ -227,7 +341,7 @@ public final class WwlsScreen extends Screen {
 
     @Override
     public boolean charTyped(char c, int modifiers) {
-        if (Character.isLetterOrDigit(c) && typed.length() < 12) {
+        if (Character.isLetterOrDigit(c) && typed.length() < Wwls.CODE_LENGTH) {
             typed += Character.toUpperCase(c);
             return true;
         }
@@ -246,7 +360,7 @@ public final class WwlsScreen extends Screen {
         }
         if (Screen.isPaste(keyCode)) {
             String clip = Wwls.cleanCode(minecraft.keyboardHandler.getClipboard());
-            typed = clip.length() > 12 ? clip.substring(0, 12) : clip;
+            typed = clip.length() > Wwls.CODE_LENGTH ? clip.substring(0, Wwls.CODE_LENGTH) : clip;
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);

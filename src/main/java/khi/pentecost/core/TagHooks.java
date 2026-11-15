@@ -4,6 +4,7 @@ import khi.pentecost.loader.ClassTransformer;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
@@ -15,6 +16,9 @@ import org.objectweb.asm.Opcodes;
 public final class TagHooks {
     public interface Drawer {
         void nameTag(Object renderer, Object entity, Object pose, Object buffer, int light);
+
+        /** True when the game's own name tag is not drawn for this entity because the drawer draws its own. */
+        boolean replaces(Object entity);
     }
 
     public interface Marker {
@@ -34,6 +38,11 @@ public final class TagHooks {
         if (d != null) {
             d.nameTag(renderer, entity, pose, buffer, light);
         }
+    }
+
+    public static boolean replaces(Object entity) {
+        Drawer d = drawer;
+        return d != null && d.replaces(entity);
     }
 
     public static boolean show(boolean original, Object entity) {
@@ -107,6 +116,10 @@ public final class TagHooks {
                     w.visitCode();
                     switch (hit.kind()) {
                         case NAME_TAG -> {
+                            Label draw = new Label();
+                            w.visitVarInsn(Opcodes.ALOAD, 1);
+                            w.visitMethodInsn(Opcodes.INVOKESTATIC, HOOKS, "replaces", "(" + OBJ + ")Z", false);
+                            w.visitJumpInsn(Opcodes.IFNE, draw);
                             w.visitVarInsn(Opcodes.ALOAD, 0);
                             w.visitVarInsn(Opcodes.ALOAD, 1);
                             w.visitVarInsn(Opcodes.ALOAD, 2);
@@ -116,6 +129,8 @@ public final class TagHooks {
                             w.visitVarInsn(Opcodes.ALOAD, 4);
                             w.visitVarInsn(Opcodes.ILOAD, 5);
                             w.visitMethodInsn(Opcodes.INVOKEVIRTUAL, internal, kept, d, false);
+                            w.visitLabel(draw);
+                            w.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
                             w.visitVarInsn(Opcodes.ALOAD, 0);
                             w.visitVarInsn(Opcodes.ALOAD, 1);
                             w.visitVarInsn(Opcodes.ALOAD, 3);

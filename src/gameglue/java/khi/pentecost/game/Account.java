@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import khi.pentecost.account.AccountInfo;
 import khi.pentecost.boot.Log;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.User;
@@ -22,11 +23,15 @@ import java.util.Optional;
 
 /**
  * Microsoft sign in for Minecraft, by device code: the game shows a short code, the player types it
- * at microsoft.com/link, and the game gets a Minecraft session. Only a refresh token is saved to disk.
+ * at microsoft.com/link, and the game gets a Minecraft session. Only a refresh token is saved to disk,
+ * and TokenStore protects it (encrypted to the player's Windows account, owner-only file elsewhere).
  * The app registration (client ID) comes from PENTECOST_MS_CLIENT_ID or the file pentecost-client-id.txt in the game folder.
  */
 public final class Account {
     public enum State { OUT, WAITING, WORKING, IN, FAILED }
+
+    /** Where the signed in session came from. A launcher session cannot be signed out from inside the game. */
+    public enum Source { NONE, LAUNCHER, PENTECOST }
 
     private static final String DEVICE = "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode";
     private static final String TOKEN = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
@@ -44,6 +49,11 @@ public final class Account {
     private static volatile boolean cancelled;
     private static boolean started;
     private static String refresh;
+    private static volatile Source source = Source.NONE;
+    private static volatile AccountInfo info;
+    private static volatile boolean infoLoading;
+    private static volatile boolean skinLoaded;
+    private static volatile long infoAt;
 
     private Account() {}
 
@@ -54,6 +64,12 @@ public final class Account {
     public static String name() { return name; }
     public static String uuid() { return uuid; }
     public static boolean signedIn() { return state == State.IN; }
+    public static Source source() { return source; }
+    /** What Minecraft Services said about the account, or null before the first answer. */
+    public static AccountInfo info() { return info; }
+    public static boolean infoLoading() { return infoLoading; }
+    /** Milliseconds since the details were last loaded, or -1 if never. */
+    public static long infoAge() { return infoAt == 0 ? -1 : System.currentTimeMillis() - infoAt; }
 
     /** Screens that talk to Mojang's servers or services. They need a signed in account. */
     public static boolean gated(String screenClass) {
@@ -93,16 +109,22 @@ public final class Account {
             return;
         }
         started = true;
+        if (adoptLaunchSession()) {
+            return;
+        }
         try {
             Path f = dir().resolve("pentecost-account.json");
             String id = clientId();
             if (!Files.exists(f) || id == null) {
                 return;
             }
-            JsonObject saved = JsonParser.parseString(Files.readString(f)).getAsJsonObject();
-            refresh = saved.get("refresh").getAsString();
+            TokenStore.Saved saved = TokenStore.load(f);
+            if (saved == null) {
+                return;
+            }
+            refresh = saved.refresh();
             state = State.WORKING;
-            message = "Signing in as " + saved.get("name").getAsString();
+            message = "Signing in as " + saved.name();
             run(() -> {
                 JsonObject t = post(TOKEN, form("grant_type", "refresh_token", "client_id", id, "refresh_token", refresh,
                         "scope", SCOPE), FORM);
@@ -171,11 +193,18 @@ public final class Account {
     }
 
     public static void signOut() {
+        if (source == Source.LAUNCHER) {
+            return;
+        }
         cancelled = true;
         refresh = null;
         name = "";
         uuid = "";
         state = State.OUT;
+        source = Source.NONE;
+        info = null;
+        infoAt = 0;
+        skinLoaded = false;
         try {
             Files.deleteIfExists(dir().resolve("pentecost-account.json"));
         } catch (IOException e) {
@@ -185,6 +214,60 @@ public final class Account {
         mc.execute(() -> setUser(new User("Dev", "00000000000000000000000000000000", "0", Optional.empty(), Optional.empty(),
                 User.Type.LEGACY)));
         AccountSkin.clear();
+    }
+
+    // ------------------------------------------------------------------ a session from the launcher
+
+    /**
+     * When a launcher (Modrinth App wrapper, the official launcher) started Pentecost with a real Minecraft session,
+     * the game's own User already holds it. Use it as the signed in account. Pentecost's own sign in stays as the fallback.
+     */
+    private static boolean adoptLaunchSession() {
+        User u = Minecraft.getInstance().getUser();
+        String token = u.getAccessToken();
+        if (u.getType() != User.Type.MSA || token == null || token.isBlank() || token.equals("0")) {
+            return false;
+        }
+        name = u.getName();
+        uuid = u.getUuid();
+        source = Source.LAUNCHER;
+        message = "";
+        state = State.IN;
+        PentecostDev.accountChanged();
+        Log.info("Using the session from the launcher: " + name);
+        refreshInfo();
+        return true;
+    }
+
+    /** Loads the account details (and the skin, once) in the background. Does nothing while a load runs. */
+    public static void refreshInfo() {
+        if (infoLoading || state != State.IN) {
+            return;
+        }
+        infoLoading = true;
+        Thread t = new Thread(() -> {
+            try {
+                AccountInfo a = AccountInfo.fetch(Minecraft.getInstance().getUser().getAccessToken());
+                info = a;
+                infoAt = System.currentTimeMillis();
+                if (!skinLoaded && !a.skinUrl.isBlank()) {
+                    HttpRequest req = HttpRequest.newBuilder(URI.create(a.skinUrl)).timeout(Duration.ofSeconds(30)).GET().build();
+                    HttpResponse<byte[]> r = HTTP.send(req, HttpResponse.BodyHandlers.ofByteArray());
+                    if (r.statusCode() == 200) {
+                        AccountSkin.set(r.body());
+                        skinLoaded = true;
+                    }
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (IOException | RuntimeException e) {
+                Log.error("Cannot load the account details: " + e);
+            } finally {
+                infoLoading = false;
+            }
+        }, "pentecost-account-info");
+        t.setDaemon(true);
+        t.start();
     }
 
     // ------------------------------------------------------------------ the sign in chain
@@ -235,6 +318,10 @@ public final class Account {
         JsonObject mc = post("https://api.minecraftservices.com/authentication/login_with_xbox",
                 "{\"identityToken\":\"XBL3.0 x=" + hash + ";" + xsts.get("Token").getAsString() + "\"}", JSON);
         if (!mc.has("access_token")) {
+            if (mc.toString().contains("Invalid app registration")) {
+                throw new IOException("Mojang has not approved Pentecost's own sign in yet. Start Pentecost from the Modrinth App "
+                        + "or the Minecraft Launcher to use your account, or wait for the approval.");
+            }
             throw new IOException("Minecraft refused the sign in. " + describe(mc));
         }
         String token = mc.get("access_token").getAsString();
@@ -256,6 +343,7 @@ public final class Account {
         uuid = id;
         save(playerName, id);
         loadSkin(profile);
+        source = Source.PENTECOST;
         state = State.IN;
         message = "";
         PentecostDev.accountChanged();
@@ -273,6 +361,7 @@ public final class Account {
                     HttpResponse<byte[]> r = HTTP.send(req, HttpResponse.BodyHandlers.ofByteArray());
                     if (r.statusCode() == 200) {
                         AccountSkin.set(r.body());
+                        skinLoaded = true;
                     }
                     return;
                 }
@@ -284,11 +373,7 @@ public final class Account {
 
     private static void save(String playerName, String id) {
         try {
-            JsonObject o = new JsonObject();
-            o.addProperty("refresh", refresh);
-            o.addProperty("name", playerName);
-            o.addProperty("uuid", id);
-            Files.writeString(dir().resolve("pentecost-account.json"), o.toString());
+            TokenStore.save(dir().resolve("pentecost-account.json"), playerName, id, refresh);
         } catch (IOException e) {
             Log.error("Cannot save the account: " + e);
         }

@@ -516,7 +516,15 @@ public final class PentecostModsScreen extends Screen {
         button(g, "Export pack", width - MARGIN - 64 - 8 - 84, footer + 10, 84, mx, my, null, () -> {
             try {
                 java.nio.file.Path zip = khi.pentecost.control.PackExport.export();
-                exportNote = "Saved " + zip.getFileName();
+                java.util.List<String> flagged = khi.pentecost.control.PackExport.lastFlagged;
+                exportNote = "Saved " + zip.getFileName()
+                        + (flagged.isEmpty() ? "" : ". Check " + flagged.size() + " file(s) for keys before sharing.");
+                if (!flagged.isEmpty()) {
+                    net.minecraft.client.gui.components.toasts.SystemToast.addOrUpdate(minecraft.getToasts(),
+                            net.minecraft.client.gui.components.toasts.SystemToast.SystemToastIds.PERIODIC_NOTIFICATION,
+                            Component.literal("Check before sharing this pack"),
+                            Component.literal(flagged.size() + " config file(s) may hold keys, passwords or addresses. See README.txt in the zip."));
+                }
                 net.minecraft.Util.getPlatform().openFile(zip.getParent().toFile());
             } catch (java.io.IOException | RuntimeException e) {
                 exportNote = "Export failed: " + e.getMessage();

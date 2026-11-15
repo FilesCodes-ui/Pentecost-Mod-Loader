@@ -1,6 +1,13 @@
 package khi.pentecost.game;
 
+import khi.pentecost.boot.Dirs;
 import khi.pentecost.boot.PentecostMain;
+import khi.pentecost.game.menuworld.MenuHost;
+import khi.pentecost.game.menuworld.SeedCatalog;
+import khi.pentecost.game.menuworld.camera.Shot;
+import khi.pentecost.game.menuworld.profile.MenuProfile;
+import khi.pentecost.game.menuworld.profile.Poi;
+import khi.pentecost.game.menuworld.source.SaveSource;
 import khi.pentecost.control.Settings;
 import net.minecraft.SharedConstants;
 import net.minecraft.Util;
@@ -143,6 +150,7 @@ public final class PentecostSettingsScreen extends Screen {
                                         () -> Settings.on(Settings.GRAY_BUTTONS), () -> Settings.toggle(Settings.GRAY_BUTTONS)),
                                 Row.toggle("Background pattern", "The slow dot pattern behind Pentecost's screens.", "Now",
                                         () -> Settings.on(Settings.PATTERN), () -> Settings.toggle(Settings.PATTERN)))),
+                        new Folder("Menu Mods", menuModRows()),
                         new Folder("F3", List.of(
                                 Row.toggle("Pentecost F3 screen", "Readable panels in place of the long text columns.", "Now",
                                         () -> Settings.on(Settings.OVERLAY), () -> Settings.toggle(Settings.OVERLAY)),
@@ -152,7 +160,34 @@ public final class PentecostSettingsScreen extends Screen {
                                                 "full".equals(Settings.get(Settings.OVERLAY_DETAIL)) ? "standard" : "full")))),
                         new Folder("Loading", List.of(
                                 Row.toggle("Pentecost loading screen", "Logo, progress line, RAM gauge and time left while loading.", "Now",
-                                        () -> Settings.on(Settings.LOADING), () -> Settings.toggle(Settings.LOADING))))),
+                                        () -> Settings.on(Settings.LOADING), () -> Settings.toggle(Settings.LOADING)))),
+                        new Folder("Pause camera", List.of(
+                                Row.toggle("Cinematic pause camera", "While the game is paused the camera leaves your eyes and films you. "
+                                        + "Press V in the pause menu to switch it too.", "Now",
+                                        () -> Settings.on(Settings.PAUSE_CAMERA), () -> Settings.toggle(Settings.PAUSE_CAMERA)),
+                                Row.choice("Pause camera style", "Cinematic plays orbits, cranes, push-ins, low shots and more. "
+                                        + "Orbit only turns slowly around you.", "Now",
+                                        () -> "orbit".equals(Settings.get(Settings.PAUSE_CAMERA_STYLE)) ? "Orbit only" : "Cinematic",
+                                        () -> Settings.set(Settings.PAUSE_CAMERA_STYLE,
+                                                "orbit".equals(Settings.get(Settings.PAUSE_CAMERA_STYLE)) ? "cinematic" : "orbit")))),
+                        new Folder("Name tags", List.of(
+                                Row.choice("Name tag style", "Pentecost draws the name in plain letters with a hairline under it. "
+                                        + "Game keeps the usual black box.", "Now",
+                                        () -> "vanilla".equals(Settings.get(Settings.NAME_TAGS)) ? "Game" : "Pentecost",
+                                        () -> Settings.set(Settings.NAME_TAGS,
+                                                "vanilla".equals(Settings.get(Settings.NAME_TAGS)) ? "pentecost" : "vanilla")),
+                                Row.choice("Tag length", "Short keeps the hairline and the DEV tag small. Long opens them fully. "
+                                        + "Follow gaze opens them when you look at a player or stand close.", "Now",
+                                        () -> switch (Settings.get(Settings.TAG_LENGTH)) {
+                                            case "short" -> "Short";
+                                            case "long" -> "Long";
+                                            default -> "Follow gaze";
+                                        },
+                                        () -> Settings.set(Settings.TAG_LENGTH, switch (Settings.get(Settings.TAG_LENGTH)) {
+                                            case "short" -> "long";
+                                            case "long" -> "auto";
+                                            default -> "short";
+                                        }))))),
                 List.of("Boot splash style", "Text size"), List::of));
         pages.add(new Page("Video", "The game's video options, from Embeddium when it is installed. Changes apply at once.",
                 this::videoFolders, List.of(), this::videoShortcuts));
@@ -193,6 +228,9 @@ public final class PentecostSettingsScreen extends Screen {
         pages.add(new Page("Accessibility", "Reading, motion and glint options.", this::accessibilityFolders, List.of(), List::of));
         pages.add(new Page("Language", "The game's language. The game reloads its text when you choose one.",
                 this::languageFolders, List.of(), List::of));
+        pages.add(new Page("Menu world", "The live world behind the main menu: what it shows, where the camera goes and when. "
+                + "Changes show when you go back to the main menu.",
+                this::menuWorldFolders, List.of(), this::menuWorldShortcuts));
         pages.add(new Page("Profiles", "Save every Pentecost setting as a setup, switch between setups, and share them as files.",
                 this::profileFolders, List.of(), this::profileShortcuts));
         for (int i = 0; i < pages.size(); i++) {
@@ -202,11 +240,324 @@ public final class PentecostSettingsScreen extends Screen {
         }
     }
 
+    /** The main menus mods bring. Picking one makes it the main menu. */
+    private List<Row> menuModRows() {
+        List<Row> rows = new ArrayList<>();
+        List<MenuMods.Entry> entries = MenuMods.entries();
+        for (MenuMods.Entry e : entries) {
+            rows.add(Row.pick(e.title(), e.note(), () -> MenuMods.selected().equals(e.id()), e.select()));
+        }
+        if (entries.size() == 1) {
+            rows.add(Row.info("Menus from mods", "None found"));
+        }
+        rows.add(Row.choice("Pentecost button", "The small button on a mod's main menu that opens Mods, Join a friend "
+                + "and Settings. Pick the corner it sits in, or turn it off. It moves when the menu opens.", "Now",
+                MenuMods::placeLabel, MenuMods::nextPlace));
+        return rows;
+    }
+
+    // ---------------------------------------------------------------- menu world
+
+    /** Set by a menu world slider while it is dragged. It runs once, when the mouse is let go. */
+    private Runnable menuAfter;
+    private int placeDx, placeDz;
+
+    private static final List<Shot.MoveType> MOVES = List.of(Shot.MoveType.ORBIT, Shot.MoveType.DOLLY, Shot.MoveType.CRANE,
+            Shot.MoveType.PUSH_IN, Shot.MoveType.FLY_THROUGH, Shot.MoveType.REVEAL, Shot.MoveType.ESTABLISH);
+
+    private static MenuProfile mp() {
+        return MenuHost.profile();
+    }
+
+    private static String enumLabel(String name) {
+        String t = name.toLowerCase(Locale.ROOT).replace('_', ' ');
+        return Character.toUpperCase(t.charAt(0)) + t.substring(1);
+    }
+
+    private <E extends Enum<E>> Row menuEnum(String title, String note, String when, Supplier<E> get,
+                                             java.util.function.Consumer<E> set, Runnable after) {
+        return Row.choice(title, note, when, () -> enumLabel(get.get().name()), () -> {
+            E[] all = get.get().getDeclaringClass().getEnumConstants();
+            set.accept(all[(get.get().ordinal() + 1) % all.length]);
+            after.run();
+        });
+    }
+
+    private Row menuSlider(String title, String note, String when, int min, int max, int step, IntSupplier value,
+                           IntConsumer set, Supplier<String> text, BooleanSupplier enabled, Runnable after) {
+        return new Row(Kind.SLIDER, title, note, note, when, text, null, null,
+                new Slider(min, max, step, value, n -> {
+                    set.accept(n);
+                    menuAfter = after;
+                }, text), enabled);
+    }
+
+    private Row menuToggle(String title, String note, String when, BooleanSupplier on, Runnable flip, Runnable after) {
+        return Row.toggle(title, note, when, on, () -> {
+            flip.run();
+            after.run();
+        });
+    }
+
+    private static String seedLabel() {
+        for (SeedCatalog.Entry e : SeedCatalog.ALL) {
+            if (e.seed() == mp().seed) return e.name();
+        }
+        return "Seed " + mp().seed;
+    }
+
+    private static void nextSeed() {
+        MenuProfile p = mp();
+        int at = -1;
+        for (int i = 0; i < SeedCatalog.ALL.size(); i++) {
+            if (SeedCatalog.ALL.get(i).seed() == p.seed) at = i;
+        }
+        SeedCatalog.Entry e = SeedCatalog.ALL.get((at + 1) % SeedCatalog.ALL.size());
+        p.sourceKind = MenuProfile.SourceKind.SEED;
+        p.seed = e.seed();
+        p.centerMode = MenuProfile.CenterMode.COORDS;
+        p.centerX = e.anchorX();
+        p.centerZ = e.anchorZ();
+        MenuHost.worldChanged();
+    }
+
+    private static String saveLabel() {
+        String t = mp().savePath;
+        if (t == null || t.isBlank()) return "None picked";
+        try {
+            java.nio.file.Path name = java.nio.file.Path.of(t).getFileName();
+            return name == null ? t : name.toString();
+        } catch (java.nio.file.InvalidPathException e) {
+            return t;
+        }
+    }
+
+    private void nextSave() {
+        MenuProfile p = mp();
+        List<SaveSource.Info> usable = new ArrayList<>();
+        for (SaveSource.Info i : SaveSource.list(minecraft.getLevelSource().getBaseDir())) {
+            if (i.usable()) usable.add(i);
+        }
+        if (usable.isEmpty()) return;
+        int at = -1;
+        for (int i = 0; i < usable.size(); i++) {
+            if (usable.get(i).folder().toString().equals(p.savePath)) at = i;
+        }
+        SaveSource.Info pick = usable.get((at + 1) % usable.size());
+        if (p.sourceKind == MenuProfile.SourceKind.SEED) p.targets = MenuProfile.Targets.PLAYER_BUILDS;
+        p.sourceKind = MenuProfile.SourceKind.SAVE;
+        p.savePath = pick.folder().toString();
+        p.centerMode = MenuProfile.CenterMode.SPAWN;
+        MenuHost.worldChanged();
+    }
+
+    private static boolean moveOn(Shot.MoveType t) {
+        List<String> m = mp().moves;
+        return m.isEmpty() || m.contains(t.name());
+    }
+
+    private static void flipMove(Shot.MoveType t) {
+        List<String> now = new ArrayList<>();
+        for (Shot.MoveType x : MOVES) {
+            if (moveOn(x)) now.add(x.name());
+        }
+        if (moveOn(t)) {
+            if (now.size() > 1) now.remove(t.name()); // at least one move stays on
+        } else {
+            now.add(t.name());
+        }
+        mp().moves = now.size() == MOVES.size() ? new ArrayList<>() : now;
+    }
+
+    private static String clockText(int ticks) {
+        int minutes = (int) (((ticks / 1000.0) + 6) * 60) % (24 * 60);
+        return String.format(Locale.ROOT, "%02d:%02d", minutes / 60, minutes % 60);
+    }
+
+    private List<Row> placeRows() {
+        MenuProfile p = mp();
+        List<Row> rows = new ArrayList<>();
+        int shown = 0;
+        for (Poi poi : new ArrayList<>(p.points)) {
+            if (shown++ >= 60) {
+                rows.add(Row.info("More places", (p.points.size() - 60) + " more are in the profile file"));
+                break;
+            }
+            String kind = switch (poi.kind) {
+                case STRUCTURE -> "Found in the world";
+                case BUILD -> "A player's build, " + Math.round(poi.playerMinutes) + " min of play nearby";
+                case CUSTOM -> "Added by you";
+            };
+            rows.add(Row.toggle(poi.name + " (" + poi.x + ", " + poi.z + ")", kind + ", about " + poi.sizeX + " blocks wide. "
+                    + "Turn it off and the camera skips it.", "Now",
+                    () -> poi.enabled, () -> {
+                        poi.enabled = !poi.enabled;
+                        MenuHost.directorChanged();
+                    }));
+        }
+        if (rows.isEmpty()) {
+            rows.add(Row.info("Places", "None yet. They are found when the world is first read."));
+        }
+        return rows;
+    }
+
+    private List<Folder> menuWorldFolders() {
+        Runnable reload = MenuHost::worldChanged;
+        Runnable director = MenuHost::directorChanged;
+        BooleanSupplier always = () -> true;
+        BooleanSupplier seedWorld = () -> mp().sourceKind == MenuProfile.SourceKind.SEED;
+        BooleanSupplier saveWorld = () -> mp().sourceKind == MenuProfile.SourceKind.SAVE;
+        BooleanSupplier typedCentre = () -> mp().centerMode == MenuProfile.CenterMode.COORDS;
+
+        List<Row> world = new ArrayList<>();
+        world.add(Row.toggle("Live menu world", "Draws a real world behind the main menu in place of the turning panorama. "
+                + "It is off until you turn it on. If it ever fails, it turns itself off and the panorama comes back.", "Now",
+                MenuHost::enabled, () -> MenuHost.setEnabled(!MenuHost.enabled())));
+        world.add(new Row(Kind.INFO, "Status", "", "", "", MenuHost::status, null, null, null, always));
+        world.add(menuEnum("Source", "A seed is generated once and kept. A save is read where it is and never changed.", "Reload",
+                () -> mp().sourceKind, v -> mp().sourceKind = v, reload));
+        world.add(new Row(Kind.CHOICE, "Seed", "Picks the next seed from the list. Each one is generated once, then kept.", 
+                "Picks the next seed from the list. Each one is generated once, then kept. To use a seed that is not in the list, "
+                        + "put it in the profile file in the menu_world folder.", "Reload",
+                MenuHostLabels::seed, null, MenuHostLabels::nextSeedAction, null, seedWorld));
+        world.add(new Row(Kind.CHOICE, "World", "Picks the next of your saves. Your save is only read.",
+                "Picks the next of your saves that this reader can use (Minecraft 1.18 to 1.20.1). Your save is only read, never changed.",
+                "Reload", MenuHostLabels::save, null, this::nextSave, null, () -> true));
+        world.add(new Row(Kind.BUTTON, "Agree to the Minecraft EULA", "Generating a seed runs Mojang's server once, which needs "
+                + "you to agree to the Minecraft EULA (aka.ms/MinecraftEULA). Nothing is generated before you agree.",
+                "Generating a seed runs Mojang's server once, which needs you to agree to the Minecraft EULA "
+                        + "(aka.ms/MinecraftEULA). Nothing is generated before you agree.", "Reload",
+                () -> mp().eulaAccepted ? "Agreed" : "Agree", null, () -> {
+                    mp().eulaAccepted = true;
+                    MenuHost.worldChanged();
+                }, null, () -> !mp().eulaAccepted && seedWorld.getAsBoolean()));
+        world.add(menuEnum("Centre", "Spawn centres on where the world starts. Typed centres on the numbers below.", "Reload",
+                () -> mp().centerMode, v -> mp().centerMode = v, reload));
+        world.add(new Row(Kind.BUTTON, "Use this seed's best spot", "Centres on the place the seed list recommends and sets the area "
+                + "to 32 chunks. A world's own spawn can be somewhere dull, like a frozen plain.",
+                "Centres on the place the seed list recommends and sets the area to 32 chunks. A world's own spawn can be "
+                        + "somewhere dull, like a frozen plain. It is generated once and kept.", "Reload",
+                () -> "Centre", null, () -> {
+                    for (SeedCatalog.Entry e : SeedCatalog.ALL) {
+                        if (e.seed() == mp().seed) {
+                            mp().centerMode = MenuProfile.CenterMode.COORDS;
+                            mp().centerX = e.anchorX();
+                            mp().centerZ = e.anchorZ();
+                            mp().radiusChunks = 32;
+                        }
+                    }
+                    MenuHost.worldChanged();
+                }, null, () -> seedWorld.getAsBoolean() && SeedCatalog.ALL.stream().anyMatch(e -> e.seed() == mp().seed)));
+        world.add(menuSlider("Centre X", "The block the area is centred on, east and west.", "Reload", -30000, 30000, 16,
+                () -> mp().centerX, n -> mp().centerX = n, () -> String.valueOf(mp().centerX), typedCentre, reload));
+        world.add(menuSlider("Centre Z", "The block the area is centred on, north and south.", "Reload", -30000, 30000, 16,
+                () -> mp().centerZ, n -> mp().centerZ = n, () -> String.valueOf(mp().centerZ), typedCentre, reload));
+        world.add(menuSlider("Radius", "How far from the centre the camera may go. A bigger area is generated once and takes a long time: "
+                + "32 is about 2 minutes, 64 about 8. The loaded-chunks slider below costs no generation.", "Reload",
+                8, 64, 4, () -> mp().radiusChunks, n -> mp().radiusChunks = n, () -> mp().radiusChunks + " chunks", always, reload));
+        world.add(menuSlider("Loaded around the camera", "Chunks really loaded around the camera. Higher looks farther and costs more memory. "
+                + "The game's render distance still caps what is drawn.", "Reload",
+                4, 24, 1, () -> mp().viewChunks, n -> mp().viewChunks = n, () -> mp().viewChunks + " chunks", always, reload));
+        world.add(menuToggle("Search the whole save", "Looks at every part of a save for builds, not only the area around the centre.",
+                "Reload", () -> mp().scanWholeSave, () -> mp().scanWholeSave = !mp().scanWholeSave, reload));
+        world.add(Row.button("Look for places again", "Scans the world again for villages, other structures and player builds. "
+                + "Places you edited or added keep your changes.", MenuHost::rescan));
+
+        List<Row> camera = new ArrayList<>();
+        camera.add(menuEnum("Where it goes", "All enabled visits every place that is on. Player builds prefers what a player made. "
+                + "Region only ignores the list and finds views itself.", "Now",
+                () -> mp().targets, v -> mp().targets = v, director));
+        camera.add(menuSlider("Shortest shot", "The least time the camera stays on one view.", "Now", 4, 60, 1,
+                () -> (int) Math.round(mp().shotSecondsMin), n -> {
+                    mp().shotSecondsMin = n;
+                    mp().shotSecondsMax = Math.max(mp().shotSecondsMax, n);
+                }, () -> Math.round(mp().shotSecondsMin) + " s", always, director));
+        camera.add(menuSlider("Longest shot", "The most time the camera stays on one view.", "Now", 4, 120, 1,
+                () -> (int) Math.round(mp().shotSecondsMax), n -> {
+                    mp().shotSecondsMax = n;
+                    mp().shotSecondsMin = Math.min(mp().shotSecondsMin, n);
+                }, () -> Math.round(mp().shotSecondsMax) + " s", always, director));
+        camera.add(menuSlider("Handheld shake", "0 holds the camera still. 100% is the normal gentle drift. 200% doubles it.", "Now",
+                0, 200, 10, () -> (int) Math.round(mp().handheld * 100), n -> mp().handheld = n / 100.0,
+                () -> Math.round(mp().handheld * 100) + "%", always, director));
+        camera.add(menuSlider("Least height", "The camera stays at least this far above the ground and water.", "Now", 3, 40, 1,
+                () -> (int) Math.round(mp().clearance), n -> mp().clearance = n, () -> Math.round(mp().clearance) + " blocks", always, director));
+        camera.add(menuSlider("Highest height", "The camera stays at most this far above the ground. Lower means less land to load and draw.", "Now", 12, 120, 2,
+                () -> (int) Math.round(mp().maxHeight), n -> mp().maxHeight = n, () -> Math.round(mp().maxHeight) + " blocks", always, director));
+        camera.add(menuSlider("Fade at cuts", "How long the screen fades to black at each cut.", "Now", 2, 30, 1,
+                () -> (int) Math.round(mp().fadeSeconds * 10), n -> mp().fadeSeconds = n / 10.0,
+                () -> String.format(Locale.ROOT, "%.1f s", mp().fadeSeconds), always, director));
+        camera.add(menuSlider("Field of view", "Degrees added to the field of view of every shot.", "Now", -30, 30, 1,
+                () -> (int) Math.round(mp().fovOffset), n -> mp().fovOffset = n,
+                () -> (mp().fovOffset > 0 ? "+" : "") + Math.round(mp().fovOffset) + "\u00B0", always, director));
+        for (Shot.MoveType t : MOVES) {
+            camera.add(menuToggle("Move: " + enumLabel(t.name()), "Lets the camera use this move. At least one stays on.", "Now",
+                    () -> moveOn(t), () -> flipMove(t), director));
+        }
+
+        List<Row> time = new ArrayList<>();
+        time.add(menuEnum("Time of day", "Cycle runs a day in the length below. Real clock follows your clock. Fixed holds one time.", "Now",
+                () -> mp().timeMode, v -> mp().timeMode = v, director));
+        time.add(menuSlider("Day length", "How long a whole day lasts in real time.", "Now", 1, 120, 1,
+                () -> (int) Math.round(mp().secondsPerDay / 60), n -> mp().secondsPerDay = n * 60.0,
+                () -> Math.round(mp().secondsPerDay / 60) + " min", () -> mp().timeMode == MenuProfile.TimeMode.CYCLE, director));
+        time.add(menuSlider("Start time", "The time of day the menu starts at, or holds in Fixed.", "Now", 0, 23750, 250,
+                () -> mp().startTicks, n -> mp().startTicks = n, () -> clockText(mp().startTicks),
+                () -> mp().timeMode != MenuProfile.TimeMode.REAL_CLOCK, director));
+
+        List<Row> places = new ArrayList<>(placeRows());
+        places.add(new Row(Kind.HEADER, "Add a place", "", "", "", null, null, null, null, always));
+        places.add(menuSlider("East and west of the centre", "Where the new place goes, in blocks from the centre.", "Now",
+                -2048, 2048, 16, () -> placeDx, n -> placeDx = n, () -> placeDx + " blocks", always, () -> { }));
+        places.add(menuSlider("North and south of the centre", "Where the new place goes, in blocks from the centre.", "Now",
+                -2048, 2048, 16, () -> placeDz, n -> placeDz = n, () -> placeDz + " blocks", always, () -> { }));
+        places.add(Row.button("Add a place here", "Adds a place at those numbers. The camera will visit it like any other.", () -> {
+            MenuProfile p = mp();
+            int[] c = MenuHost.centre();
+            int x = c[0] + placeDx, z = c[1] + placeDz;
+            p.addCustom("Place " + (p.points.size() + 1), x, MenuHost.surfaceY(x, z), z, 24);
+            MenuHost.directorChanged();
+        }));
+        places.add(Row.button("Remove the places I added", "Removes every place you added by hand. Places found in the world stay.", () -> {
+            mp().points.removeIf(q -> q.kind == Poi.Kind.CUSTOM);
+            MenuHost.directorChanged();
+        }));
+
+        List<Row> life = List.of(menuToggle("Animals", "Animals that live in each biome walk around in the distance, and a few "
+                + "monsters at night. Nothing ever comes close to the camera.", "Now", () -> mp().mobs, () -> mp().mobs = !mp().mobs, director));
+
+        return List.of(new Folder("World", world), new Folder("Camera", camera), new Folder("Time", time),
+                new Folder("Places", places), new Folder("Life", life));
+    }
+
+    private List<Shortcut> menuWorldShortcuts() {
+        return List.of(new Shortcut("Menu world folder",
+                () -> Util.getPlatform().openFile(Dirs.mk(Dirs.config().resolve("pentecost").resolve("menu_world")).toFile())));
+    }
+
+    /** Text for the world rows. Kept apart so the rows read the profile fresh at every draw. */
+    private static final class MenuHostLabels {
+        static String seed() {
+            return seedLabel();
+        }
+
+        static String save() {
+            return saveLabel();
+        }
+
+        static void nextSeedAction() {
+            nextSeed();
+        }
+    }
+
     private static Page planned(String name, String... items) {
         return new Page(name, "Coming to Pentecost.", List::of, List.of(items), List::of);
     }
 
     private List<Folder> folders(int index) {
+        if (pages.get(index).name().equals("Menu world")) {
+            return pages.get(index).build().get();
+        }
         return built.computeIfAbsent(index, i -> pages.get(i).build().get());
     }
 
@@ -937,7 +1288,29 @@ public final class PentecostSettingsScreen extends Screen {
                 new Folder("Look", List.of(
                         numberOption("Text opacity", "How solid the letters are.", o.chatOpacity(), 100, 0, 100, "%"),
                         numberOption("Background opacity", "How dark the box behind the letters is.", o.textBackgroundOpacity(), 100, 0, 100, "%"),
-                        numberOption("Message delay", "Seconds before a new message shows. Gives you time to look away.", o.chatDelay(), 1, 0, 6, " s"))));
+                        numberOption("Message delay", "Seconds before a new message shows. Gives you time to look away.", o.chatDelay(), 1, 0, 6, " s"))),
+                new Folder("Pentecost chat", List.of(
+                        Row.choice("Chat style", "Pentecost draws each line with a soft wash and a hairline down the edge. "
+                                + "Game keeps the usual boxes.", "Now",
+                                () -> "vanilla".equals(Settings.get(ChatStyle.THEME)) ? "Game" : "Pentecost",
+                                () -> Settings.set(ChatStyle.THEME,
+                                        "vanilla".equals(Settings.get(ChatStyle.THEME)) ? "pentecost" : "vanilla")),
+                        Row.toggle("Chat motion", "The chat glides up when a line arrives, the hairline flashes and drifts, "
+                                + "and the input opens from the middle.", "Now",
+                                () -> ChatStyle.option(ChatStyle.ANIMATION, true), () -> ChatStyle.flip(ChatStyle.ANIMATION, true)),
+                        Row.toggle("Chat tabs", "All, Players and System just above the input box. "
+                                + "A number counts lines that arrived on another tab.", "Now",
+                                () -> ChatStyle.option(ChatStyle.TABS, true), () -> ChatStyle.flip(ChatStyle.TABS, true)),
+                        Row.toggle("Clickable links", "Links in plain chat text open when you click them. The game asks first.", "Now",
+                                () -> ChatStyle.option(ChatStyle.LINKS, true), () -> ChatStyle.flip(ChatStyle.LINKS, true)),
+                        Row.toggle("Clickable coordinates", "Coordinates like 120 64 -340 copy to the clipboard when clicked.", "Now",
+                                () -> ChatStyle.option(ChatStyle.COORDS, true), () -> ChatStyle.flip(ChatStyle.COORDS, true)),
+                        Row.toggle("Highlight mentions", "Your name in someone else's message is bold and underlined.", "Now",
+                                () -> ChatStyle.option(ChatStyle.MENTIONS, true), () -> ChatStyle.flip(ChatStyle.MENTIONS, true)),
+                        Row.toggle("Mention sound", "A short sound when someone says your name.", "Now",
+                                () -> ChatStyle.option(ChatStyle.MENTION_SOUND, true), () -> ChatStyle.flip(ChatStyle.MENTION_SOUND, true)),
+                        Row.toggle("Time stamps", "The time in front of every chat line.", "Now",
+                                () -> ChatStyle.option(ChatStyle.TIMESTAMPS, false), () -> ChatStyle.flip(ChatStyle.TIMESTAMPS, false)))));
     }
 
     private List<Folder> accessibilityFolders() {
@@ -1161,7 +1534,10 @@ public final class PentecostSettingsScreen extends Screen {
             minecraft.options.save();
         }
         applyPacks();
-        minecraft.setScreen(parent);
+        // A new main menu pick shows at once: the main menu opens again and the pick takes its place.
+        boolean menuPicked = MenuMods.takeChanged();
+        minecraft.setScreen(menuPicked && parent instanceof net.minecraft.client.gui.screens.TitleScreen
+                ? new net.minecraft.client.gui.screens.TitleScreen() : parent);
     }
 
     /** Marks a choice. The arrow moves now, the choice applies a frame after the arrow settles. */
@@ -1706,6 +2082,11 @@ public final class PentecostSettingsScreen extends Screen {
                 ExternalOptions.apply(embeddium);
             }
             minecraft.options.save();
+            if (menuAfter != null) {
+                Runnable r = menuAfter;
+                menuAfter = null;
+                r.run();
+            }
         }
         dragKey = null;
         return super.mouseReleased(mouseX, mouseY, button);

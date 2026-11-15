@@ -35,6 +35,9 @@ public final class PentecostMain {
     private static List<ModInfo> mods = List.of();
     private static GameClassLoader loader;
     private static boolean forge;
+    /** A Minecraft session handed in by a launcher (Modrinth App wrapper, the official launcher). Never logged. */
+    private static LaunchSession session = LaunchSession.NONE;
+    private static final java.util.Set<String> COMMANDS = java.util.Set.of("install", "check", "launch", "fetch", "verify", "setup");
 
     private PentecostMain() {}
 
@@ -51,9 +54,18 @@ public final class PentecostMain {
                 case "--forge" -> forge = true;
                 case "--loader" -> fetchLoader = args[++i];
                 case "--count" -> count = Integer.parseInt(args[++i]);
-                default -> command = args[i];
+                case "--username", "--uuid", "--accessToken", "--userType" -> i++;
+                // Other game arguments a launcher passes. Pentecost builds its own, so these are read and dropped.
+                case "--version", "--gameDir", "--assetsDir", "--assetIndex", "--clientId", "--xuid", "--versionType",
+                        "--width", "--height" -> i++;
+                default -> {
+                    if (COMMANDS.contains(args[i])) {
+                        command = args[i];
+                    }
+                }
             }
         }
+        session = LaunchSession.parse(args);
         Log.info("Pentecost " + VERSION + " for Minecraft " + MINECRAFT + ", Java " + System.getProperty("java.version"));
         int exit = 0;
         try {
@@ -62,6 +74,10 @@ public final class PentecostMain {
             }
             switch (command) {
                 case "install" -> MinecraftInstall.install(MINECRAFT, true);
+                case "setup" -> {
+                    MinecraftInstall.install(MINECRAFT, true);
+                    khi.pentecost.install.ForgeSetup.ensure();
+                }
                 case "check" -> exit = check(modDirs, selftest);
                 case "launch" -> launch(modDirs);
                 case "fetch" -> ModFetcher.fetchTop(MINECRAFT, fetchLoader, count);
@@ -131,7 +147,7 @@ public final class PentecostMain {
             }
         }
         if (forge && !forgeOn) {
-            Log.error("The Forge layer was asked for and is not installed. Run .tools\\forge-install.ps1 first.");
+            Log.error("The Forge layer was asked for and is not installed. Run the setup command first.");
         }
         if (forgeOn) {
             forgeJar = forgeFiles.universal(PentecostRuntime.remap);
@@ -223,6 +239,8 @@ public final class PentecostMain {
         loader.addTransformer(khi.pentecost.core.CostMeter.transformer());
         loader.addTransformer(khi.pentecost.core.ZoomHooks.transformer());
         loader.addTransformer(khi.pentecost.core.TagHooks.transformer());
+        loader.addTransformer(khi.pentecost.core.ChatHooks.transformer());
+        loader.addTransformer(khi.pentecost.core.MenuDistance.transformer());
         loader.addTransformer(khi.pentecost.core.ServerTuning.transformer());
         loader.addTransformer(khi.pentecost.core.ClientHooks.transformer());
         if (forgeOn) {
@@ -307,22 +325,79 @@ public final class PentecostMain {
         Log.info("Full report: " + file);
     }
 
+    private static boolean onClasspath(String className) {
+        try {
+            Class.forName(className, false, ClassLoader.getSystemClassLoader());
+            return true;
+        } catch (ClassNotFoundException | LinkageError e) {
+            return false;
+        }
+    }
+
+    /** Starts this same launch again in a new JVM whose classpath also has Forge's securejarhandler, and exits with its code. */
+    private static void relaunch(List<Path> modDirs) throws Exception {
+        String extra = khi.pentecost.install.ForgeSetup.secureJarHandlerClasspath();
+        if (extra == null) {
+            Log.error("Forge's securejarhandler is missing after the Forge install. Starting without the Forge layer's loader library.");
+            return;
+        }
+        Log.info("Restarting once with Forge's loader library on the classpath");
+        List<String> cmd = new ArrayList<>();
+        cmd.add(Path.of(System.getProperty("java.home"), "bin",
+                System.getProperty("os.name", "").toLowerCase().contains("win") ? "java.exe" : "java").toString());
+        for (String a : java.lang.management.ManagementFactory.getRuntimeMXBean().getInputArguments()) {
+            if (!a.startsWith("-Djava.class.path") && !a.equals("-cp") && !a.equals("-classpath")) {
+                cmd.add(a);
+            }
+        }
+        cmd.add("-Dpentecost.relaunched=true");
+        cmd.add("-cp");
+        cmd.add(System.getProperty("java.class.path") + java.io.File.pathSeparator + extra);
+        cmd.add("khi.pentecost.boot.PentecostMain");
+        cmd.add("launch");
+        cmd.add("--forge");
+        for (Path m : modDirs) {
+            cmd.add("--mods");
+            cmd.add(m.toString());
+        }
+        if (session.real()) {
+            cmd.addAll(List.of("--username", session.name(), "--uuid", session.uuid(), "--accessToken", session.token()));
+            if (session.type() != null && !session.type().isBlank()) {
+                cmd.addAll(List.of("--userType", session.type()));
+            }
+        }
+        Process p = new ProcessBuilder(cmd).inheritIO().start();
+        System.exit(p.waitFor());
+    }
+
     private static void launch(List<Path> modDirs) throws Exception {
         khi.pentecost.core.WallProfiler.startIfAsked(Thread.currentThread());
+        if (forge && System.getProperty("pentecost.forgeglue") != null) {
+            // A copy of Pentecost without Gradle installs Forge itself on the first run. The JVM needs Forge's
+            // securejarhandler on its own classpath, so after a fresh install it starts once more with it added.
+            khi.pentecost.install.ForgeSetup.ensure();
+            if (!onClasspath("cpw.mods.jarhandling.SecureJar") && System.getProperty("pentecost.relaunched") == null) {
+                relaunch(modDirs);
+                return;
+            }
+        }
         GameFiles game = prepare(modDirs, true);
         if (forge && new khi.pentecost.adapter.forge.ForgeFiles().installed()) {
             game = new khi.pentecost.adapter.forge.ForgeFiles().game(game, PentecostRuntime.remap);
         }
         ModRunner runner = boot(game);
+        if (session.real()) {
+            Log.info("Session from the launcher: " + session.name());
+        }
         String[] gameArgs = {
-                "--username", "Dev",
+                "--username", session.gameName(),
                 "--version", "Pentecost-" + MINECRAFT,
                 "--gameDir", Dirs.run().toString(),
                 "--assetsDir", game.assetsDir().toString(),
                 "--assetIndex", game.assetIndex(),
-                "--uuid", "00000000-0000-0000-0000-000000000000",
-                "--accessToken", "0",
-                "--userType", "legacy",
+                "--uuid", session.gameUuid(),
+                "--accessToken", session.gameToken(),
+                "--userType", session.gameType(),
                 "--versionType", "Pentecost"
         };
         String world = System.getenv("PENTECOST_WORLD");

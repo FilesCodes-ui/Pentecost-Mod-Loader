@@ -28,6 +28,54 @@ public final class Zoom {
 
     private Zoom() {}
 
+    /** Hands the game's interface drawing to the slide-away below. Called once at startup. */
+    public static void install() {
+        ZoomHooks.guiPass = Zoom::drawInterface;
+    }
+
+    /** How far the interface has slid away: 0 shown, 1 gone. Follows the zoom, so it moves with it. */
+    private static float slide() {
+        double t = Math.max(0.0, Math.min(1.0, (ZoomHooks.factor - 1.0) / 0.5));
+        return (float) (t * t * (3.0 - 2.0 * t));
+    }
+
+    /**
+     * The whole interface, the game's and the mods', slides away while you zoom: what is in the top half goes up,
+     * what is in the bottom half goes down. Only while it moves is the interface drawn twice, once per half.
+     */
+    private static void drawInterface(Object gui, Object graphics, float partialTick) {
+        net.minecraft.client.gui.Gui g = (net.minecraft.client.gui.Gui) gui;
+        net.minecraft.client.gui.GuiGraphics gg = (net.minecraft.client.gui.GuiGraphics) graphics;
+        float s = slide();
+        if (s <= 0.001f) {
+            g.render(gg, partialTick);
+            return;
+        }
+        if (s >= 0.999f) {
+            return;
+        }
+        int w = gg.guiWidth();
+        int h = gg.guiHeight();
+        int off = Math.round(s * h / 2f);
+        int half = h / 2;
+        if (half - off > 0) {
+            gg.enableScissor(0, 0, w, half - off);
+            gg.pose().pushPose();
+            gg.pose().translate(0, -off, 0);
+            g.render(gg, partialTick);
+            gg.pose().popPose();
+            gg.disableScissor();
+        }
+        if (half + off < h) {
+            gg.enableScissor(0, half + off, w, h);
+            gg.pose().pushPose();
+            gg.pose().translate(0, off, 0);
+            g.render(gg, partialTick);
+            gg.pose().popPose();
+            gg.disableScissor();
+        }
+    }
+
     static KeyMapping key() {
         return key;
     }

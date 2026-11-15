@@ -13,11 +13,31 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.HexFormat;
+import java.util.Map;
 
-/** Downloads with retries and SHA-1 checks. */
+/**
+ * Downloads with retries and SHA-1 checks.
+ *
+ * Every download must use https and come from a host Pentecost expects (Mojang, Minecraft, Modrinth, Fabric,
+ * Forge, NeoForged). Files that no caller gave a hash for are checked against the pinned hashes below.
+ */
 public final class Http {
     public static final String USER_AGENT =
             "KHI-Pentecost/0.1.0 (Minecraft mod loader compatibility tooling)";
+
+    /** Domains downloads may come from, with their subdomains. */
+    private static final String[] TRUSTED = {
+            "mojang.com", "minecraft.net", "modrinth.com", "fabricmc.net", "minecraftforge.net", "neoforged.net"};
+
+    /**
+     * Files that are fetched by a fixed address and must always be the same bytes.
+     * Verified against the checksums published next to them on the Fabric and Forge Maven servers.
+     */
+    private static final Map<String, String> PINNED = Map.of(
+            "https://maven.fabricmc.net/net/fabricmc/intermediary/1.20.1/intermediary-1.20.1-v2.jar",
+            "20ba9399cb5a23aa06ea901eff0a84e648d866db",
+            "https://maven.minecraftforge.net/de/oceanlabs/mcp/mcp_config/1.20.1-20230612.114412/mcp_config-1.20.1-20230612.114412.zip",
+            "c7d29380ddb38becad7c0819b5b325e43bca23f0");
 
     private static final HttpClient CLIENT = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL)
@@ -26,12 +46,40 @@ public final class Http {
 
     private Http() {}
 
+    /** Throws unless the address is https and on a trusted domain. */
+    static void checkUrl(String url) throws IOException {
+        URI u;
+        try {
+            u = URI.create(url.replace(" ", "%20"));
+        } catch (IllegalArgumentException e) {
+            throw new IOException("Refusing a download with a malformed address");
+        }
+        if (!"https".equalsIgnoreCase(u.getScheme())) {
+            throw new IOException("Refusing a download that is not https: " + u.getHost());
+        }
+        String host = u.getHost() == null ? "" : u.getHost().toLowerCase();
+        for (String domain : TRUSTED) {
+            if (host.equals(domain) || host.endsWith("." + domain)) {
+                return;
+            }
+        }
+        throw new IOException("Refusing a download from an unexpected host: " + host);
+    }
+
+    /** The pinned hash for an address, or null when there is none. */
+    static String pinned(String url) {
+        return PINNED.get(url);
+    }
+
     public static String text(String url) throws IOException {
         return send(url, HttpResponse.BodyHandlers.ofString()).body();
     }
 
     /** Downloads url to dest. Skips the download when dest exists and matches sha1 (or sha1 is null). */
     public static Path download(String url, Path dest, String sha1) throws IOException {
+        if (sha1 == null) {
+            sha1 = pinned(url);
+        }
         if (Files.isRegularFile(dest) && (sha1 == null || sha1.equalsIgnoreCase(sha1(dest)))) {
             return dest;
         }
@@ -67,6 +115,7 @@ public final class Http {
     }
 
     private static <T> HttpResponse<T> send(String url, HttpResponse.BodyHandler<T> handler) throws IOException {
+        checkUrl(url);
         HttpRequest req = HttpRequest.newBuilder(URI.create(url.replace(" ", "%20")))
                 .header("User-Agent", USER_AGENT)
                 .timeout(Duration.ofMinutes(10))

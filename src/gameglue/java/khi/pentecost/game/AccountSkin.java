@@ -12,6 +12,7 @@ import java.io.ByteArrayInputStream;
 public final class AccountSkin {
     private static final ResourceLocation ID = new ResourceLocation("pentecost", "account_skin");
     private static boolean ready;
+    private static int height = 64;
 
     private AccountSkin() {}
 
@@ -20,13 +21,20 @@ public final class AccountSkin {
         return ready ? ID : null;
     }
 
+    /** The skin image height: 64, or 32 for old skins. The width is always 64. */
+    public static int height() {
+        return height;
+    }
+
     /** Called with the PNG bytes of the skin, from any thread. */
     public static void set(byte[] png) {
         Minecraft mc = Minecraft.getInstance();
         mc.execute(() -> {
             try (ByteArrayInputStream in = new ByteArrayInputStream(png)) {
                 NativeImage image = NativeImage.read(in);
+                int h = image.getHeight();
                 mc.getTextureManager().register(ID, new DynamicTexture(image));
+                height = h;
                 ready = true;
             } catch (java.io.IOException | RuntimeException e) {
                 Log.error("Cannot read the skin: " + e);

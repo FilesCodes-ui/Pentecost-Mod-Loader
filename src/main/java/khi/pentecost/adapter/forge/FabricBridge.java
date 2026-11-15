@@ -90,6 +90,14 @@ public final class FabricBridge {
         }
     }
 
+    /** A plain jar file name: letters, digits and . _ + - only, no folders. Anything else is refused. */
+    static String safeJarName(String raw) throws IOException {
+        if (raw == null || !raw.matches("[A-Za-z0-9._+-]{1,150}\\.jar") || raw.contains("..")) {
+            throw new IOException("Refusing a download with an unsafe file name");
+        }
+        return raw;
+    }
+
     private static void download(Path dir, String minecraft) throws IOException {
         Log.info("Fabric bridge: downloading Forgified Fabric API for " + minecraft + " (one time)");
         String url = "https://api.modrinth.com/v2/project/" + PROJECT + "/version?game_versions=%5B%22"
@@ -105,7 +113,8 @@ public final class FabricBridge {
                 file = f.getAsJsonObject();
             }
         }
-        Http.download(file.get("url").getAsString(), dir.resolve(file.get("filename").getAsString()),
+        String name = safeJarName(file.get("filename").getAsString());
+        Http.download(file.get("url").getAsString(), dir.resolve(name),
                 file.getAsJsonObject("hashes").get("sha1").getAsString());
     }
 }

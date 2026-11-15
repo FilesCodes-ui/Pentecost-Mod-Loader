@@ -14,3 +14,6 @@ mods/
 
 exports/
 HANDOFF.md 
+logs/
+menu_world/
+mods_disabled/

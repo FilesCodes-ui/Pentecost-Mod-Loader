@@ -1,0 +1,86 @@
+// Builds the zip to hand to a friend: gradle installerZip  ->  build/dist/Pentecost-<version>-Installer.zip
+// The zip holds compiled jars only. No source, no run\ (saves, sign-in tokens), no cache\ (files derived from Minecraft), no mods\.
+// Minecraft, Forge and their libraries are never inside it: they download from Mojang's and Forge's own servers on first run.
+
+def pentecostLibs = layout.buildDirectory.dir('dist/payload-lib')
+
+def jarFor = { String taskName, String baseName, def output ->
+    tasks.register(taskName, Jar) {
+        archiveFileName = "${baseName}-${project.version}.jar"
+        destinationDirectory = layout.buildDirectory.dir('dist/jars')
+        from output
+    }
+}
+
+jarFor('distJarMain', 'pentecost', sourceSets.main.output)
+def distJarTasks = ['distJarMain']
+if (sourceSets.findByName('gameglue') != null) {
+    jarFor('distJarGameglue', 'pentecost-gameglue', sourceSets.gameglue.output)
+    distJarTasks << 'distJarGameglue'
+}
+if (sourceSets.findByName('forgeglue') != null) {
+    jarFor('distJarForgeglue', 'pentecost-forgeglue', sourceSets.forgeglue.output)
+    distJarTasks << 'distJarForgeglue'
+}
+
+// Licences of the libraries that ship in lib\ (upstream licences; check them again when a library is updated).
+def knownLicences = [
+        'asm'            : 'BSD-3-Clause (OW2 ASM)',
+        'sponge-mixin'   : 'MIT (SpongePowered Mixin, Fabric fork)',
+        'mixinextras'    : 'MIT (MixinExtras)',
+        'guava'          : 'Apache-2.0 (Google Guava)',
+        'failureaccess'  : 'Apache-2.0 (Google)',
+        'listenablefuture': 'Apache-2.0 (Google)',
+        'gson'           : 'Apache-2.0 (Google Gson)',
+        'night-config'   : 'LGPL-3.0 (NightConfig). Shipped unmodified as its own jar; source: https://github.com/TheElectronWill/night-config',
+        'core-3.6'       : 'LGPL-3.0 (NightConfig core). Shipped unmodified as its own jar; source: https://github.com/TheElectronWill/night-config',
+        'toml-3.6'       : 'LGPL-3.0 (NightConfig toml). Shipped unmodified as its own jar; source: https://github.com/TheElectronWill/night-config',
+        'jsr305'         : 'Apache-2.0 / BSD (JSR 305)',
+        'checker-qual'   : 'MIT (Checker Framework)',
+        'error_prone'    : 'Apache-2.0 (Error Prone annotations)',
+        'j2objc'         : 'Apache-2.0 (J2ObjC annotations)',
+]
+
+tasks.register('distNotices') {
+    def out = layout.buildDirectory.file('dist/THIRD-PARTY-NOTICES.txt')
+    outputs.file(out)
+    doLast {
+        def lines = []
+        lines << 'Pentecost ships these third-party libraries in lib\\, unmodified. Each keeps its own licence.'
+        lines << 'Minecraft, Forge and their libraries are NOT included: they are downloaded from Mojang and Forge on first run.'
+        lines << ''
+        configurations.runtimeClasspath.files.sort { it.name }.each { f ->
+            def key = knownLicences.keySet().find { f.name.startsWith(it) }
+            lines << "${f.name}  -  ${key ? knownLicences[key] : 'licence: see the project of this library'}"
+        }
+        out.get().asFile.parentFile.mkdirs()
+        out.get().asFile.text = lines.join('\r\n') + '\r\n'
+    }
+}
+
+tasks.register('installerZip', Zip) {
+    group = 'distribution'
+    description = 'The friend-ready installer zip: compiled jars, installer script, no source.'
+    dependsOn distJarTasks, 'distNotices'
+    archiveFileName = "Pentecost-${project.version}-Installer.zip"
+    destinationDirectory = layout.buildDirectory.dir('dist')
+    into("Pentecost-${project.version}-Installer") {
+        from('packaging/Install Pentecost.cmd')
+        from('packaging/Uninstall Pentecost.cmd')
+        from('packaging/README-friend.txt') { rename { 'README.txt' } }
+        from('LICENSE') { rename { 'LICENSE.txt' } }
+        from(layout.buildDirectory.file('dist/THIRD-PARTY-NOTICES.txt'))
+        into('installer') { from('packaging/install.ps1') }
+        into('payload') {
+            from('packaging/pentecost-wrapper.ps1')
+            from('packaging/pentecost-wrapper.cmd')
+            from('assets/pentecost.ico')
+            from('assets/pentecost_still_256.png')
+            into('shaderpack') { from('shaderpack') }
+            into('lib') {
+                from(layout.buildDirectory.dir('dist/jars'))
+                from(configurations.runtimeClasspath)
+            }
+        }
+    }
+}

@@ -140,7 +140,7 @@ final class MenuView {
                 action = () -> mc.setScreen(new WwlsScreen(screen));
             } else if (key.equals(ACCOUNT)) {
                 label = Account.signedIn() ? Account.name() : "Sign in";
-                action = () -> mc.setScreen(new PentecostLoginScreen(screen, null, null));
+                action = () -> mc.setScreen(Account.signedIn() ? new AccountScreen(screen) : new PentecostLoginScreen(screen, null, null));
             } else if (key.equals(SETTINGS)) {
                 // The game's Options button already opens Pentecost's settings. This entry only matters
                 // when the player switched to the game's own settings screens.
