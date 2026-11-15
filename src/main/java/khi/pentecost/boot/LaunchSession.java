@@ -32,7 +32,7 @@ public record LaunchSession(String name, String uuid, String token, String type)
     public String gameName() { return real() ? name : "Dev"; }
     public String gameUuid() { return real() ? uuid : "00000000-0000-0000-0000-000000000000"; }
     public String gameToken() { return real() ? token : "0"; }
-    public String gameType() { return real() ? (notBlank(type) ? type : "msa") : "legacy"; }
+    public String gameType() { return real() ? "msa" : "legacy"; }
 
     private static boolean notBlank(String s) {
         return s != null && !s.isBlank();

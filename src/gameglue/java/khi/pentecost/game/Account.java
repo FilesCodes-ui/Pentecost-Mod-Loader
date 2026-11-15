@@ -225,8 +225,12 @@ public final class Account {
     private static boolean adoptLaunchSession() {
         User u = Minecraft.getInstance().getUser();
         String token = u.getAccessToken();
-        if (u.getType() != User.Type.MSA || token == null || token.isBlank() || token.equals("0")) {
+        if (token == null || token.isBlank() || token.equals("0")) {
+            Log.info("No launcher session to use: the game was started without a token (user type " + u.getType() + ")");
             return false;
+        }
+        if (u.getType() != User.Type.MSA) {
+            Log.info("The launcher session has user type " + u.getType() + "; using it as a Microsoft session anyway");
         }
         name = u.getName();
         uuid = u.getUuid();
