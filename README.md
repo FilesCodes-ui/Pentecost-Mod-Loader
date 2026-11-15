@@ -23,7 +23,7 @@ Pentecost uses the Microsoft device code flow. You sign in on microsoft.com, so 
 - The Minecraft token is used only to start your own game session and to join servers.
 - Pentecost sends no account data to any server run by KHI.
 <img width="1919" height="1079" alt="Screenshot 2026-11-13 165646" src="https://github.com/user-attachments/assets/9a4dd73a-4f0a-4b71-8371-ede71d79f4db" />
-this system can be overwritten using Mojang's official launcher
+this system can be overwritten using Mojang's official launcher, an account is required for both.
 
 ## Status
 
