@@ -78,8 +78,8 @@
                         </CheckBox>
                         <CheckBox x:Name="ModsBox" IsChecked="True" Margin="2,16,0,0">
                             <StackPanel>
-                                <TextBlock Text="Add Embeddium and Oculus (video options, borderless, shader packs)" FontSize="14"/>
-                                <TextBlock Text="Small downloads from Modrinth. Skipped if you already have them. You can also add them later from the Video page."
+                                <TextBlock x:Name="ModsTitle" Text="Add Embeddium and Oculus (video options, borderless, shader packs)" FontSize="14"/>
+                                <TextBlock x:Name="ModsNote" Text="Small downloads from Modrinth. Skipped if you already have them. You can also add them later from the Video page."
                                            FontSize="12.5" Foreground="{StaticResource Muted}" Margin="0,4,0,0" MaxWidth="470"/>
                             </StackPanel>
                         </CheckBox>

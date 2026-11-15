@@ -32,6 +32,11 @@ public static class VideoMods
         for (var i = 0; i < Projects.Length; i++)
         {
             report(i / (double)Projects.Length, Projects[i]);
+            if (Has(mods, Projects[i]))
+            {
+                Log.Write($"{Projects[i]}: already installed, nothing to download");
+                continue;
+            }
             try { await InstallOne(Projects[i], mods, seen, 0, ct); }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
@@ -79,6 +84,25 @@ public static class VideoMods
             foreach (var d in deps.OfType<JsonObject>())
                 if (d["dependency_type"]?.ToString() == "required" && d["project_id"]?.ToString() is { Length: > 0 } id)
                     await InstallOne(id, mods, seen, depth + 1, ct);
+    }
+
+    /// <summary>Whether each of the two mods already has a jar in run\mods, in any version. No network.</summary>
+    public static (bool Embeddium, bool Oculus) Installed(string home)
+    {
+        var mods = Path.Combine(home, "run", "mods");
+        return (Has(mods, "embeddium"), Has(mods, "oculus"));
+    }
+
+    /// <summary>
+    /// True when a jar in the folder is this project: its name, then an optional "forge" or "mc" part, then a version
+    /// number ("oculus-mc1.20.1-1.8.0.jar", "embeddium-0.3.31+mc1.20.1.jar"). A different mod that only starts with
+    /// the same word ("embeddium-extra-...") is not a match.
+    /// </summary>
+    static bool Has(string mods, string project)
+    {
+        if (!Directory.Exists(mods)) return false;
+        var rx = new Regex("^" + Regex.Escape(project) + @"(?:[-_+ ](?:forge|mc))*(?:[-_+ ]?v?\d|\.jar$)", RegexOptions.IgnoreCase);
+        return Directory.GetFiles(mods, "*.jar").Any(f => rx.IsMatch(Path.GetFileName(f)));
     }
 
     /// <summary>The mod's name without its version: "embeddium-0.3.31+mc1.20.1.jar" gives "embeddium".</summary>

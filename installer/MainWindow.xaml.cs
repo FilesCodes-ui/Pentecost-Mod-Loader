@@ -78,6 +78,27 @@ public partial class MainWindow : Window
         var bytes = Worlds.TotalBytes();
         WorldsBox.Visibility = bytes > 0 ? Visibility.Visible : Visibility.Collapsed;
         WorldsTitle.Text = $"Download the main menu worlds (about {bytes / 1048576} MB)";
+
+        // Look in run\mods first, so the box only offers what is actually missing.
+        var have = VideoMods.Installed(Setup.HomeOf(mc));
+        if (have.Embeddium && have.Oculus)
+        {
+            ModsBox.IsChecked = false;
+            ModsBox.IsEnabled = false;
+            ModsTitle.Text = "Embeddium and Oculus are already installed";
+            ModsNote.Text = "Nothing to download. Your copies are left as they are.";
+        }
+        else
+        {
+            if (!ModsBox.IsEnabled) ModsBox.IsChecked = true;
+            ModsBox.IsEnabled = true;
+            ModsTitle.Text = have.Embeddium ? "Add Oculus (shader packs)"
+                : have.Oculus ? "Add Embeddium (video options, borderless)"
+                : "Add Embeddium and Oculus (video options, borderless, shader packs)";
+            ModsNote.Text = have.Embeddium || have.Oculus
+                ? "Small download from Modrinth. The one you already have is left as it is."
+                : "Small downloads from Modrinth. You can also add them later from the Video page.";
+        }
     }
 
     void Show(Panel next)
