@@ -235,6 +235,8 @@ public final class PentecostMain {
         loader.addTransformer(Hooks.styleTransformer());
         loader.addTransformer(Hooks.registryTransformer());
         loader.addTransformer(Hooks.windowTransformer());
+        loader.addTransformer(khi.pentecost.core.Branding.titleTransformer());
+        loader.addTransformer(khi.pentecost.core.Branding.sparkTransformer());
         loader.addTransformer(Hooks.fabricRegistryTransformer());
         loader.addTransformer(Hooks.tickTransformer());
         loader.addTransformer(Hooks.lootNameTransformer());
