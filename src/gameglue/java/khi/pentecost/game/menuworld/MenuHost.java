@@ -521,6 +521,7 @@ public final class MenuHost {
         saved = new Saved(mc.options.getCameraType(), mc.options.fov().get(), mc.options.hideGui);
         Files.createDirectories(marker().getParent());
         Files.writeString(marker(), "showing");
+        armShutdownCleanup();
 
         mc.options.setCameraType(CameraType.FIRST_PERSON);
         mc.options.setServerRenderDistance(l.view); // before the renderer gets the level, so fog ends where the land does
@@ -548,6 +549,27 @@ public final class MenuHost {
         frames = 0;
         attached = true;
         return true;
+    }
+
+    private static boolean shutdownCleanupArmed;
+
+    /**
+     * Closing the game from the main menu (window X, Quit, a launcher's close) never closes the title screen, so the
+     * marker stayed and the next start read it as a crash and turned the menu world off, every time. A clean exit
+     * has Minecraft no longer running when the JVM shuts down, so the hook removes the marker then. A crash exits
+     * while the game still counts as running, and a kill skips the hook: the marker stays and still catches those.
+     */
+    private static void armShutdownCleanup() {
+        if (shutdownCleanupArmed) return;
+        shutdownCleanupArmed = true;
+        Path m = marker();
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                if (!Minecraft.getInstance().isRunning()) Files.deleteIfExists(m);
+            } catch (Throwable e) {
+                // at exit there is nothing left to do about it
+            }
+        }, "Pentecost menu world marker cleanup"));
     }
 
     private static void unhook(Minecraft mc) {

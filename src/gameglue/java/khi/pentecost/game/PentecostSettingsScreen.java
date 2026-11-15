@@ -936,6 +936,7 @@ public final class PentecostSettingsScreen extends Screen {
             return nativeVideoFolders();
         }
         embeddium = ExternalOptions.embeddiumScreen(this);
+        out.add(windowFolder());
         for (ExternalOptions.VideoPage vp : ExternalOptions.pages(embeddium)) {
             List<Row> rows = new ArrayList<>();
             for (ExternalOptions.VideoOption v : vp.options()) {
@@ -947,6 +948,14 @@ public final class PentecostSettingsScreen extends Screen {
             }
         }
         return out;
+    }
+
+    /** Windowed, Borderless or Fullscreen. The same setting as Interface > Window, here where people look for it. */
+    private Folder windowFolder() {
+        return new Folder("Window", List.of(
+                Row.choice("Window", "Windowed, Borderless or Fullscreen. Borderless covers the screen with no frame, so switching apps stays instant.", "Now",
+                        () -> WindowMode.label(Settings.get(Settings.WINDOW)),
+                        () -> WindowMode.set(WindowMode.next(Settings.get(Settings.WINDOW))))));
     }
 
     private List<Shortcut> videoShortcuts() {
@@ -993,6 +1002,7 @@ public final class PentecostSettingsScreen extends Screen {
                         n -> n == 0 ? "Off" : String.valueOf(n)),
                 optionToggle("Entity shadows", "Soft shadows under mobs and players.", o.entityShadows()),
                 numberOption("Entity distance", "How far away mobs and other entities are still drawn.", o.entityDistanceScaling(), 100, 50, 500, "%"))));
+        out.add(windowFolder());
         out.add(new Folder("Display", List.of(
                 intOptionText("Max framerate", "The most frames per second the game draws.", o.framerateLimit(), 10, 260, 10,
                         n -> n >= 260 ? "Unlimited" : n + " fps"),
