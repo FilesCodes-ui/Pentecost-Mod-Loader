@@ -23,7 +23,7 @@ import java.util.List;
  * No game classes in here, so it can be tested without the game. The access token is only used to ask; it is never stored here.
  */
 public final class AccountInfo {
-    public record Cape(String id, String alias, boolean active) {}
+    public record Cape(String id, String alias, boolean active, String url) {}
 
     public String name = "";
     /** The id as 32 hex characters, no dashes. */
@@ -85,7 +85,7 @@ public final class AccountInfo {
             }
             for (JsonElement e : arr(p, "capes")) {
                 JsonObject c = e.getAsJsonObject();
-                a.capes.add(new Cape(str(c, "id"), str(c, "alias"), "ACTIVE".equals(str(c, "state"))));
+                a.capes.add(new Cape(str(c, "id"), str(c, "alias"), "ACTIVE".equals(str(c, "state")), str(c, "url")));
             }
         }
         JsonObject n = obj(nameChange);
