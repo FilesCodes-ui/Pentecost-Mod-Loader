@@ -26,12 +26,8 @@ public final class ForgeSetup {
         return Dirs.cache().resolve("forge-install");
     }
 
-    private static Path patchedClient() {
-        return dir().resolve("libraries/net/minecraftforge/forge/" + VERSION + "/forge-" + VERSION + "-client.jar");
-    }
-
     public static boolean installed() {
-        return Files.isRegularFile(patchedClient());
+        return new ForgeFiles().installed();
     }
 
     /**
@@ -40,6 +36,12 @@ public final class ForgeSetup {
     public static boolean ensure() throws IOException, InterruptedException {
         if (installed()) {
             return false;
+        }
+        // A jar that exists but does not open is left over from a setup that was cut off. Remove it so Forge's installer
+        // rebuilds it (the installer checks each file's hash and redoes the ones that do not match).
+        for (Path broken : new ForgeFiles().brokenFiles()) {
+            Log.info("A Forge file is damaged, setting it up again: " + broken.getFileName());
+            Files.deleteIfExists(broken);
         }
         Log.info("First run: installing Forge " + VERSION + " from Forge's own servers. This takes a few minutes.");
         Path dir = Files.createDirectories(dir());

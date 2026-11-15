@@ -34,8 +34,39 @@ public final class ForgeFiles {
 
     private final Path libraries = Dirs.cache().resolve("forge-install").resolve("libraries");
 
+    /**
+     * True when Forge's patched game jar is there and opens as a zip. A jar that exists but is cut off
+     * (a Forge setup that was interrupted) does not count, so Pentecost sets Forge up again instead of crashing.
+     */
     public boolean installed() {
-        return Files.isRegularFile(patchedClient());
+        return intact(patchedClient()) && brokenFiles().isEmpty();
+    }
+
+    /** Forge jars that exist but do not open as a zip. */
+    public List<Path> brokenFiles() {
+        List<Path> out = new ArrayList<>();
+        for (Path p : List.of(patchedClient(), universalJar())) {
+            if (Files.exists(p) && !intact(p)) {
+                out.add(p);
+            }
+        }
+        return out;
+    }
+
+    private Path universalJar() {
+        return libraries.resolve("net/minecraftforge/forge/" + VERSION + "/forge-" + VERSION + "-universal.jar");
+    }
+
+    /** True when the file is there and opens as a zip with at least one entry. */
+    public static boolean intact(Path jar) {
+        if (!Files.isRegularFile(jar)) {
+            return false;
+        }
+        try (ZipFile z = new ZipFile(jar.toFile())) {
+            return z.size() > 0;
+        } catch (IOException | RuntimeException e) {
+            return false;
+        }
     }
 
     private Path patchedClient() {
