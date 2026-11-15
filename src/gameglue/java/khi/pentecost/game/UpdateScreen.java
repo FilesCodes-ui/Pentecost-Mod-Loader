@@ -1,11 +1,17 @@
 package khi.pentecost.game;
 
+import khi.pentecost.update.ReleaseInfo;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
-/** Shown while Pentecost downloads an update and then closes so the installer can replace its files. */
+import java.util.Locale;
+
+/**
+ * Shown while Pentecost downloads an update and then closes so the installer can replace its files.
+ * It is Pentecost's loading picture: the logo, a thin line that fills with the download, and the size done so far.
+ */
 final class UpdateScreen extends Screen {
     private final Screen back;
     private int closeIn = -1;
@@ -35,11 +41,31 @@ final class UpdateScreen extends Screen {
         }
     }
 
+    /** "Downloading   12.3 of 54.1 MB", or just "Downloading" when the size is not known. */
+    private static String downloading() {
+        ReleaseInfo r = Updater.release();
+        if (r == null || r.size() <= 0) {
+            return "Downloading";
+        }
+        double total = r.size() / 1048576.0;
+        return String.format(Locale.ROOT, "Downloading   %.1f of %.1f MB", total * Updater.progress(), total);
+    }
+
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         boolean ready = Updater.phase() == Updater.Phase.READY;
-        String status = ready ? "Closing. The installer finishes the update."
-                : "Downloading " + Math.round(Updater.progress() * 100) + "%";
-        PentecostLevelLoadingScreen.draw(g, minecraft, "UPDATING", status, ready ? 1f : Updater.progress(), null);
+        if (ready) {
+            PentecostLevelLoadingScreen.draw(g, minecraft, "UPDATING", "Handing over to the installer", -1f, null);
+        } else {
+            // The line draws its own percent after the status, so the status holds only the sizes.
+            PentecostLevelLoadingScreen.draw(g, minecraft, "UPDATING", downloading(), Updater.progress(), null);
+        }
+        float ui = Ui.scale(minecraft);
+        String hint = ready ? "Pentecost closes now. The installer finishes the update."
+                : "Pentecost closes when the download is checked. Your worlds, mods and settings stay.";
+        g.pose().pushPose();
+        g.pose().scale(ui, ui, 1);
+        g.drawString(font, hint, (int) (width / ui / 2) - font.width(hint) / 2, (int) (height / ui) - 40, Ui.FAINT, false);
+        g.pose().popPose();
     }
 }

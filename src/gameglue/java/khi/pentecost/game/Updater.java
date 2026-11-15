@@ -7,7 +7,6 @@ import khi.pentecost.control.Settings;
 import khi.pentecost.update.ReleaseInfo;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.toasts.SystemToast;
-import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.network.chat.Component;
@@ -150,25 +149,31 @@ final class Updater {
         }
     }
 
-    /** "Update to X?" Nothing happens until the player says yes. */
+    /** The "Update to X?" screen. Nothing happens until the player says yes. */
     static void ask(Screen back) {
         ReleaseInfo r = release;
         Minecraft mc = Minecraft.getInstance();
         if (r == null || !available()) {
             return;
         }
-        mc.setScreen(new ConfirmScreen(yes -> {
-            if (yes) {
-                download(r);
-                mc.setScreen(new UpdateScreen(back));
-            } else {
-                mc.setScreen(back);
-            }
-        }, Component.literal("Update to Pentecost " + r.version() + "?"),
-                Component.literal("Pentecost downloads the new installer, then closes so it can install. "
-                        + "Start Pentecost again from the Minecraft Launcher when the installer says it is done. "
-                        + "Your worlds, mods and settings stay."),
-                Component.literal("Update"), Component.literal("Not now")));
+        mc.setScreen(new UpdatePromptScreen(back, r, () -> {
+            download(r);
+            mc.setScreen(new UpdateScreen(back));
+        }));
+    }
+
+    /** Test switch: the update prompt or the toast with made-up notes, so the look can be checked without a release. Downloads nothing. */
+    static Screen preview(Screen title, boolean prompt) {
+        ReleaseInfo fake = new ReleaseInfo("v9.9.9", "9.9.9",
+                "## What is new\n- A new video settings page with Embeddium and Oculus\n- A skin page with a rotating preview\n"
+                        + "- A new look for the installer\n\nFixes\n- The update toast waits while the mouse is over it",
+                "Pentecost-Installer-9.9.9.exe", "https://github.com/" + ReleaseInfo.REPO + "/releases/download/v9.9.9/x.exe",
+                "0".repeat(64), 56_000_000L);
+        if (!prompt) {
+            Minecraft.getInstance().execute(() -> Minecraft.getInstance().getToasts().addToast(new UpdateToast(fake)));
+            return title;
+        }
+        return new UpdatePromptScreen(title, fake, () -> Minecraft.getInstance().setScreen(title));
     }
 
     private static void download(ReleaseInfo r) {

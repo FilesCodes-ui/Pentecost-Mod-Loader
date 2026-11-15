@@ -27,6 +27,7 @@ public final class ModsScreens {
 
     private static boolean tested;
     private static boolean testedSettings;
+    private static boolean testedUpdate;
 
     private ModsScreens() {}
 
@@ -130,6 +131,13 @@ public final class ModsScreens {
             tested = true;
             Log.info("Test: opening the mods screen");
             return new PentecostModsScreen(incoming);
+        }
+        // Test switch: PENTECOST_TEST_SCREEN=update opens the update prompt with made-up release notes; updatetoast shows the toast.
+        if (!testedUpdate && incoming instanceof TitleScreen && ("update".equals(System.getenv("PENTECOST_TEST_SCREEN"))
+                || "updatetoast".equals(System.getenv("PENTECOST_TEST_SCREEN")))) {
+            testedUpdate = true;
+            Log.info("Test: showing the update " + ("update".equals(System.getenv("PENTECOST_TEST_SCREEN")) ? "prompt" : "toast"));
+            return Updater.preview(incoming, "update".equals(System.getenv("PENTECOST_TEST_SCREEN")));
         }
         // Online play is covered by the Minecraft EULA and Usage Guidelines: asked once, before sign in, whichever button leads there.
         if (EulaScreen.leadsOnline(name) && !EulaScreen.agreed()) {

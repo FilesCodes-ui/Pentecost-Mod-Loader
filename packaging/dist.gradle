@@ -78,9 +78,15 @@ tasks.register('installerZip', Zip) {
             from('assets/pentecost_still_256.png')
             into('shaderpack') { from('shaderpack') }
             into('lib') {
-                from(layout.buildDirectory.dir('dist/jars')) { exclude 'pentecost-gameglue-*', 'pentecost-forgeglue-*' }
+                // Only this version's jars. An older build's jars stay in dist/jars, and shipping them made the installer
+                // report the old version, so an update to it would never have counted as done.
+                from(layout.buildDirectory.dir('dist/jars')) { include "pentecost-${project.version}.jar" }
                 from(configurations.runtimeClasspath)
-                into('glue') { from(layout.buildDirectory.dir('dist/jars')) { include 'pentecost-gameglue-*', 'pentecost-forgeglue-*' } }
+                into('glue') {
+                    from(layout.buildDirectory.dir('dist/jars')) {
+                        include "pentecost-gameglue-${project.version}.jar", "pentecost-forgeglue-${project.version}.jar"
+                    }
+                }
             }
         }
     }

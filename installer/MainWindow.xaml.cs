@@ -26,6 +26,9 @@ public partial class MainWindow : Window
         VersionLabel.Text = version;
         RefreshHome();
         Closing += (_, _) => cts?.Cancel();
+        Opacity = 0;
+        Loaded += (_, _) => BeginAnimation(OpacityProperty,
+            new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(320)) { EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut } });
         if (update)
         {
             updating = true;
@@ -40,6 +43,7 @@ public partial class MainWindow : Window
     async Task RunUpdateAsync(int waitPid)
     {
         WorldsBox.IsChecked = false;
+        ProgWord.Text = "UPDATING";
         ProgTitle.Text = "Waiting for Pentecost to close";
         ProgDetail.Text = "";
         ProgPercent.Text = "";
@@ -62,7 +66,7 @@ public partial class MainWindow : Window
     {
         var installed = Setup.InstalledVersion(mc);
         var version = VersionLabel.Text;
-        HomeTitle.Text = installed == null ? "Install Pentecost" : installed == version ? "Reinstall Pentecost" : "Update Pentecost";
+        HomeWord.Text = installed == null ? "INSTALL" : installed == version ? "REINSTALL" : "UPDATE";
         HomeSub.Text = installed == null
             ? $"Version {version} for Minecraft 1.20.1"
             : $"Installed: {installed}. This installer has version {version}.";
@@ -92,7 +96,7 @@ public partial class MainWindow : Window
     {
         Bar.BeginAnimation(System.Windows.Controls.Primitives.RangeBase.ValueProperty,
             new DoubleAnimation(Math.Clamp(fraction, 0, 1), TimeSpan.FromMilliseconds(220)));
-        ProgPercent.Text = $"{(int)Math.Round(Math.Clamp(fraction, 0, 1) * 100)} %";
+        ProgPercent.Text = $"{(int)Math.Round(Math.Clamp(fraction, 0, 1) * 100)}%";
     }
 
     // ---------------------------------------------------------------- actions
@@ -101,11 +105,12 @@ public partial class MainWindow : Window
     {
         lastWasUninstall = uninstall;
         cts = new CancellationTokenSource();
-        ProgTitle.Text = uninstall ? "Removing Pentecost" : "Installing Pentecost";
+        ProgWord.Text = uninstall ? "REMOVING" : updating ? "UPDATING" : "INSTALLING";
+        ProgTitle.Text = "Getting ready";
         ProgDetail.Text = "";
         Bar.BeginAnimation(System.Windows.Controls.Primitives.RangeBase.ValueProperty, null);
         Bar.Value = 0;
-        ProgPercent.Text = "0 %";
+        ProgPercent.Text = "0%";
         Show(ProgressPanel);
 
         var progress = new Progress<Progress>(p =>
