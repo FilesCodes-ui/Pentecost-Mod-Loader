@@ -66,6 +66,9 @@ public final class PentecostMain {
             }
         }
         session = LaunchSession.parse(args);
+        if (session.real()) {
+            System.setProperty("pentecost.fromLauncher", "true");
+        }
         Log.info("Pentecost " + VERSION + " for Minecraft " + MINECRAFT + ", Java " + System.getProperty("java.version"));
         int exit = 0;
         try {

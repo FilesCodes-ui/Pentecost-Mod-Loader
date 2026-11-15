@@ -63,7 +63,10 @@ public final class Account {
     public static String verifyUrl() { return verifyUrl; }
     public static String name() { return name; }
     public static String uuid() { return uuid; }
-    public static boolean signedIn() { return state == State.IN; }
+    public static boolean signedIn() { return state == State.IN || launched(); }
+
+    /** True when a launcher (the official one, the Modrinth App) started the game with a real Minecraft session. */
+    public static boolean launched() { return System.getProperty("pentecost.fromLauncher") != null; }
     public static Source source() { return source; }
     /** What Minecraft Services said about the account, or null before the first answer. */
     public static AccountInfo info() { return info; }
