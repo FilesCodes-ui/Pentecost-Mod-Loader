@@ -67,7 +67,9 @@ public final class PentecostLoginScreen extends Screen {
                 y = lines(g, "Signed in with Microsoft. Multiplayer is open.", x, y, w, Ui.MUTED);
                 y += 14;
                 y = button(g, "Account details", x, y, mx, my, () -> minecraft.setScreen(new AccountScreen(this)));
-                y = button(g, "Developer tag: " + (PentecostDev.ownIsListed() ? "On" : "Off"), x, y, mx, my, PentecostDev::toggleOwn);
+                if (PentecostDev.ownIsOwner()) {
+                    y = button(g, "Developer tag: " + (PentecostDev.ownIsListed() ? "On" : "Off"), x, y, mx, my, PentecostDev::toggleOwn);
+                }
                 if (then != null) {
                     y = button(g, "Continue", x, y, mx, my, () -> minecraft.setScreen(then));
                 }

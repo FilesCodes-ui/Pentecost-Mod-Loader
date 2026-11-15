@@ -12,11 +12,12 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Who carries the [dev] tag. The list is the dev file in the game folder, plus the offline "Dev" player,
- * plus anyone another Pentecost client announces once WWLS can carry that message.
+ * Who carries the [dev] tag: only the owner's account, never anyone else. The owner can switch their own tag
+ * on and off. Nothing else grants it: not the dev file, not the offline "Dev" player, not another client's message.
  */
 public final class PentecostDev {
-    private static final String OFFLINE = "00000000000000000000000000000000";
+    /** The owner's Minecraft account id (Gabriel, The_Files), without dashes. */
+    private static final String OWNER = "808323d1022140ccb69bf8bcd0d16112";
     private static final Set<String> IDS = ConcurrentHashMap.newKeySet();
     private static boolean loaded;
 
@@ -40,7 +41,7 @@ public final class PentecostDev {
             if (Files.exists(f)) {
                 for (String line : Files.readAllLines(f)) {
                     String s = line.trim().replace("-", "").toLowerCase(Locale.ROOT);
-                    if (!s.isEmpty() && !s.startsWith("#")) {
+                    if (s.equals(OWNER)) {
                         IDS.add(s);
                     }
                 }
@@ -64,12 +65,12 @@ public final class PentecostDev {
         }
         load();
         String p = plain(id);
-        return p.equals(OFFLINE) || IDS.contains(p);
+        return p.equals(OWNER) && IDS.contains(p);
     }
 
     /** Another Pentecost client said this player is a dev. */
     public static void announced(UUID id) {
-        IDS.add(plain(id));
+        // Ignored on purpose: a message from another client proves nothing, so it can never grant the tag.
     }
 
     private static boolean Settings_on() {
@@ -82,6 +83,11 @@ public final class PentecostDev {
         return isDev(UUID.fromString(id));
     }
 
+    /** True only when the signed-in account is the owner's. The Developer tag button is shown only then. */
+    public static boolean ownIsOwner() {
+        return plain(Minecraft.getInstance().getUser().getProfileId()).equals(OWNER);
+    }
+
     public static boolean ownIsListed() {
         load();
         return IDS.contains(plain(Minecraft.getInstance().getUser().getProfileId()));
@@ -90,6 +96,9 @@ public final class PentecostDev {
     public static void toggleOwn() {
         load();
         String id = plain(Minecraft.getInstance().getUser().getProfileId());
+        if (!id.equals(OWNER)) {
+            return;
+        }
         if (!IDS.remove(id)) {
             IDS.add(id);
         }

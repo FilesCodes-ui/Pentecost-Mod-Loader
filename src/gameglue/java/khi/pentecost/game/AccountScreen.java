@@ -147,7 +147,7 @@ public final class AccountScreen extends Screen {
         int bx = margin;
         int by = y;
         String[] labels = {"Refresh", "Copy UUID", "Copy name", "NameMC page", "Edit profile",
-                "Developer tag: " + (PentecostDev.ownIsListed() ? "On" : "Off"),
+                PentecostDev.ownIsOwner() ? "Developer tag: " + (PentecostDev.ownIsListed() ? "On" : "Off") : null,
                 Account.source() == Account.Source.PENTECOST ? "Sign out" : null};
         Runnable[] actions = {
                 Account::refreshInfo,
