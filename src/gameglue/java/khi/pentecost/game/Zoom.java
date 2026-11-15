@@ -23,6 +23,7 @@ public final class Zoom {
     private static KeyMapping key;
     private static boolean ready;
     private static boolean failed;
+    private static boolean promptFailed;
     private static double current = 1.0;
     private static long last;
 
@@ -49,6 +50,7 @@ public final class Zoom {
         float s = slide();
         if (s <= 0.001f) {
             g.render(gg, partialTick);
+            WwlsPrompt.draw(gg);
             return;
         }
         if (s >= 0.999f) {
@@ -97,6 +99,14 @@ public final class Zoom {
             current = target;
         }
         ZoomHooks.factor = current;
+        if (!promptFailed) {
+            try {
+                WwlsPrompt.frame(mc);
+            } catch (RuntimeException e) {
+                promptFailed = true;
+                Log.error("The join prompt stopped: " + e);
+            }
+        }
     }
 
     private static void setUp(Minecraft mc) {

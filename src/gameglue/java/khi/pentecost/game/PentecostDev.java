@@ -63,9 +63,17 @@ public final class PentecostDev {
         if (id == null || !Settings_on()) {
             return false;
         }
-        load();
         String p = plain(id);
-        return p.equals(OWNER) && IDS.contains(p);
+        if (!p.equals(OWNER)) {
+            return false;
+        }
+        // On the owner's own game the tag follows the owner's switch. On everyone else's game it is always shown:
+        // Mojang has already checked the account id by the time the game knows it, so nobody else can carry it.
+        if (ownIsOwner()) {
+            load();
+            return IDS.contains(p);
+        }
+        return true;
     }
 
     /** Another Pentecost client said this player is a dev. */

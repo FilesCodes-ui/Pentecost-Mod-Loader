@@ -71,9 +71,40 @@ public final class WwlsScreen extends Screen {
     /** Tells the host that someone is waiting: a pop-up and a line in chat. Runs on the game's main thread. */
     private static void announce(Minecraft mc, JoinApprovals.Request r) {
         SystemToast.addOrUpdate(mc.getToasts(), SystemToast.SystemToastIds.PERIODIC_NOTIFICATION,
-                Component.literal(r.name() + " wants to join"), Component.literal("Open WWLS to let them in."));
+                Component.literal(r.name() + " wants to join"), Component.literal("Press Y to let them in, N for no."));
         mc.gui.getChat().addMessage(Component.literal("[Pentecost] " + r.name()
-                + " wants to join your world. Open WWLS to say yes or no."));
+                + " wants to join your world. Press Y to let them in, N to say no, O to open WWLS."));
+    }
+
+    /** Everyone waiting for an answer, oldest first. Empty when no world is open to friends. */
+    static List<JoinApprovals.Request> waitingList() {
+        JoinApprovals ap = approvals;
+        if (live() == null || ap == null) {
+            return List.of();
+        }
+        return ap.pending();
+    }
+
+    /** Says yes or no to the person who has waited longest. Used by the on-screen prompt. */
+    static void answer(boolean yes) {
+        JoinApprovals ap = approvals;
+        List<JoinApprovals.Request> list = waitingList();
+        if (ap == null || list.isEmpty()) {
+            return;
+        }
+        JoinApprovals.Request r = list.get(0);
+        if (yes) {
+            if (ap.approve(r.id())) {
+                status = r.name() + " can join now. Ask them to press Join again.";
+            }
+        } else {
+            ap.deny(r.id());
+            status = r.name() + " was turned away.";
+        }
+    }
+
+    static void open(Minecraft mc) {
+        mc.setScreen(new WwlsScreen(mc.screen));
     }
 
     // ---------------------------------------------------------------- actions

@@ -69,7 +69,7 @@ public final class TagHooks {
     private static final String OBJ = "Ljava/lang/Object;";
     private static final String COMPONENT = "net/minecraft/network/chat/Component";
 
-    private enum Kind { NAME_TAG, SHOW_NAME, TAB, DISPLAY_NAME }
+    private enum Kind { NAME_TAG, SHOW_NAME, TAB, DISPLAY_NAME, SOURCE_NAME }
 
     private record Target(String owner, String method, String desc, Kind kind) {}
 
@@ -86,6 +86,9 @@ public final class TagHooks {
                     "()Lnet/minecraft/network/chat/Component;", Kind.DISPLAY_NAME),
             new Target("net.minecraft.world.entity.player.Player", "getDisplayName",
                     "()Lnet/minecraft/network/chat/Component;", Kind.DISPLAY_NAME),
+            // Command feedback is "[name: did something]". The tag has its own brackets, so it stays off the name there.
+            new Target("net.minecraft.commands.CommandSourceStack", "getDisplayName",
+                    "()Lnet/minecraft/network/chat/Component;", Kind.SOURCE_NAME),
     };
 
     public static ClassTransformer transformer() {
@@ -167,6 +170,14 @@ public final class TagHooks {
                             w.visitTypeInsn(Opcodes.CHECKCAST, COMPONENT);
                             w.visitInsn(Opcodes.ARETURN);
                             w.visitMaxs(3, 1);
+                        }
+                        case SOURCE_NAME -> {
+                            w.visitVarInsn(Opcodes.ALOAD, 0);
+                            w.visitMethodInsn(Opcodes.INVOKEVIRTUAL, internal, kept, d, false);
+                            w.visitMethodInsn(Opcodes.INVOKESTATIC, HOOKS, "untag", "(" + OBJ + ")" + OBJ, false);
+                            w.visitTypeInsn(Opcodes.CHECKCAST, COMPONENT);
+                            w.visitInsn(Opcodes.ARETURN);
+                            w.visitMaxs(2, 1);
                         }
                     }
                     w.visitEnd();

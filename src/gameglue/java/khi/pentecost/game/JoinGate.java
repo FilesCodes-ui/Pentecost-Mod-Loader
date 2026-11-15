@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit;
  * second, long enough to be sent home and not long enough to do anything.
  */
 final class JoinGate {
-    private static final String WAIT = "The host has to say yes first, and was just asked. Try again in a minute.";
+    private static final String WAIT = "The host was just asked to let you in. When they say yes, press Join again.";
     private static final String NO = "The host did not let you in.";
     private static final String FULL = "Too many people are asking to join this world right now. Try again later.";
 
