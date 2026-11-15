@@ -68,7 +68,7 @@ public final class Settings {
     public static final String SOUND_LIMIT = "sound.limit";
 
     private static final Map<String, String> DEFAULTS = new java.util.HashMap<>(Map.of(
-            WINDOW, "windowed",
+            WINDOW, "borderless",
             MENUS, "true",
             GRAY_BUTTONS, "true",
             PATTERN, "true",
