@@ -82,6 +82,7 @@ public final class PentecostTitleScreen extends TitleScreen {
                 List.of("Pentecost " + PentecostMain.VERSION + "   " + SharedConstants.getCurrentVersion().getName()
                         + "   " + mods + " mods", "Copyright Mojang AB. Do not distribute!"),
                 MAIN, LINKS);
+        UpdateNotice.draw(this, g, mouseX, mouseY);
     }
 
     /** A dark gradient that fades out left to right, plus a light vignette top and bottom. */
@@ -99,6 +100,9 @@ public final class PentecostTitleScreen extends TitleScreen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (button == 0 && UpdateNotice.click(this, mouseX, mouseY)) {
+            return true;
+        }
         if (button == 0 && view.click(mouseX, mouseY)) {
             return true;
         }

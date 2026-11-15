@@ -150,7 +150,7 @@ final class Updater {
         t.start();
     }
 
-    /** Called every frame. Shows the toast once, when an update is known and a menu is open to click it. */
+    /** Called every frame. Hands the update to the main menu's notice once, when one is known. */
     static void frame() {
         Minecraft mc = Minecraft.getInstance();
         if (!startupDone && mc.screen != null && mc.getOverlay() == null) {
@@ -161,8 +161,8 @@ final class Updater {
         }
         if (mc.screen != null && mc.getOverlay() == null) {
             toasted = true;
-            note("Showing the update toast for " + release.version());
-            mc.getToasts().addToast(new UpdateToast(release));
+            note("Showing the update notice for " + release.version());
+            UpdateNotice.show(release);
         }
     }
 
@@ -179,7 +179,7 @@ final class Updater {
         }));
     }
 
-    /** Test switch: the update prompt or the toast with made-up notes, so the look can be checked without a release. Downloads nothing. */
+    /** Test switch: the update prompt or the main menu notice with made-up notes, so the look can be checked without a release. Downloads nothing. */
     static Screen preview(Screen title, boolean prompt) {
         ReleaseInfo fake = new ReleaseInfo("v9.9.9", "9.9.9",
                 "## What is new\n- A new video settings page with Embeddium and Oculus\n- A skin page with a rotating preview\n"
@@ -187,7 +187,7 @@ final class Updater {
                 "Pentecost-Installer-9.9.9.exe", "https://github.com/" + ReleaseInfo.REPO + "/releases/download/v9.9.9/x.exe",
                 "0".repeat(64), 56_000_000L);
         if (!prompt) {
-            Minecraft.getInstance().execute(() -> Minecraft.getInstance().getToasts().addToast(new UpdateToast(fake)));
+            UpdateNotice.show(fake);
             return title;
         }
         return new UpdatePromptScreen(title, fake, () -> Minecraft.getInstance().setScreen(title));
