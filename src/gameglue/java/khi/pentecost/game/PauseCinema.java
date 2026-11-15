@@ -77,6 +77,9 @@ public final class PauseCinema {
     private static final double LOOKAHEAD = 0.8;
     private static final double MAX_LEAD = 10.0;
     private static double velX, velY, velZ, leadX, leadY, leadZ;
+    // While the game is paused, and for a moment before it is, nothing the player was doing may carry into the camera.
+    private static double settle;
+    private static boolean wasPaused;
 
     private PauseCinema() {}
 
@@ -172,6 +175,8 @@ public final class PauseCinema {
             anchorSet = false;
             corrX = corrY = corrZ = 0;
             velX = velY = velZ = leadX = leadY = leadZ = 0;
+            settle = 0.3;
+            wasPaused = false;
             avoidAz = avoidUp = avoidAzT = avoidUpT = 0;
             avoidLocked = false;
             straightClear = 0;
@@ -259,7 +264,8 @@ public final class PauseCinema {
             // A jump bigger than any player flies in one frame is a teleport: the camera stays and the gap eases out.
             double jx = real.x - lastRealX, jy = real.y - lastRealY, jz = real.z - lastRealZ;
             double limit = 2.5 + 80 * dt;
-            if (jx * jx + jy * jy + jz * jz > limit * limit) {
+            boolean freezing = mc.isPaused() && !wasPaused;
+            if (freezing || jx * jx + jy * jy + jz * jz > limit * limit) {
                 corrX -= jx;
                 corrY -= jy;
                 corrZ -= jz;
@@ -272,6 +278,7 @@ public final class PauseCinema {
         lastRealX = real.x;
         lastRealY = real.y;
         lastRealZ = real.z;
+        wasPaused = mc.isPaused();
         Vec3 feet = new Vec3(real.x + corrX, real.y + corrY, real.z + corrZ);
         double eye = p.getEyeHeight();
         trackHeading(mc, p, dt);
@@ -402,6 +409,11 @@ public final class PauseCinema {
     /** Smooths the player's velocity and works out how far it carries the player in the look-ahead time. */
     private static void trackHeading(Minecraft mc, LocalPlayer p, double dt) {
         // From the game's own ticks, which are exact, not from frame to frame, which is noisy. Zero while the game is paused.
+        settle -= dt;
+        if (mc.isPaused() || settle > 0) {
+            velX = velY = velZ = leadX = leadY = leadZ = 0;
+            return;
+        }
         double tx = 0, ty = 0, tz = 0;
         if (!mc.isPaused()) {
             tx = (p.getX() - p.xo) * 20.0;
