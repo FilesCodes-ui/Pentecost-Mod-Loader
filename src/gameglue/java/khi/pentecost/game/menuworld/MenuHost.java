@@ -621,7 +621,9 @@ public final class MenuHost {
     }
 
     private static void failHard(Minecraft mc, Throwable t) {
-        Log.error("The live menu world stopped: " + t);
+        java.io.StringWriter trace = new java.io.StringWriter();
+        t.printStackTrace(new java.io.PrintWriter(trace));
+        Log.error("The live menu world stopped: " + trace);
         try {
             dropLive(mc);
         } catch (Throwable ignored) {
@@ -630,10 +632,9 @@ public final class MenuHost {
         wanted = false;
         sessionOff = true;
         state = State.FAILED;
-        message = "The live menu world stopped (" + t.getClass().getSimpleName() + ") and was turned off.";
-        MenuProfile p = profile();
-        p.enabled = false;
-        save();
+        message = "The live menu world stopped (" + t.getClass().getSimpleName() + ") and is off until the game restarts.";
+        // The setting stays on, so one failure does not switch the feature off for good. A crash that kills
+        // the game is still caught by the marker file.
     }
 
     // ------------------------------------------------------------------ every frame
