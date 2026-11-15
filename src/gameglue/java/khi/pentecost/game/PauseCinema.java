@@ -80,6 +80,13 @@ public final class PauseCinema {
     // While the game is paused, and for a moment before it is, nothing the player was doing may carry into the camera.
     private static double settle;
     private static boolean wasPaused;
+    // The spot the player stood at when the game froze. While the game is paused the player cannot move, but the game's
+    // frame fraction (getFrameTime) keeps cycling, so sampling the player with it makes the anchor wobble by up to a
+    // whole tick of movement. The camera is tied to this fixed spot for as long as the pause lasts.
+    private static Vec3 frozenAt;
+    // The opening glide: from rest, eased at both ends, from wherever the camera starts to the first shot.
+    private static final double INTRO = 2.4;
+    private static double introT, rad0, height0, aim0X, aim0Y, aim0Z, fov0;
 
     private PauseCinema() {}
 
@@ -177,6 +184,14 @@ public final class PauseCinema {
             velX = velY = velZ = leadX = leadY = leadZ = 0;
             settle = 0.3;
             wasPaused = false;
+            frozenAt = null;
+            introT = 0;
+            rad0 = rad;
+            height0 = height;
+            aim0X = aimX;
+            aim0Y = aimY;
+            aim0Z = aimZ;
+            fov0 = fov;
             avoidAz = avoidUp = avoidAzT = avoidUpT = 0;
             avoidLocked = false;
             straightClear = 0;
@@ -258,14 +273,28 @@ public final class PauseCinema {
     private static void apply(Minecraft mc, double dt) {
         LocalPlayer p = mc.player;
         Vec3 real = p.getPosition(mc.getFrameTime());
+        if (mc.isPaused()) {
+            if (frozenAt == null) {
+                // the spot the player was last drawn at before the game froze
+                frozenAt = anchorSet ? new Vec3(lastRealX, lastRealY, lastRealZ) : real;
+            }
+            real = frozenAt;
+        } else {
+            frozenAt = null;
+        }
         if (!anchorSet) {
             anchorSet = true;
         } else {
             // A jump bigger than any player flies in one frame is a teleport: the camera stays and the gap eases out.
             double jx = real.x - lastRealX, jy = real.y - lastRealY, jz = real.z - lastRealZ;
             double limit = 2.5 + 80 * dt;
-            boolean freezing = mc.isPaused() && !wasPaused;
-            if (freezing || jx * jx + jy * jy + jz * jz > limit * limit) {
+            // The game freezing or resuming moves the player's drawn spot in one step, because it is drawn at a different
+            // frame fraction. That step is eased out, not shown as a jump, and the player's speed is ignored for a moment.
+            boolean pauseChanged = mc.isPaused() != wasPaused;
+            if (pauseChanged) {
+                settle = Math.max(settle, 0.3);
+            }
+            if (pauseChanged || jx * jx + jy * jy + jz * jz > limit * limit) {
                 corrX -= jx;
                 corrY -= jy;
                 corrZ -= jz;
@@ -371,12 +400,25 @@ public final class PauseCinema {
             avoidAz -= dAz;
             avoidAzT -= dAz;
         }
-        rad += (tRad - rad) * blend(dt, TAU_DISTANCE);
-        height += (tHeight - height) * blend(dt, TAU_DISTANCE);
-        aimX += (tAimX - aimX) * blend(dt, TAU_AIM);
-        aimY += (tAimY - aimY) * blend(dt, TAU_AIM);
-        aimZ += (tAimZ - aimZ) * blend(dt, TAU_AIM);
-        fov += (tFov - fov) * blend(dt, TAU_FOV);
+        introT += dt;
+        if (introT < INTRO) {
+            // The opening glide runs from rest to the shot: no starting speed and no long creeping tail.
+            double k = introT / INTRO;
+            double ie = k * k * (3 - 2 * k);
+            rad = Mth.lerp(ie, rad0, tRad);
+            height = Mth.lerp(ie, height0, tHeight);
+            aimX = Mth.lerp(ie, aim0X, tAimX);
+            aimY = Mth.lerp(ie, aim0Y, tAimY);
+            aimZ = Mth.lerp(ie, aim0Z, tAimZ);
+            fov = Mth.lerp(ie, fov0, tFov);
+        } else {
+            rad += (tRad - rad) * blend(dt, TAU_DISTANCE);
+            height += (tHeight - height) * blend(dt, TAU_DISTANCE);
+            aimX += (tAimX - aimX) * blend(dt, TAU_AIM);
+            aimY += (tAimY - aimY) * blend(dt, TAU_AIM);
+            aimZ += (tAimZ - aimZ) * blend(dt, TAU_AIM);
+            fov += (tFov - fov) * blend(dt, TAU_FOV);
+        }
 
         avoid(mc, feet, eye, dt);
         double ba = blend(dt, 0.9);
