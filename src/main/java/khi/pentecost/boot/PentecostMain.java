@@ -30,7 +30,8 @@ import java.util.List;
  */
 public final class PentecostMain {
     public static final String MINECRAFT = "1.20.1";
-    public static final String VERSION = "0.3.0";
+    /** The build's version. Read from a resource the build writes, so it cannot drift from the jar's real version. */
+    public static final String VERSION = readVersion();
 
     private static List<ModInfo> mods = List.of();
     private static GameClassLoader loader;
@@ -40,6 +41,18 @@ public final class PentecostMain {
     private static final java.util.Set<String> COMMANDS = java.util.Set.of("install", "check", "launch", "fetch", "verify", "setup");
 
     private PentecostMain() {}
+
+    private static String readVersion() {
+        try (java.io.InputStream in = PentecostMain.class.getResourceAsStream("version.txt")) {
+            if (in != null) {
+                String v = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).trim();
+                if (!v.isEmpty()) return v;
+            }
+        } catch (java.io.IOException e) {
+            // falls through to the development marker
+        }
+        return "0.0.0-dev";
+    }
 
     public static void main(String[] args) {
         String command = "launch";

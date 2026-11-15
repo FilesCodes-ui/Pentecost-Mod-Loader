@@ -54,6 +54,7 @@ tasks.named('run') {
 
 test {
     useJUnitPlatform()
+    systemProperty 'pentecost.expectedVersion', project.version.toString()
 }
 
 ['Fabric', 'Forge', 'Quilt'].each { n ->
@@ -175,5 +176,18 @@ pentecostExec('verifyTarget', ['verify', '--mods', file('cache/testmods/target')
 pentecostExec('verifyTargetForge', ['verify', '--forge', '--mods', file('cache/testmods/target').path])
 pentecostExec('verifyMods', ['verify', '--mods', file('cache/testmods/fabric').path, '--mods', file('cache/testmods/forge').path])
  
+// The version the game reports comes from here (build.gradle's version), written into the main jar as boot/version.txt.
+def versionDir = layout.buildDirectory.dir('generated/version')
+def writeVersion = tasks.register('writeVersion') {
+    def out = versionDir.map { it.file('khi/pentecost/boot/version.txt') }
+    inputs.property('version', project.version.toString())
+    outputs.file(out)
+    doLast {
+        out.get().asFile.parentFile.mkdirs()
+        out.get().asFile.text = project.version.toString()
+    }
+}
+sourceSets.main.output.dir(versionDir, builtBy: writeVersion)
+
 apply from: 'tools/pregen.gradle'
 apply from: 'packaging/dist.gradle'
