@@ -110,8 +110,8 @@ if ($secure) { $cp = $cp + ';' + (Join-Path $secure.FullName '*') }
 
 $jvm = @($mem) + @(
     "-Dpentecost.home=$PentecostHome",
-    "-Dpentecost.gameglue=$(Join-Path $lib "pentecost-gameglue-$version.jar")",
-    "-Dpentecost.forgeglue=$(Join-Path $lib "pentecost-forgeglue-$version.jar")",
+    "-Dpentecost.gameglue=$(Join-Path $lib "glue\pentecost-gameglue-$version.jar")",
+    "-Dpentecost.forgeglue=$(Join-Path $lib "glue\pentecost-forgeglue-$version.jar")",
     '--add-opens', 'java.base/java.lang.invoke=ALL-UNNAMED',
     '--add-opens', 'java.base/java.util.jar=ALL-UNNAMED',
     '--add-opens', 'java.base/java.lang=ALL-UNNAMED',

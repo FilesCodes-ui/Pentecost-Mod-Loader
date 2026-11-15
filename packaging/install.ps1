@@ -116,8 +116,8 @@ Write-Host '  program files copied'
 # The launcher version. It builds on vanilla 1.20.1 for the launcher's own bookkeeping, then replaces the main class and
 # the class path, so the game itself is started by Pentecost. The class path is given with absolute paths. The launcher puts
 # its own -cp first and Java uses the LAST -cp, so this one wins and the vanilla jar stays off the class path.
-$gameglue = Join-Path $lib "pentecost-gameglue-$Version.jar"
-$forgeglue = Join-Path $lib "pentecost-forgeglue-$Version.jar"
+$gameglue = Join-Path $lib "glue\pentecost-gameglue-$Version.jar"
+$forgeglue = Join-Path $lib "glue\pentecost-forgeglue-$Version.jar"
 $now = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
 $jvm = @(
     "-Dpentecost.home=$PentecostHome",

@@ -161,8 +161,8 @@ public static class Setup
         var jvm = new JsonArray
         {
             $"-Dpentecost.home={home}",
-            $"-Dpentecost.gameglue={Path.Combine(lib, $"pentecost-gameglue-{version}.jar")}",
-            $"-Dpentecost.forgeglue={Path.Combine(lib, $"pentecost-forgeglue-{version}.jar")}",
+            $"-Dpentecost.gameglue={Path.Combine(lib, "glue", $"pentecost-gameglue-{version}.jar")}",
+            $"-Dpentecost.forgeglue={Path.Combine(lib, "glue", $"pentecost-forgeglue-{version}.jar")}",
             "--add-opens", "java.base/java.lang.invoke=ALL-UNNAMED",
             "--add-opens", "java.base/java.util.jar=ALL-UNNAMED",
             "--add-opens", "java.base/java.lang=ALL-UNNAMED",

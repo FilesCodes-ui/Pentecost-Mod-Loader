@@ -78,8 +78,9 @@ tasks.register('installerZip', Zip) {
             from('assets/pentecost_still_256.png')
             into('shaderpack') { from('shaderpack') }
             into('lib') {
-                from(layout.buildDirectory.dir('dist/jars'))
+                from(layout.buildDirectory.dir('dist/jars')) { exclude 'pentecost-gameglue-*', 'pentecost-forgeglue-*' }
                 from(configurations.runtimeClasspath)
+                into('glue') { from(layout.buildDirectory.dir('dist/jars')) { include 'pentecost-gameglue-*', 'pentecost-forgeglue-*' } }
             }
         }
     }
