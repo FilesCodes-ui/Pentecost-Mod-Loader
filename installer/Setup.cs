@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -117,37 +118,70 @@ public static class Setup
         return new InstallResult(version, failed);
     }
 
-    static void ExtractTo(ZipArchiveEntry e, string root, string relative)
+    static bool ExtractTo(ZipArchiveEntry e, string root, string relative)
     {
         var rootFull = Path.GetFullPath(root);
         var dest = Path.GetFullPath(Path.Combine(rootFull, relative.Replace('/', Path.DirectorySeparatorChar)));
         if (!dest.StartsWith(rootFull + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             throw new SetupException("The installer holds an unsafe file path. Download it again.");
+        if (SameContent(e, dest)) return false;
         Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
         e.ExtractToFile(dest, true);
+        return true;
+    }
+
+    static bool SameContent(ZipArchiveEntry e, string file)
+    {
+        var info = new FileInfo(file);
+        if (!info.Exists || info.Length != e.Length) return false;
+        try
+        {
+            using var a = e.Open();
+            using var b = File.OpenRead(file);
+            return SHA256.HashData(a).AsSpan().SequenceEqual(SHA256.HashData(b));
+        }
+        catch (IOException) { return false; }
     }
 
     static void CopyPayload(string home, string version)
     {
         Directory.CreateDirectory(home);
-        // The old jars go first so versions do not pile up. Worlds, mods and settings (run\) and downloads (cache\) stay.
-        foreach (var d in new[] { "lib", "shaderpack" })
+        // Only files that differ from the installer's copy are written. Nothing in the Pentecost folder is deleted
+        // except old jars in lib\ (see below), so worlds, mods, settings, downloads and edits to shaderpack\ all stay.
+        var wanted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var written = 0;
+        using (var zip = new ZipArchive(OpenPayload(), ZipArchiveMode.Read))
         {
-            var p = Path.Combine(home, d);
-            if (Directory.Exists(p)) Directory.Delete(p, true);
+            foreach (var e in zip.Entries)
+            {
+                var n = Norm(e.FullName);
+                if (n.EndsWith('/')) continue;
+                string? rel = null;
+                if (n.StartsWith("payload/")) rel = n["payload/".Length..];
+                else if (n is "LICENSE.txt" or "THIRD-PARTY-NOTICES.txt") rel = n;
+                if (rel == null) continue;
+                wanted.Add(rel);
+                if (ExtractTo(e, home, rel)) written++;
+            }
         }
-        using var zip = new ZipArchive(OpenPayload(), ZipArchiveMode.Read);
-        foreach (var e in zip.Entries)
+        // The launcher loads lib\* as one class path, so a jar from an older version would be loaded next to the new one.
+        // Jars the new version does not ship are the only thing removed.
+        var removed = 0;
+        var lib = Path.Combine(home, "lib");
+        if (Directory.Exists(lib))
         {
-            var n = Norm(e.FullName);
-            if (n.EndsWith('/')) continue;
-            string? rel = null;
-            if (n.StartsWith("payload/")) rel = n["payload/".Length..];
-            else if (n is "LICENSE.txt" or "THIRD-PARTY-NOTICES.txt") rel = n;
-            if (rel != null) ExtractTo(e, home, rel);
+            foreach (var f in Directory.GetFiles(lib, "*.jar", SearchOption.AllDirectories))
+            {
+                var rel = Path.GetRelativePath(home, f).Replace('\\', '/');
+                if (wanted.Contains(rel)) continue;
+                File.Delete(f);
+                removed++;
+            }
         }
+        // version.txt goes last, so an install that stopped halfway still counts as the old version and can be run again.
         File.WriteAllText(Path.Combine(home, "version.txt"), version, Encoding.ASCII);
         Directory.CreateDirectory(Path.Combine(home, "run", "mods"));
+        Log.Write($"files: {written} written, {wanted.Count - written} already current, {removed} old jars removed");
     }
 
     static string Now() => DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'");
@@ -228,30 +262,40 @@ public static class Setup
             root["profiles"] = profiles;
         }
         var now = Now();
-        if (profiles[ProfileKey] is JsonObject entry)
+        if (profiles[ProfileKey] is JsonObject existing)
         {
-            Log.Write("existing profile updated");
-        }
-        else
-        {
-            var (heap, young) = MemoryTier();
-            entry = new JsonObject
+            // An update only points the profile at the new version. Its name, icon, Java arguments and last-used time
+            // stay as the player has them, and the launcher's file is not written at all when nothing would change.
+            var changed = false;
+            if (existing["lastVersionId"]?.ToString() != versionId) { existing["lastVersionId"] = versionId; changed = true; }
+            if (!string.Equals(existing["gameDir"]?.ToString(), home, StringComparison.OrdinalIgnoreCase)) { existing["gameDir"] = home; changed = true; }
+            if (!changed)
             {
-                ["name"] = "Pentecost",
-                ["type"] = "custom",
-                ["created"] = now,
-                ["javaArgs"] = $"-Xms{heap}G -Xmx{heap}G -Xmn{young}G -XX:-DontCompileHugeMethods",
-            };
-            var png = Path.Combine(home, "pentecost_still_256.png");
-            entry["icon"] = File.Exists(png) && new FileInfo(png).Length < 80000
-                ? "data:image/png;base64," + Convert.ToBase64String(File.ReadAllBytes(png))
-                : "Furnace";
-            profiles[ProfileKey] = entry;
-            Log.Write($"profile added, heap {heap} G");
+                Log.Write("existing profile already current, launcher_profiles.json not written");
+                return;
+            }
+            Log.Write("existing profile updated");
+            SaveProfiles(mc, root);
+            return;
         }
+
+        var (heap, young) = MemoryTier();
+        var entry = new JsonObject
+        {
+            ["name"] = "Pentecost",
+            ["type"] = "custom",
+            ["created"] = now,
+            ["javaArgs"] = $"-Xms{heap}G -Xmx{heap}G -Xmn{young}G -XX:-DontCompileHugeMethods",
+        };
+        var png = Path.Combine(home, "pentecost_still_256.png");
+        entry["icon"] = File.Exists(png) && new FileInfo(png).Length < 80000
+            ? "data:image/png;base64," + Convert.ToBase64String(File.ReadAllBytes(png))
+            : "Furnace";
         entry["lastVersionId"] = versionId;
         entry["gameDir"] = home;
         entry["lastUsed"] = now;
+        profiles[ProfileKey] = entry;
+        Log.Write($"profile added, heap {heap} G");
         SaveProfiles(mc, root);
     }
 
