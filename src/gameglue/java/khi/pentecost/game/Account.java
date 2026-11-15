@@ -61,13 +61,24 @@ public final class Account {
     public static String message() { return message; }
     public static String userCode() { return userCode; }
     public static String verifyUrl() { return verifyUrl; }
-    public static String name() { return name; }
-    public static String uuid() { return uuid; }
+    /** The signed in name. For a launcher session that was not adopted (so name is empty) it is the game's own user, never blank. */
+    public static String name() { return name.isBlank() && launched() ? launchUser(true) : name; }
+    public static String uuid() { return uuid.isBlank() && launched() ? launchUser(false) : uuid; }
+
+    private static String launchUser(boolean wantName) {
+        try {
+            User u = Minecraft.getInstance().getUser();
+            String s = wantName ? u.getName() : u.getUuid();
+            return s == null ? "" : s;
+        } catch (RuntimeException e) {
+            return "";
+        }
+    }
     public static boolean signedIn() { return state == State.IN || launched(); }
 
     /** True when a launcher (the official one, the Modrinth App) started the game with a real Minecraft session. */
     public static boolean launched() { return System.getProperty("pentecost.fromLauncher") != null; }
-    public static Source source() { return source; }
+    public static Source source() { return source == Source.NONE && launched() ? Source.LAUNCHER : source; }
     /** What Minecraft Services said about the account, or null before the first answer. */
     public static AccountInfo info() { return info; }
     public static boolean infoLoading() { return infoLoading; }
@@ -248,7 +259,7 @@ public final class Account {
 
     /** Loads the account details (and the skin, once) in the background. Does nothing while a load runs. */
     public static void refreshInfo() {
-        if (infoLoading || state != State.IN) {
+        if (infoLoading || (state != State.IN && !launched())) {
             return;
         }
         infoLoading = true;

@@ -89,8 +89,23 @@ final class Updater {
             return;
         }
         startupDone = true;
-        if (Settings.on(Settings.UPDATE_CHECK)) {
+        boolean on = Settings.on(Settings.UPDATE_CHECK);
+        note("Startup check is " + (on ? "on" : "off") + ", installed version " + PentecostMain.VERSION);
+        if (on) {
             check(false);
+        }
+    }
+
+    /** One line in pentecost-update.log in the game folder, so a missing toast can be explained afterwards. */
+    private static void note(String line) {
+        Log.info("Updates: " + line);
+        try {
+            java.nio.file.Path dir = Minecraft.getInstance().gameDirectory.toPath();
+            java.nio.file.Files.writeString(dir.resolve("pentecost-update.log"),
+                    java.time.LocalDateTime.now().withNano(0) + "  " + line + System.lineSeparator(),
+                    java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+        } catch (java.io.IOException | RuntimeException e) {
+            // The note is only a help. Never let it get in the way.
         }
     }
 
@@ -114,6 +129,7 @@ final class Updater {
                     throw new IOException(r.statusCode() == 403 ? "GitHub says too many checks, try later" : "GitHub answered " + r.statusCode());
                 }
                 ReleaseInfo info = ReleaseInfo.parse(r.body());
+                note("GitHub's newest release is " + info.version() + ", installed " + PentecostMain.VERSION);
                 if (ReleaseInfo.newer(info.version(), PentecostMain.VERSION)) {
                     release = info;
                     phase = Phase.AVAILABLE;
@@ -124,7 +140,7 @@ final class Updater {
             } catch (IOException | RuntimeException e) {
                 message = "Could not check: " + (e.getMessage() == null ? "no reason given" : e.getMessage());
                 phase = Phase.FAILED;
-                Log.info("Update check failed: " + e.getMessage());
+                note("Update check failed: " + e);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 phase = Phase.IDLE;
@@ -137,7 +153,7 @@ final class Updater {
     /** Called every frame. Shows the toast once, when an update is known and a menu is open to click it. */
     static void frame() {
         Minecraft mc = Minecraft.getInstance();
-        if (!startupDone && mc.screen instanceof TitleScreen && mc.getOverlay() == null) {
+        if (!startupDone && mc.screen != null && mc.getOverlay() == null) {
             startupCheck();
         }
         if (toasted || !available()) {
@@ -145,6 +161,7 @@ final class Updater {
         }
         if (mc.screen != null && mc.getOverlay() == null) {
             toasted = true;
+            note("Showing the update toast for " + release.version());
             mc.getToasts().addToast(new UpdateToast(release));
         }
     }
