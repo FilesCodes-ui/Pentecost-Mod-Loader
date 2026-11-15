@@ -1594,7 +1594,10 @@ public final class PentecostSettingsScreen extends Screen {
                         }),
                 settingSlider("Strength", "How solid the box is. The game's own is 40 percent. "
                         + "Raise it to see blocks in dark caves and bright snow.", "Now",
-                        Settings.OUTLINE_ALPHA, 40, 0, 100, 5, "%", null))));
+                        Settings.OUTLINE_ALPHA, 40, 0, 100, 5, "%", null))),
+                new Folder("Creative inventory", List.of(
+                        optionToggle("Operator items tab", "Show the Operator Items tab in the creative inventory: command blocks, structure blocks, barriers and light blocks. You need to be an operator and in creative mode.",
+                                minecraft.options.operatorItemsTab()))));
     }
 
     private List<Folder> serverFolders() {

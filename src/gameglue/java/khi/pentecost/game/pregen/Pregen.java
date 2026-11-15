@@ -59,7 +59,9 @@ public final class Pregen {
         if (++sinceCheck >= 200) {
             sinceCheck = 0;
             ensureCommand(server); // a /reload throws registered commands away, so look again now and then
+            khi.pentecost.game.qol.Qol.ensure(server);
         }
+        khi.pentecost.game.qol.Qol.tick(server);
         boolean following = FlightFollow.tick(server);
         boolean running = false;
         for (ChunkPregen run : RUNS.values()) {

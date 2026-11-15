@@ -300,6 +300,15 @@ public final class ChatHooks {
                                 changed[0] = true;
                                 return;
                             }
+                            if (component && op == Opcodes.INVOKEVIRTUAL && owner.equals(GRAPHICS) && mname.equals("guiHeight")
+                                    && desc.equals("()I")) {
+                                // In 1.20.1 the chat window draws its lines up from the graphics height, not the window's, so this is
+                                // the call that lifts the lines above the tabs and the hotbar when the chat input opens.
+                                super.visitMethodInsn(op, owner, mname, desc, itf);
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, HOOKS, "chatHeight", "(I)I", false);
+                                changed[0] = true;
+                                return;
+                            }
                             if (sugg && op == Opcodes.INVOKEVIRTUAL && owner.equals(GRAPHICS) && mname.equals("fill")
                                     && desc.equals("(IIIII)V")) {
                                 super.visitMethodInsn(Opcodes.INVOKESTATIC, HOOKS, "suggestFill", "(" + OBJ + "IIIII)V", false);
