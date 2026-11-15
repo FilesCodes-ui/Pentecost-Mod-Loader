@@ -66,6 +66,8 @@ public final class Settings {
     public static final String SOUND_MUTED = "sound.muted";
     public static final String SOUND_GAP = "sound.gap";
     public static final String SOUND_LIMIT = "sound.limit";
+    /** Pentecost looks at GitHub once at startup for a newer release and shows a toast. Nothing downloads until the player asks. */
+    public static final String UPDATE_CHECK = "updates.check";
 
     private static final Map<String, String> DEFAULTS = new java.util.HashMap<>(Map.of(
             WINDOW, "borderless",
@@ -84,6 +86,7 @@ public final class Settings {
         DEFAULTS.put(PAUSE_CAMERA_STYLE, "cinematic");
         DEFAULTS.put(NAME_TAGS, "pentecost");
         DEFAULTS.put(TAG_LENGTH, "auto");
+        DEFAULTS.put(UPDATE_CHECK, "true");
     }
 
     private static final Map<String, String> VALUES = new TreeMap<>();

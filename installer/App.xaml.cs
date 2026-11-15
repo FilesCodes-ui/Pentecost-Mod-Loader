@@ -11,6 +11,8 @@ public partial class App : Application
     ///   --install | --uninstall  run without a window; the exit code is 0 when it worked
     ///   --no-worlds            with --install: skip the main menu worlds
     ///   --remove-data          with --uninstall: also delete worlds, mods and settings
+    ///   --update               started by the game: wait for it to close, then reinstall without asking and without the worlds
+    ///   --wait PID             with --update: the process id of the game to wait for
     ///   --ui-selftest          open the window for two seconds and close it
     /// </summary>
     protected override void OnStartup(StartupEventArgs e)
@@ -22,6 +24,10 @@ public partial class App : Application
         for (var i = 0; i < args.Length - 1; i++)
             if (args[i].Equals("--minecraft-dir", StringComparison.OrdinalIgnoreCase)) mc = args[i + 1];
 
+        var waitPid = -1;
+        for (var i = 0; i < args.Length - 1; i++)
+            if (args[i].Equals("--wait", StringComparison.OrdinalIgnoreCase) && int.TryParse(args[i + 1], out var pid)) waitPid = pid;
+
         DispatcherUnhandledException += OnUnhandled;
 
         if (Has("--install") || Has("--uninstall"))
@@ -30,7 +36,7 @@ public partial class App : Application
             return;
         }
 
-        var window = new MainWindow(mc);
+        var window = new MainWindow(mc, Has("--update"), waitPid);
         MainWindow = window;
         window.Show();
 

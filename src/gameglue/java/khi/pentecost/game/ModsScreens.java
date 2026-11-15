@@ -38,6 +38,7 @@ public final class ModsScreens {
             Zoom.frame();
             Stall.frame();
             Account.frame();
+            Updater.frame();
             WindowIcon.frame();
             testPause();
             khi.pentecost.game.menuworld.MenuHost.release(Minecraft.getInstance());

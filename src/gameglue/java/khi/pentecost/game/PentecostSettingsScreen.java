@@ -76,6 +76,16 @@ public final class PentecostSettingsScreen extends Screen {
         static Row pick(String title, String note, BooleanSupplier on, Runnable action) {
             return new Row(Kind.PICK, title, note, note, "Now", null, on, action, null, () -> true);
         }
+
+        /** A line whose value changes while the screen is open. */
+        static Row live(String title, String note, Supplier<String> value) {
+            return new Row(Kind.INFO, title, note, note, "", value, null, null, null, () -> true);
+        }
+
+        /** A button with its own label that can switch itself off. */
+        static Row act(String title, String note, String label, BooleanSupplier enabled, Runnable action) {
+            return new Row(Kind.BUTTON, title, note, note, "", () -> label, null, action, null, enabled);
+        }
     }
 
     private record Folder(String name, List<Row> rows) {}
@@ -126,7 +136,16 @@ public final class PentecostSettingsScreen extends Screen {
                 () -> List.of(new Folder("About", List.of(
                         Row.info("Pentecost", PentecostMain.VERSION),
                         Row.info("Minecraft", SharedConstants.getCurrentVersion().getName()),
-                        Row.info("Java", System.getProperty("java.version"))))),
+                        Row.info("Java", System.getProperty("java.version")))),
+                        new Folder("Updates", List.of(
+                                Row.live("Status", "What the last look at GitHub found.", Updater::statusText),
+                                Row.toggle("Look for updates at startup", "Pentecost asks GitHub once when the main menu shows. "
+                                        + "Nothing downloads until you press Update.", "Next start",
+                                        () -> Settings.on(Settings.UPDATE_CHECK), () -> Settings.toggle(Settings.UPDATE_CHECK)),
+                                Row.act("Check now", "Ask GitHub for the newest release.", "Check",
+                                        () -> !Updater.busy(), () -> Updater.check(true)),
+                                Row.act("Install the update", "Downloads the new installer, checks it, then closes the game so it can install.",
+                                        "Update", Updater::available, () -> Updater.ask(this))))),
                 List.of(),
                 () -> List.of(
                         new Shortcut("Game folder", () -> Util.getPlatform().openFile(mc.gameDirectory)),
@@ -189,9 +208,9 @@ public final class PentecostSettingsScreen extends Screen {
                                             default -> "short";
                                         }))))),
                 List.of("Boot splash style", "Text size"), List::of));
-        pages.add(new Page("Video", "The game's video options, from Embeddium when it is installed. Changes apply at once.",
+        pages.add(new Page("Video", "Your video options. Embeddium adds many more when it is installed. Changes apply at once.",
                 this::videoFolders, List.of(), this::videoShortcuts));
-        pages.add(new Page("Shaders", "Pick a shader pack, or Off. Pentecost drives Oculus (Forge) or Iris (Fabric).",
+        pages.add(new Page("Shaders", "Pick a shader pack, or Off. Pentecost drives Oculus. It is not compatible with Sodium or Iris.",
                 this::shaderFolders, List.of(), this::shaderShortcuts));
         pages.add(new Page("Shader pack", "The options of the pack in use, grouped the way the pack groups them. "
                 + "Changes wait until you press Apply, then the pack reloads once.",
@@ -914,9 +933,7 @@ public final class PentecostSettingsScreen extends Screen {
     private List<Folder> videoFolders() {
         List<Folder> out = new ArrayList<>();
         if (!ExternalOptions.hasEmbeddium()) {
-            out.add(new Folder("Video", List.of(Row.button("Video settings", "The game's own video settings.",
-                    () -> minecraft.setScreen(new net.minecraft.client.gui.screens.VideoSettingsScreen(this, minecraft.options))))));
-            return out;
+            return nativeVideoFolders();
         }
         embeddium = ExternalOptions.embeddiumScreen(this);
         for (ExternalOptions.VideoPage vp : ExternalOptions.pages(embeddium)) {
@@ -935,7 +952,108 @@ public final class PentecostSettingsScreen extends Screen {
     private List<Shortcut> videoShortcuts() {
         return ExternalOptions.hasEmbeddium()
                 ? List.of(new Shortcut("Embeddium's own screen", () -> ExternalOptions.openEmbeddium(this)))
-                : List.of();
+                : List.of(new Shortcut("Install Embeddium", () -> askInstall(OptionalMods.EMBEDDIUM, "Embeddium",
+                        "Embeddium makes the game render faster and adds many more video options to this page. "
+                                + "Pentecost downloads it from Modrinth into your mods folder. Restart Pentecost afterwards.")));
+    }
+
+    // ---------------------------------------------------------------- video without Embeddium
+
+    private static final String NOT_SODIUM = "Pentecost is not compatible with Sodium or Iris. Use Embeddium and Oculus.";
+
+    /** Pentecost's own video options, drawn from the game's settings. They need no other mod. */
+    private List<Folder> nativeVideoFolders() {
+        Options o = minecraft.options;
+        int maxDistance = minecraft.is64Bit() ? 32 : 16;
+        int maxScale = Math.max(1, minecraft.getWindow().calculateScale(0, minecraft.isEnforceUnicode()));
+        Row brightness = new Row(Kind.SLIDER, "Brightness", "How bright dark places are. Moody is the game's normal look.", "", "Now",
+                () -> brightnessText((int) Math.round(o.gamma().get() * 100)), null, null,
+                new Slider(0, 100, 1, () -> (int) Math.round(o.gamma().get() * 100), n -> {
+                    o.gamma().set(n / 100.0);
+                    optionsDirty = true;
+                }, () -> brightnessText((int) Math.round(o.gamma().get() * 100))), () -> true);
+        List<Folder> out = new ArrayList<>();
+        out.add(new Folder("Quality", List.of(
+                enumOptionText("Graphics", "Fast is the lightest. Fancy adds clearer leaves and water. Fabulous adds the most depth and costs the most.",
+                        o.graphicsMode(), g -> switch (g) {
+                            case FAST -> "Fast";
+                            case FANCY -> "Fancy";
+                            default -> "Fabulous";
+                        }),
+                intOptionText("Render distance", "How many chunks you can see. Lower is faster.", o.renderDistance(), 2, maxDistance, 1,
+                        n -> n + " chunks"),
+                intOptionText("Simulation distance", "How far from you the world keeps running: crops, mobs and fire.",
+                        o.simulationDistance(), 5, maxDistance, 1, n -> n + " chunks"),
+                optionToggle("Smooth lighting", "Softer shading on blocks. Off is a little faster.", o.ambientOcclusion()),
+                enumOption("Clouds", "Off, Fast or Fancy clouds.", o.cloudStatus()),
+                enumOption("Particles", "How many particles the game draws.", o.particles()),
+                intOptionText("Biome blend", "How smoothly colors change where biomes meet.", o.biomeBlendRadius(), 0, 7, 1,
+                        n -> n == 0 ? "Off" : (2 * n + 1) + "x" + (2 * n + 1)),
+                intOptionText("Mipmap levels", "Smoother far-away textures. Needs a resource reload to show.", o.mipmapLevels(), 0, 4, 1,
+                        n -> n == 0 ? "Off" : String.valueOf(n)),
+                optionToggle("Entity shadows", "Soft shadows under mobs and players.", o.entityShadows()),
+                numberOption("Entity distance", "How far away mobs and other entities are still drawn.", o.entityDistanceScaling(), 100, 50, 500, "%"))));
+        out.add(new Folder("Display", List.of(
+                intOptionText("Max framerate", "The most frames per second the game draws.", o.framerateLimit(), 10, 260, 10,
+                        n -> n >= 260 ? "Unlimited" : n + " fps"),
+                optionToggle("VSync", "Matches the screen's refresh rate. Stops tearing, can add a little delay.", o.enableVsync()),
+                intOptionText("GUI scale", "How big menus and the hotbar are. Auto picks the largest that fits.", o.guiScale(), 0, maxScale, 1,
+                        n -> n == 0 ? "Auto" : String.valueOf(n)),
+                brightness,
+                intOptionText("Field of view", "How wide the world looks.", o.fov(), 30, 110, 1, n -> n + "\u00B0"),
+                optionToggle("View bobbing", "The view sways while you walk.", o.bobView()),
+                enumOption("Attack indicator", "Where the cooldown of your swing shows.", o.attackIndicator()))));
+        out.add(new Folder("Performance", List.of(
+                enumOptionText("Chunk builder", "Threaded keeps the game smooth. Blocking draws changes sooner but can stutter.",
+                        o.prioritizeChunkUpdates(), p -> switch (p) {
+                            case NONE -> "Threaded";
+                            case PLAYER_AFFECTED -> "Semi blocking";
+                            default -> "Fully blocking";
+                        }),
+                Row.info("More options", "Install Embeddium for chunk, culling and engine options"))));
+        out.add(new Folder("Get more", List.of(
+                Row.live("Embeddium", "Faster rendering and many more options on this page.",
+                        () -> OptionalMods.status(OptionalMods.EMBEDDIUM, false)),
+                Row.act("Install Embeddium", "Downloads it from Modrinth into your mods folder. Restart afterwards.", "Install",
+                        () -> !OptionalMods.busy(), () -> askInstall(OptionalMods.EMBEDDIUM, "Embeddium",
+                                "Embeddium makes the game render faster and adds many more video options to this page. "
+                                        + "Pentecost downloads it from Modrinth into your mods folder. Restart Pentecost afterwards.")),
+                Row.live("Sodium and Iris", NOT_SODIUM, () -> "Not supported"))));
+        return out;
+    }
+
+    private static String brightnessText(int percent) {
+        return percent == 0 ? "Moody" : percent >= 100 ? "Bright" : percent + "%";
+    }
+
+    private <E extends Enum<E>> Row enumOptionText(String title, String note, net.minecraft.client.OptionInstance<E> option,
+                                                   java.util.function.Function<E, String> label) {
+        return Row.choice(title, note, "Now", () -> label.apply(option.get()), () -> {
+            E[] all = option.get().getDeclaringClass().getEnumConstants();
+            option.set(all[(option.get().ordinal() + 1) % all.length]);
+            optionsDirty = true;
+        });
+    }
+
+    private Row intOptionText(String title, String note, net.minecraft.client.OptionInstance<Integer> option, int min, int max,
+                              int step, java.util.function.IntFunction<String> text) {
+        Supplier<String> shown = () -> text.apply(option.get());
+        return new Row(Kind.SLIDER, title, note, note, "Now", shown, null, null,
+                new Slider(min, max, step, () -> option.get(), n -> {
+                    option.set(n);
+                    optionsDirty = true;
+                }, shown), () -> true);
+    }
+
+    /** Asks before downloading a mod, then starts the download. */
+    private void askInstall(String slug, String name, String text) {
+        minecraft.setScreen(new net.minecraft.client.gui.screens.ConfirmScreen(yes -> {
+            if (yes) {
+                OptionalMods.install(slug, name);
+            }
+            minecraft.setScreen(this);
+        }, Component.literal("Install " + name + "?"), Component.literal(text),
+                Component.literal("Install"), Component.literal("Not now")));
     }
 
     private Row videoRow(ExternalOptions.VideoOption v) {
@@ -963,7 +1081,11 @@ public final class PentecostSettingsScreen extends Screen {
     private List<Folder> shaderFolders() {
         List<Row> rows = new ArrayList<>();
         if (!ExternalOptions.hasShaders()) {
-            rows.add(Row.info("Shaders", "Install Oculus (Forge) or Iris (Fabric)"));
+            rows.add(Row.live("Oculus", "Oculus adds shader packs. Pentecost drives it from this page.",
+                    () -> OptionalMods.status(OptionalMods.OCULUS, false)));
+            rows.add(Row.act("Install Oculus", "Downloads Oculus, and Embeddium which it needs, from Modrinth into your mods folder. "
+                    + "Restart afterwards.", "Install", () -> !OptionalMods.busy(), this::askInstallOculus));
+            rows.add(Row.live("Sodium and Iris", NOT_SODIUM, () -> "Not supported"));
             return List.of(new Folder("Packs", rows));
         }
         rows.add(Row.pick("Off", "No shader pack. The game's own look.", () -> !ExternalOptions.shadersOn(),
@@ -1031,7 +1153,7 @@ public final class PentecostSettingsScreen extends Screen {
     private List<Folder> packFolders() {
         List<Folder> out = new ArrayList<>();
         if (!ExternalOptions.hasShaders()) {
-            out.add(new Folder("Pack", List.of(Row.info("Shaders", "Install Oculus (Forge) or Iris (Fabric)"))));
+            out.add(new Folder("Pack", List.of(Row.info("Shaders", "Install Oculus on the Shaders page"))));
             return out;
         }
         packScreens = ExternalOptions.shaderMenu();
@@ -1137,9 +1259,14 @@ public final class PentecostSettingsScreen extends Screen {
         return out;
     }
 
+    private void askInstallOculus() {
+        askInstall(OptionalMods.OCULUS, "Oculus", "Oculus lets you use shader packs, and Pentecost has a page for them. "
+                + "Pentecost downloads it, and Embeddium which it needs, from Modrinth into your mods folder. Restart Pentecost afterwards.");
+    }
+
     private List<Shortcut> shaderShortcuts() {
         if (!ExternalOptions.hasShaders()) {
-            return List.of();
+            return List.of(new Shortcut("Install Oculus", this::askInstallOculus));
         }
         return List.of(
                 new Shortcut("Use Pentecost shaders", () -> {

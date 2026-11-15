@@ -13,9 +13,10 @@ public partial class MainWindow : Window
     Panel current;
     bool lastWasUninstall;
     bool removeData;
+    bool updating;
     CancellationTokenSource? cts;
 
-    public MainWindow(string minecraftDir)
+    public MainWindow(string minecraftDir, bool update = false, int waitPid = -1)
     {
         InitializeComponent();
         mc = minecraftDir;
@@ -25,6 +26,34 @@ public partial class MainWindow : Window
         VersionLabel.Text = version;
         RefreshHome();
         Closing += (_, _) => cts?.Cancel();
+        if (update)
+        {
+            updating = true;
+            Loaded += async (_, _) => await RunUpdateAsync(waitPid);
+        }
+    }
+
+    /// <summary>
+    /// Started by the game's Update button: wait for the game to close so its files are free, then install over the old copy.
+    /// The main menu worlds are not downloaded again, and the player's worlds, mods and settings stay.
+    /// </summary>
+    async Task RunUpdateAsync(int waitPid)
+    {
+        WorldsBox.IsChecked = false;
+        ProgTitle.Text = "Waiting for Pentecost to close";
+        ProgDetail.Text = "";
+        ProgPercent.Text = "";
+        Show(ProgressPanel);
+        if (waitPid > 0)
+        {
+            await Task.Run(() =>
+            {
+                try { System.Diagnostics.Process.GetProcessById(waitPid).WaitForExit(60_000); }
+                catch (ArgumentException) { /* already closed */ }
+                catch (Exception ex) { Log.Write("wait failed: " + ex.Message); }
+            });
+        }
+        await RunAsync(false);
     }
 
     // ------------------------------------------------------------------ pages
@@ -122,8 +151,10 @@ public partial class MainWindow : Window
         }
         else
         {
-            DoneTitle.Text = "Pentecost is installed";
-            DoneBody.Text = "1.  Open the Minecraft Launcher.\n2.  Pick Pentecost next to the Play button.\n3.  Press Play. The first start downloads Minecraft and Forge and takes a few minutes.";
+            DoneTitle.Text = updating ? "Pentecost is updated" : "Pentecost is installed";
+            DoneBody.Text = updating
+                ? "1.  Open the Minecraft Launcher.\n2.  Press Play with Pentecost picked. Your worlds, mods and settings are as you left them."
+                : "1.  Open the Minecraft Launcher.\n2.  Pick Pentecost next to the Play button.\n3.  Press Play. The first start downloads Minecraft and Forge and takes a few minutes.";
             ModsBtn.Visibility = Visibility.Visible;
             var failed = result?.WorldsFailed ?? 0;
             DoneWarn.Visibility = failed > 0 ? Visibility.Visible : Visibility.Collapsed;
