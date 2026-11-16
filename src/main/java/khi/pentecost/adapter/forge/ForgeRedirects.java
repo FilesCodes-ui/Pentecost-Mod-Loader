@@ -163,6 +163,41 @@ public final class ForgeRedirects {
         return writer.toByteArray();
     }
 
+    /**
+     * Minecraft builds its crash report text in getFriendlyReport. Every return of that method goes through
+     * CrashDetails.decorate, which puts Pentecost's summary above the game's text and its details after it.
+     * The game blames the wrong mod often (it named Fabric Biome API for a Curios crash), so the summary reads the trace itself.
+     */
+    private static byte[] decorateCrashReport(byte[] bytes) {
+        org.objectweb.asm.tree.ClassNode node = new org.objectweb.asm.tree.ClassNode();
+        new ClassReader(bytes).accept(node, 0);
+        boolean changed = false;
+        for (org.objectweb.asm.tree.MethodNode m : node.methods) {
+            if (!m.name.equals("getFriendlyReport") || !m.desc.equals("()Ljava/lang/String;")) {
+                continue;
+            }
+            for (org.objectweb.asm.tree.AbstractInsnNode insn : m.instructions.toArray()) {
+                if (insn.getOpcode() != Opcodes.ARETURN) {
+                    continue;
+                }
+                // Stack before: the text. After ALOAD 0 and SWAP: the report, then the text. decorate returns the new text.
+                org.objectweb.asm.tree.InsnList pre = new org.objectweb.asm.tree.InsnList();
+                pre.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+                pre.add(new org.objectweb.asm.tree.InsnNode(Opcodes.SWAP));
+                pre.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC, "khi/pentecost/crash/CrashDetails",
+                        "decorate", "(Ljava/lang/Object;Ljava/lang/String;)Ljava/lang/String;", false));
+                m.instructions.insertBefore(insn, pre);
+                changed = true;
+            }
+        }
+        if (!changed) {
+            Log.warn("CrashReport.getFriendlyReport was not found, so the game's crash reports get no Pentecost summary");
+            return bytes;
+        }
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        node.accept(writer);
+        return writer.toByteArray();
+    }
     private static boolean mentions(byte[] bytes, String text) {
         byte[] t = text.getBytes(java.nio.charset.StandardCharsets.UTF_8);
         outer:
@@ -236,6 +271,9 @@ public final class ForgeRedirects {
 
     public static ClassTransformer transformer() {
         return (name, bytes) -> {
+            if (name.equals("net.minecraft.CrashReport")) {
+                bytes = decorateCrashReport(bytes);
+            }
             if (name.startsWith("net.minecraft.") && mentions(bytes, "getDelegateOrThrow")) {
                 bytes = looseDelegates(bytes);
             }
