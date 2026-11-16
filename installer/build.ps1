@@ -32,6 +32,15 @@ $pack = Join-Path $root 'build\installer-payload'
 if (Test-Path $pack) { Remove-Item $pack -Recurse -Force }
 New-Item -ItemType Directory $pack | Out-Null
 Copy-Item (Join-Path $inner 'payload') (Join-Path $pack 'payload') -Recurse
+# The Microsoft app ID is a public client ID, not a secret. It stays out of git (run\ is ignored) and goes into the installer,
+# so standalone Pentecost can sign in without any setup. The game reads it from the Pentecost folder.
+$idFile = Join-Path $root 'run\pentecost-client-id.txt'
+if (Test-Path $idFile) {
+    Copy-Item $idFile (Join-Path $pack 'payload\pentecost-client-id.txt')
+    Write-Host 'Microsoft app ID included in the payload'
+} else {
+    Write-Warning 'run\pentecost-client-id.txt not found: standalone sign-in will show the setup screen.'
+}
 foreach ($f in 'LICENSE.txt', 'THIRD-PARTY-NOTICES.txt') { Copy-Item (Join-Path $inner $f) $pack }
 $payloadZip = Join-Path $PSScriptRoot 'payload.zip'
 if (Test-Path $payloadZip) { Remove-Item $payloadZip }

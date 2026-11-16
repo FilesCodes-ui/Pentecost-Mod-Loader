@@ -114,6 +114,17 @@ public final class Account {
         } catch (IOException e) {
             Log.error("Cannot read the client ID file: " + e);
         }
+        // The ID that ships with Pentecost, written next to the program files by the installer. A file in the game
+        // folder or the environment variable above still wins, so anyone can use their own app registration.
+        try {
+            Path shipped = khi.pentecost.boot.Dirs.home().resolve("pentecost-client-id.txt");
+            if (Files.exists(shipped)) {
+                String s = Files.readString(shipped).trim();
+                return s.isEmpty() ? null : s;
+            }
+        } catch (IOException | RuntimeException e) {
+            Log.error("Cannot read the shipped client ID file: " + e);
+        }
         return null;
     }
 
