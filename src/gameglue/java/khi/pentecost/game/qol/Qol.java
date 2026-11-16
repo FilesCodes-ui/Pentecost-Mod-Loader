@@ -11,6 +11,7 @@ import khi.pentecost.boot.Log;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
+import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -102,6 +103,7 @@ public final class Qol {
         ServerCmds.add();
         Fun2Cmds.add();
         Admin2Cmds.add();
+        GroupCmds.add();
         help();
         Log.info("QOL commands ready: " + INFOS.size());
     }
@@ -113,6 +115,7 @@ public final class Qol {
             Timers.clear();
             Tracker.clear();
             Admin2Cmds.clear();
+            GroupCmds.clear();
             ServerCmds.reset();
             Store.bind(server);
         }
@@ -126,6 +129,7 @@ public final class Qol {
             RuleCmds.tick(server);
             ServerCmds.tick(server);
             Admin2Cmds.tick(server);
+            GroupCmds.tick(server);
         } catch (RuntimeException e) {
             Log.warn("QOL tick: " + e);
         }
@@ -153,6 +157,7 @@ public final class Qol {
     }
 
     private static void add(LiteralArgumentBuilder<CommandSourceStack> b, String cat, String name, String usage, String desc, int perm) {
+        b.requires(s -> GroupCmds.allowed(cat, name, perm, s));
         BUILT.add(b);
         INFOS.add(new Info(cat, name, usage, desc, perm));
     }
@@ -167,7 +172,32 @@ public final class Qol {
     }
 
     static ServerPlayer me(CommandContext<CommandSourceStack> c) throws CommandSyntaxException {
-        return c.getSource().getPlayerOrException();
+        return self(c.getSource());
+    }
+
+    /**
+     * The player a command works for. A player who types it is that player. A command block, the console or a
+     * function has no player, so it works for the nearest one (in its own world first) and only fails when
+     * nobody is online.
+     */
+    static ServerPlayer self(CommandSourceStack src) {
+        ServerPlayer p = src.getPlayer();
+        if (p != null) {
+            return p;
+        }
+        ServerPlayer best = null;
+        double d = Double.MAX_VALUE;
+        for (ServerPlayer q : src.getServer().getPlayerList().getPlayers()) {
+            double x = q.level() == src.getLevel() ? q.distanceToSqr(src.getPosition()) : 1.0E18 + q.distanceToSqr(src.getPosition());
+            if (x < d) {
+                d = x;
+                best = q;
+            }
+        }
+        if (best == null) {
+            throw new Bad("Nobody is online to run this for.");
+        }
+        return best;
     }
 
     static final SuggestionProvider<CommandSourceStack> PLAYERS = (c, b) -> {
@@ -193,7 +223,7 @@ public final class Qol {
             return new ArrayList<>(all);
         }
         if (w.equalsIgnoreCase("@s") || w.equalsIgnoreCase("me")) {
-            return List.of(src.getPlayerOrException());
+            return List.of(self(src));
         }
         if (w.equalsIgnoreCase("@r") && !all.isEmpty()) {
             return List.of(all.get(new java.util.Random().nextInt(all.size())));
@@ -225,8 +255,8 @@ public final class Qol {
         return list.get(0);
     }
 
-    private static int each(CommandContext<CommandSourceStack> c, String who, PlayerRun r) throws CommandSyntaxException {
-        List<ServerPlayer> list = who == null ? List.of(c.getSource().getPlayerOrException()) : resolve(c.getSource(), who);
+    private static int each(CommandContext<CommandSourceStack> c, java.util.Collection<ServerPlayer> who, PlayerRun r) throws CommandSyntaxException {
+        java.util.Collection<ServerPlayer> list = who == null ? List.of(self(c.getSource())) : who;
         int n = 0;
         for (ServerPlayer p : list) {
             n += r.run(c, p);
@@ -244,16 +274,25 @@ public final class Qol {
     /** /name [player]: yourself when left out. "@a" and "*" mean everyone. */
     static void player(String cat, String name, int perm, String desc, PlayerRun r) {
         add(lit(name, perm).executes(guard(c -> each(c, null, r)))
-                .then(Commands.argument("player", StringArgumentType.word()).suggests(PLAYERS)
-                        .executes(guard(c -> each(c, StringArgumentType.getString(c, "player"), r)))),
+                .then(Commands.argument("player", EntityArgument.players())
+                        .executes(guard(c -> each(c, EntityArgument.getPlayers(c, "player"), r)))),
                 cat, name, "[player]", desc, perm);
     }
 
     /** /name <player> */
     static void playerReq(String cat, String name, int perm, String desc, PlayerRun r) {
-        add(lit(name, perm).then(Commands.argument("player", StringArgumentType.word()).suggests(PLAYERS)
-                        .executes(guard(c -> each(c, StringArgumentType.getString(c, "player"), r)))),
+        add(lit(name, perm).then(Commands.argument("player", EntityArgument.players())
+                        .executes(guard(c -> each(c, EntityArgument.getPlayers(c, "player"), r)))),
                 cat, name, "<player>", desc, perm);
+    }
+
+    /** /name <player> <text...>. The player is picked like in vanilla (@s, @p, a name); the callback gets that name. */
+    static void playerText(String cat, String name, int perm, String usage, String desc, TwoRun r) {
+        add(lit(name, perm).then(Commands.argument("word", EntityArgument.player())
+                        .then(Commands.argument("text", StringArgumentType.greedyString())
+                                .executes(guard(c -> r.run(c, EntityArgument.getPlayer(c, "word").getGameProfile().getName(),
+                                        StringArgumentType.getString(c, "text")))))),
+                cat, name, usage, desc, perm);
     }
 
     /** /name <text...> */
@@ -340,7 +379,7 @@ public final class Qol {
         add(lit("qol", 0).executes(guard(c -> {
                     Map<String, Integer> counts = new LinkedHashMap<>();
                     for (Info i : INFOS) {
-                        if (c.getSource().hasPermission(i.perm())) {
+                        if (GroupCmds.allowed(i.cat(), i.name(), i.perm(), c.getSource())) {
                             counts.merge(i.cat(), 1, Integer::sum);
                         }
                     }
@@ -353,12 +392,12 @@ public final class Qol {
                     return 1;
                 }))
                 .then(Commands.argument("filter", StringArgumentType.greedyString())
-                        .suggests(options("move", "locate", "player", "items", "world", "menus", "info", "chat", "fun", "timers", "build", "admin", "rules", "ops", "server"))
+                        .suggests(options("move", "locate", "player", "items", "world", "menus", "info", "chat", "fun", "timers", "build", "admin", "rules", "ops", "server", "groups", "config"))
                         .executes(guard(c -> {
                             String f = StringArgumentType.getString(c, "filter").toLowerCase(Locale.ROOT).trim();
                             int n = 0;
                             for (Info i : INFOS) {
-                                if (!c.getSource().hasPermission(i.perm())) {
+                                if (!GroupCmds.allowed(i.cat(), i.name(), i.perm(), c.getSource())) {
                                     continue;
                                 }
                                 if (i.cat().equalsIgnoreCase(f) || i.name().contains(f) || i.desc().toLowerCase(Locale.ROOT).contains(f)) {

@@ -19,6 +19,7 @@ import com.mojang.brigadier.suggestion.SuggestionProvider;
 import khi.pentecost.game.qol.Qol.Bad;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
@@ -50,8 +51,8 @@ final class MoveCmds {
 
     private static final SuggestionProvider<CommandSourceStack> HOMES = (c, b) -> {
         try {
-            return SharedSuggestionProvider.suggest(Store.homeNames(c.getSource().getPlayerOrException()), b);
-        } catch (CommandSyntaxException e) {
+            return SharedSuggestionProvider.suggest(Store.homeNames(Qol.self(c.getSource())), b);
+        } catch (RuntimeException e) {
             return b.buildFuture();
         }
     };
@@ -239,12 +240,12 @@ final class MoveCmds {
         });
 
         Qol.custom(C, "sendto", 2, "<player> <where>", "Send a player (or @a) to a place",
-                Qol.lit("sendto", 2).then(Commands.argument("player", StringArgumentType.word()).suggests(Qol.PLAYERS)
+                Qol.lit("sendto", 2).then(Commands.argument("player", EntityArgument.players())
                         .then(Commands.argument("where", StringArgumentType.greedyString()).suggests(Where::suggest)
                                 .executes(Qol.guard(c -> {
                                     Where.Spot s = Where.resolve(c.getSource(), StringArgumentType.getString(c, "where"));
                                     int n = 0;
-                                    for (ServerPlayer t : Qol.resolve(c.getSource(), StringArgumentType.getString(c, "player"))) {
+                                    for (ServerPlayer t : new java.util.ArrayList<>(EntityArgument.getPlayers(c, "player"))) {
                                         Qol.go(t, s);
                                         n++;
                                     }

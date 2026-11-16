@@ -7,6 +7,7 @@ import com.mojang.brigadier.suggestion.SuggestionProvider;
 import khi.pentecost.game.qol.Qol.Bad;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -81,10 +82,10 @@ final class AdminCmds {
         Qol.custom(C, name, 2, "<1-10> [player]", fly ? "Set how fast you fly (1 is normal)" : "Set how fast you walk (1 is normal)",
                 Qol.lit(name, 2).then(Commands.argument("n", IntegerArgumentType.integer(1, 10))
                         .executes(Qol.guard(c -> setSpeed(c.getSource(), Qol.me(c), IntegerArgumentType.getInteger(c, "n"), fly)))
-                        .then(Commands.argument("player", StringArgumentType.word()).suggests(Qol.PLAYERS)
+                        .then(Commands.argument("player", EntityArgument.players())
                                 .executes(Qol.guard(c -> {
                                     int total = 0;
-                                    for (ServerPlayer p : Qol.resolve(c.getSource(), StringArgumentType.getString(c, "player"))) {
+                                    for (ServerPlayer p : new java.util.ArrayList<>(EntityArgument.getPlayers(c, "player"))) {
                                         total += setSpeed(c.getSource(), p, IntegerArgumentType.getInteger(c, "n"), fly);
                                     }
                                     return total;
@@ -191,7 +192,7 @@ final class AdminCmds {
             return Qol.ok(c, "Gave " + n + " experience points.");
         });
 
-        Qol.wordText(C, "sudo", 3, "<player> <command>", "Make a player run a command, with their own permissions", Qol.PLAYERS, (c, who, cmd) -> {
+        Qol.playerText(C, "sudo", 3, "<player> <command>", "Make a player run a command, with their own permissions", (c, who, cmd) -> {
             MinecraftServer server = c.getSource().getServer();
             int n = 0;
             for (ServerPlayer t : Qol.resolve(c.getSource(), who)) {

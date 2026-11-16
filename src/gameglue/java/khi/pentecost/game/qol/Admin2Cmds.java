@@ -6,6 +6,7 @@ import com.mojang.brigadier.suggestion.SuggestionProvider;
 import khi.pentecost.game.qol.Qol.Bad;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
@@ -200,7 +201,7 @@ final class Admin2Cmds {
             return Qol.ok(c, name(t) + (names.isEmpty() ? " has no homes." : " has: " + String.join(", ", names)));
         });
 
-        Qol.wordText(C, "visithome", 2, "<player> <home>", "Go to one of a player's homes", Qol.PLAYERS, (c, who, home) -> {
+        Qol.playerText(C, "visithome", 2, "<player> <home>", "Go to one of a player's homes", (c, who, home) -> {
             ServerPlayer t = Qol.one(c.getSource(), who);
             Where.Spot s = Store.home(t, home.trim());
             if (s == null) {
@@ -210,7 +211,7 @@ final class Admin2Cmds {
             return Qol.ok(c, "At " + name(t) + "'s home " + home.trim() + ".");
         });
 
-        Qol.wordText(C, "delhomeof", 3, "<player> <home>", "Delete one of a player's homes", Qol.PLAYERS, (c, who, home) -> {
+        Qol.playerText(C, "delhomeof", 3, "<player> <home>", "Delete one of a player's homes", (c, who, home) -> {
             ServerPlayer t = Qol.one(c.getSource(), who);
             if (!Store.delHome(t, home.trim())) {
                 throw new Bad(name(t) + " has no home called " + home.trim() + ".");
@@ -253,16 +254,16 @@ final class Admin2Cmds {
                 Qol.lit("ptime", 2).then(Commands.argument("word", StringArgumentType.word())
                         .suggests(Qol.options("day", "noon", "sunset", "night", "midnight", "sunrise", "reset"))
                         .executes(Qol.guard(c -> setPtime(c.getSource(), List.of(Qol.me(c)), StringArgumentType.getString(c, "word"))))
-                        .then(Commands.argument("player", StringArgumentType.word()).suggests(Qol.PLAYERS)
-                                .executes(Qol.guard(c -> setPtime(c.getSource(), Qol.resolve(c.getSource(), StringArgumentType.getString(c, "player")),
+                        .then(Commands.argument("player", EntityArgument.players())
+                                .executes(Qol.guard(c -> setPtime(c.getSource(), new java.util.ArrayList<>(EntityArgument.getPlayers(c, "player")),
                                         StringArgumentType.getString(c, "word")))))));
 
         Qol.custom(C, "pweather", 2, "<clear|rain|thunder|reset> [player]", "Show a player their own weather (nobody else sees it)",
                 Qol.lit("pweather", 2).then(Commands.argument("word", StringArgumentType.word())
                         .suggests(Qol.options("clear", "rain", "thunder", "reset"))
                         .executes(Qol.guard(c -> setPweather(c.getSource(), List.of(Qol.me(c)), StringArgumentType.getString(c, "word"))))
-                        .then(Commands.argument("player", StringArgumentType.word()).suggests(Qol.PLAYERS)
-                                .executes(Qol.guard(c -> setPweather(c.getSource(), Qol.resolve(c.getSource(), StringArgumentType.getString(c, "player")),
+                        .then(Commands.argument("player", EntityArgument.players())
+                                .executes(Qol.guard(c -> setPweather(c.getSource(), new java.util.ArrayList<>(EntityArgument.getPlayers(c, "player")),
                                         StringArgumentType.getString(c, "word")))))));
 
         // ---- the item in your hand

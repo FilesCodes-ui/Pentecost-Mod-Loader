@@ -70,7 +70,7 @@ public final class Where {
 
     /** The block you are looking at, standing on top of it. */
     public static Spot look(CommandSourceStack src) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
-        ServerPlayer p = src.getPlayerOrException();
+        ServerPlayer p = Qol.self(src);
         HitResult hit = p.pick(300.0, 1.0F, false);
         if (hit.getType() != HitResult.Type.BLOCK) {
             throw new Bad("You are not looking at a block (it has to be within 300 blocks).");
@@ -165,7 +165,7 @@ public final class Where {
                 return new Spot(o, Vec3.atBottomCenterOf(o.getSharedSpawnPos()), 0.0F, 0.0F);
             }
             case "bed" -> {
-                ServerPlayer p = src.getPlayerOrException();
+                ServerPlayer p = Qol.self(src);
                 BlockPos bed = p.getRespawnPosition();
                 ServerLevel l = bed == null ? null : server.getLevel(p.getRespawnDimension());
                 if (bed == null || l == null) {
@@ -174,7 +174,7 @@ public final class Where {
                 return new Spot(l, Vec3.atBottomCenterOf(bed), p.getYRot(), 0.0F);
             }
             case "death" -> {
-                ServerPlayer p = src.getPlayerOrException();
+                ServerPlayer p = Qol.self(src);
                 var death = p.getLastDeathLocation();
                 if (death.isEmpty()) {
                     throw new Bad("You have not died yet.");
@@ -186,7 +186,7 @@ public final class Where {
                 return new Spot(l, Vec3.atBottomCenterOf(death.get().pos()), p.getYRot(), 0.0F);
             }
             case "back" -> {
-                Spot s = Store.back(src.getPlayerOrException());
+                Spot s = Store.back(Qol.self(src));
                 if (s == null) {
                     throw new Bad("There is no earlier place to go back to.");
                 }
@@ -196,7 +196,7 @@ public final class Where {
             }
         }
         if (key.startsWith("home:")) {
-            Spot s = Store.home(src.getPlayerOrException(), token.substring(5));
+            Spot s = Store.home(Qol.self(src), token.substring(5));
             if (s == null) {
                 throw new Bad("You have no home called " + token.substring(5) + ".");
             }

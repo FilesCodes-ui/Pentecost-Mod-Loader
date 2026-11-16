@@ -77,7 +77,7 @@ final class FunCmds {
     }
 
     private static int spawn(CommandSourceStack src, String type, int n) throws CommandSyntaxException {
-        ServerPlayer p = src.getPlayerOrException();
+        ServerPlayer p = Qol.self(src);
         EntityType<?> et = BuiltInRegistries.ENTITY_TYPE.getOptional(id(type)).orElseThrow(() -> new Bad("There is no creature called " + type + "."));
         Where.Spot at;
         try {
@@ -309,7 +309,7 @@ final class FunCmds {
     }
 
     private static int particles(CommandSourceStack src, String word, int n) throws CommandSyntaxException {
-        ServerPlayer p = src.getPlayerOrException();
+        ServerPlayer p = Qol.self(src);
         ParticleType<?> pt = BuiltInRegistries.PARTICLE_TYPE.getOptional(id(word)).orElseThrow(() -> new Bad("There is no particle called " + word + "."));
         if (!(pt instanceof ParticleOptions po)) {
             throw new Bad("That particle needs extra settings and cannot be shown this way.");

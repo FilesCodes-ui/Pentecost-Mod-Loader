@@ -127,7 +127,7 @@ final class ChatCmds {
         emote("unflip", "\u252C\u2500\u252C \u30CE( \u309C-\u309C\u30CE)", "Put the table back");
 
         // ---- private messages
-        Qol.wordText(C, "pm", 0, "<player> <message>", "Send a private message", Qol.PLAYERS, (c, who, text) -> {
+        Qol.playerText(C, "pm", 0, "<player> <message>", "Send a private message", (c, who, text) -> {
             ServerPlayer me = Qol.me(c);
             ServerPlayer t = Qol.one(c.getSource(), who);
             if (t == me) {

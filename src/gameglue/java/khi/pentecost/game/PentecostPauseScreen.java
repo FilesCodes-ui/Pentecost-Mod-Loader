@@ -13,7 +13,7 @@ import java.util.Map;
 /** Pentecost's pause menu. The game's pause menu underneath, Pentecost's layout on top. */
 public final class PentecostPauseScreen extends PauseScreen {
     private static final List<String> MAIN = List.of("menu.returnToGame", "gui.advancements", "gui.stats",
-            MenuView.MODS, MenuView.SETTINGS, "menu.options", "menu.shareToLan", "menu.playerReporting", "menu.returnToMenu",
+            MenuView.MODS, MenuView.SETTINGS, MenuView.MANAGE, MenuView.COMMANDS, "menu.options", "menu.shareToLan", "menu.playerReporting", "menu.returnToMenu",
             "menu.disconnect");
     private static final Map<String, String> LINKS = new LinkedHashMap<>();
     static {

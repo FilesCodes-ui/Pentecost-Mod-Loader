@@ -53,6 +53,31 @@ public final class WwlsScreen extends Screen {
         this.parent = parent;
     }
 
+    /** True while this computer hosts a world open to friends. */
+    static boolean hosting() {
+        return live() != null;
+    }
+
+    /** Says yes or no to one waiting person. */
+    static void answerFor(java.util.UUID id, boolean yes) {
+        JoinApprovals ap = approvals;
+        if (ap == null) {
+            return;
+        }
+        for (JoinApprovals.Request r : waitingList()) {
+            if (r.id().equals(id)) {
+                if (yes) {
+                    if (ap.approve(id)) {
+                        status = r.name() + " can join now. Ask them to press Join again.";
+                    }
+                } else {
+                    ap.deny(id);
+                    status = r.name() + " was turned away.";
+                }
+            }
+        }
+    }
+
     /** The session, or null when none is open or it has closed itself. */
     private static Wwls.Session live() {
         Wwls.Session s = session;

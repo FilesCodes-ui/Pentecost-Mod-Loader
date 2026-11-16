@@ -42,11 +42,7 @@ public final class PentecostServersScreen extends Screen {
     private final List<Hit> hits = new ArrayList<>();
     private final ServerList servers;
     private final ServerStatusPinger pinger = new ServerStatusPinger();
-    private final ExecutorService pool = Executors.newFixedThreadPool(4, r -> {
-        Thread t = new Thread(r, "Pentecost server pinger");
-        t.setDaemon(true);
-        return t;
-    });
+    private ExecutorService pool = newPool();
     private final Map<ServerData, ResourceLocation> icons = new HashMap<>();
     private final Map<ServerData, String> iconKeys = new HashMap<>();
 
@@ -98,7 +94,20 @@ public final class PentecostServersScreen extends Screen {
         scroll = Math.max(0, Math.min(scroll, Math.max(0, out.size() - Math.max(1, visibleRows))));
     }
 
+    private static ExecutorService newPool() {
+        return Executors.newFixedThreadPool(4, r -> {
+            Thread t = new Thread(r, "Pentecost server pinger");
+            t.setDaemon(true);
+            return t;
+        });
+    }
+
     private void ping(ServerData d) {
+        // removed() stops the pool when another screen takes over (connecting, the EULA page). The same screen
+        // comes back when a connection fails, so it needs a fresh pool then.
+        if (pool.isShutdown()) {
+            pool = newPool();
+        }
         d.pinged = false;
         d.ping = -2L;
         d.motd = Component.empty();

@@ -37,6 +37,10 @@ final class MenuView {
     static final String ACCOUNT = "pentecost.account";
     /** The Join a friend entry. Opens World Wide Local Server. */
     static final String FRIENDS = "pentecost.friends";
+    /** Server tools for operators, on a server or in a world open to friends. */
+    static final String MANAGE = "pentecost.manage";
+    /** The Commands page: terminal, groups, switches and levels. For operators in a world. */
+    static final String COMMANDS = "pentecost.commands";
 
     private record ModButton(String modId, String label, AbstractButton source) {}
 
@@ -135,6 +139,18 @@ final class MenuView {
             if (key.equals(MODS)) {
                 label = "Mods";
                 action = () -> mc.setScreen(new PentecostModsScreen(screen));
+            } else if (key.equals(MANAGE)) {
+                if (!ServerScreen.available(mc)) {
+                    continue;
+                }
+                label = "Server tools";
+                action = () -> mc.setScreen(new ServerScreen(screen));
+            } else if (key.equals(COMMANDS)) {
+                if (mc.player == null || !mc.player.hasPermissions(2)) {
+                    continue;
+                }
+                label = "Commands";
+                action = () -> mc.setScreen(new CommandsScreen(screen));
             } else if (key.equals(FRIENDS)) {
                 label = "Join a friend";
                 action = () -> mc.setScreen(new WwlsScreen(screen));

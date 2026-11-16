@@ -124,7 +124,7 @@ final class BuildCmds {
     }
 
     private static BlockPos looked(CommandSourceStack src) throws CommandSyntaxException {
-        ServerPlayer p = src.getPlayerOrException();
+        ServerPlayer p = Qol.self(src);
         HitResult hit = p.pick(300.0, 1.0F, false);
         if (hit.getType() != HitResult.Type.BLOCK) {
             throw new Bad("You are not looking at a block (it has to be within 300 blocks).");

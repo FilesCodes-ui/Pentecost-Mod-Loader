@@ -43,6 +43,12 @@ final class Store {
         double nightFactor = 1.0;
         int firePct = 100;
         Map<String, Map<String, String>> presets = new LinkedHashMap<>();
+        /** Saved command groups: name to the commands, separated by semicolons. */
+        Map<String, String> groups = new LinkedHashMap<>();
+        /** Permission levels set by an operator: command name to level. */
+        Map<String, Integer> levels = new LinkedHashMap<>();
+        /** Command groups (categories) an operator switched off. */
+        java.util.List<String> off = new java.util.ArrayList<>();
     }
 
     static final int MAX_HOMES = 20;
@@ -105,6 +111,77 @@ final class Store {
     private static Where.Spot spot(Loc l) {
         ServerLevel level = server.getLevel(ResourceKey.create(Registries.DIMENSION, new ResourceLocation(l.dim)));
         return level == null ? null : new Where.Spot(level, new Vec3(l.x, l.y, l.z), l.yaw, l.pitch);
+    }
+
+    // ---------------------------------------------------------------- groups and command settings
+
+    static synchronized java.util.List<String> groupNames() {
+        if (data.groups == null) {
+            data.groups = new LinkedHashMap<>();
+        }
+        return new java.util.ArrayList<>(data.groups.keySet());
+    }
+
+    static synchronized String group(String name) {
+        return data.groups == null ? null : data.groups.get(name.toLowerCase(java.util.Locale.ROOT));
+    }
+
+    static synchronized void saveGroup(String name, String commands) {
+        if (data.groups == null) {
+            data.groups = new LinkedHashMap<>();
+        }
+        data.groups.put(name.toLowerCase(java.util.Locale.ROOT), commands);
+        save();
+    }
+
+    static synchronized boolean deleteGroup(String name) {
+        boolean had = data.groups != null && data.groups.remove(name.toLowerCase(java.util.Locale.ROOT)) != null;
+        if (had) {
+            save();
+        }
+        return had;
+    }
+
+    /** The level a command needs: the operator's choice, or the one it was written with. */
+    static synchronized int levelOf(String command, int fallback) {
+        Integer v = data.levels == null ? null : data.levels.get(command);
+        return v == null ? fallback : v;
+    }
+
+    static synchronized void setLevel(String command, Integer level) {
+        if (data.levels == null) {
+            data.levels = new LinkedHashMap<>();
+        }
+        if (level == null) {
+            data.levels.remove(command);
+        } else {
+            data.levels.put(command, level);
+        }
+        save();
+    }
+
+    static synchronized Map<String, Integer> levels() {
+        return data.levels == null ? Map.of() : new LinkedHashMap<>(data.levels);
+    }
+
+    static synchronized boolean groupOff(String category) {
+        return data.off != null && data.off.contains(category.toLowerCase(java.util.Locale.ROOT));
+    }
+
+    static synchronized void setGroupOff(String category, boolean off) {
+        if (data.off == null) {
+            data.off = new java.util.ArrayList<>();
+        }
+        String c = category.toLowerCase(java.util.Locale.ROOT);
+        data.off.remove(c);
+        if (off) {
+            data.off.add(c);
+        }
+        save();
+    }
+
+    static synchronized java.util.List<String> offGroups() {
+        return data.off == null ? java.util.List.of() : new java.util.ArrayList<>(data.off);
     }
 
     // ---------------------------------------------------------------- back

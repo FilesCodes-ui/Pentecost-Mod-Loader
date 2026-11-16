@@ -6,6 +6,7 @@ import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import khi.pentecost.game.qol.Qol.Bad;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.server.level.ServerLevel;
@@ -57,10 +58,10 @@ final class PlayerCmds {
                             ServerPlayer p = Qol.me(c);
                             return Qol.ok(c, command + (toggle(p, effect, IntegerArgumentType.getInteger(c, "n") - 1) ? " on." : " off."));
                         }))
-                        .then(Commands.argument("player", StringArgumentType.word()).suggests(Qol.PLAYERS)
+                        .then(Commands.argument("player", EntityArgument.players())
                                 .executes(Qol.guard(c -> {
                                     int n = 0;
-                                    for (ServerPlayer p : Qol.resolve(c.getSource(), StringArgumentType.getString(c, "player"))) {
+                                    for (ServerPlayer p : new java.util.ArrayList<>(EntityArgument.getPlayers(c, "player"))) {
                                         toggle(p, effect, IntegerArgumentType.getInteger(c, "n") - 1);
                                         n++;
                                     }
@@ -122,10 +123,10 @@ final class PlayerCmds {
         Qol.custom(C, "flyspeed", 2, "<1-10> [player]", "Set how fast you fly (1 is normal)",
                 Qol.lit("flyspeed", 2).then(Commands.argument("n", IntegerArgumentType.integer(1, 10))
                         .executes(Qol.guard(c -> setFlySpeed(c.getSource(), Qol.me(c), IntegerArgumentType.getInteger(c, "n"))))
-                        .then(Commands.argument("player", StringArgumentType.word()).suggests(Qol.PLAYERS)
+                        .then(Commands.argument("player", EntityArgument.players())
                                 .executes(Qol.guard(c -> {
                                     int n = 0;
-                                    for (ServerPlayer p : Qol.resolve(c.getSource(), StringArgumentType.getString(c, "player"))) {
+                                    for (ServerPlayer p : new java.util.ArrayList<>(EntityArgument.getPlayers(c, "player"))) {
                                         n += setFlySpeed(c.getSource(), p, IntegerArgumentType.getInteger(c, "n"));
                                     }
                                     return n;

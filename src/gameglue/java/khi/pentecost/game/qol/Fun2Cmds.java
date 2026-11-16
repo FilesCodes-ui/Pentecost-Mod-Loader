@@ -553,7 +553,7 @@ final class Fun2Cmds {
             return Qol.ok(c, "Only " + name(t) + " saw it.");
         });
 
-        Qol.wordText(C, "swapinv", 3, "<player> <player>", "Swap the whole inventories of two players", Qol.PLAYERS, (c, a, b) -> {
+        Qol.playerText(C, "swapinv", 3, "<player> <player>", "Swap the whole inventories of two players", (c, a, b) -> {
             ServerPlayer x = Qol.one(c.getSource(), a);
             ServerPlayer y = Qol.one(c.getSource(), b.trim());
             if (x == y) {
@@ -607,7 +607,7 @@ final class Fun2Cmds {
 
     private static int itemRain(CommandSourceStack src, String word, int n) throws CommandSyntaxException {
         Item it = findItem(word);
-        ServerPlayer p = src.getPlayerOrException();
+        ServerPlayer p = Qol.self(src);
         ServerLevel l = p.serverLevel();
         for (int i = 0; i < n; i++) {
             ItemEntity e = new ItemEntity(l, p.getX() + RANDOM.nextInt(9) - 4, p.getY() + 8.0, p.getZ() + RANDOM.nextInt(9) - 4, new ItemStack(it));
@@ -624,7 +624,7 @@ final class Fun2Cmds {
         if (et == null) {
             throw new Bad("There is no creature called " + word + ".");
         }
-        ServerPlayer p = src.getPlayerOrException();
+        ServerPlayer p = Qol.self(src);
         ServerLevel l = p.serverLevel();
         int made = 0;
         for (int i = 0; i < n; i++) {

@@ -1618,9 +1618,14 @@ public final class PentecostSettingsScreen extends Screen {
                         Row.button("Open or join a world", "Friends join your world with a short code. No port forwarding. "
                                 + "Open a world first to host, or type a friend's code to join.",
                                 () -> minecraft.setScreen(new WwlsScreen(this))))),
-                new Folder("Planned", List.of(
-                        Row.info("Operators", "Planned"),
-                        Row.info("playit.gg helper", "Planned, for homes that cannot connect directly"))));
+                new Folder("Operators and commands", List.of(
+                        Row.act("Server tools", "Operators, whitelist, bans, autosave and the stop countdown. For operators on a server or in a world open to friends. Open it from the pause menu while playing.",
+                                "Open", () -> ServerScreen.available(minecraft), () -> minecraft.setScreen(new ServerScreen(this))),
+                        Row.act("Commands", "A terminal that runs commands in groups, saved groups, switches for whole groups of Pentecost commands, and who may use each one. For operators in a world.",
+                                "Open", () -> minecraft.player != null && minecraft.player.hasPermissions(2), () -> minecraft.setScreen(new CommandsScreen(this))))),
+                new Folder("Friends who cannot connect", List.of(
+                        Row.button("playit.gg helper", "Steps and links for homes where friends cannot connect directly, and a box to join by address.",
+                                () -> minecraft.setScreen(new PlayitScreen(this))))));
     }
 
     // ---------------------------------------------------------------- profiles

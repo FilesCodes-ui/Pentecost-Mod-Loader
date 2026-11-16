@@ -484,6 +484,7 @@ final class ChatStyle implements ChatHooks.Processor, ChatHooks.Painter {
     public Object process(Object object) {
         Component line = (Component) object;
         String full = line.getString();
+        CommandOutput.offer(full);
         Minecraft mc = Minecraft.getInstance();
 
         int cat = category(full);
