@@ -337,52 +337,28 @@ final class Ui {
 
     // ---------------------------------------------------------------- logo
 
-    /** The boat, 12 pixels wide. The hull's last row sits under the first wave, so the boat floats in the water. */
-    private static final String[] BOAT = {
-            ".....#......",
-            ".....##.....",
-            ".....#.#....",
-            ".....#..#...",
-            "..#..#...#..",
-            ".##..#....#.",
-            "#.#..#######",
-            "###..#......",
-            ".....#......",
-            "############",
-            ".##########."
-    };
-
     /** Width and height of the logo in logo pixels. */
     static final int LOGO_W = 16;
     static final int LOGO_H = 13;
 
     /**
-     * Draws Pentecost's logo: a still sailboat in the water and two thin waves that drift slowly.
+     * Draws Pentecost's mark: a triangle turning in three dimensions, a dot at each corner.
      * px: screen units per logo pixel.
      */
     static void logo(GuiGraphics g, int x, int y, int px, int color) {
         double t = net.minecraft.Util.getMillis() / 1000.0;
+        int[] cells = TriMark.free(LOGO_W, LOGO_H, t);
+        int rgb = color & 0x00FFFFFF;
+        int alpha = (color >>> 24) == 0 ? 255 : (color >>> 24);
         g.drawManaged(() -> {
-            for (int r = 0; r < BOAT.length; r++) {
-                String row = BOAT[r];
-                int run = -1;
-                for (int c = 0; c <= row.length(); c++) {
-                    boolean lit = c < row.length() && row.charAt(c) == '#';
-                    if (lit && run < 0) {
-                        run = c;
-                    } else if (!lit && run >= 0) {
-                        g.fill(x + (run + 2) * px, y + r * px, x + (c + 2) * px, y + (r + 1) * px, color);
-                        run = -1;
-                    }
-                }
-            }
-            for (int line = 0; line < 2; line++) {
-                int base = 10 + line * 2;
-                int shade = line == 0 ? color : (color & 0x00FFFFFF) | 0x66000000;
+            for (int r = 0; r < LOGO_H; r++) {
                 for (int c = 0; c < LOGO_W; c++) {
-                    double wave = Math.sin(c * 0.9 - t * 0.9 + line * 1.7);
-                    int dy = wave > 0.55 ? -1 : 0;
-                    g.fill(x + c * px, y + (base + dy) * px, x + (c + 1) * px, y + (base + dy + 1) * px, shade);
+                    int v = cells[r * LOGO_W + c];
+                    if (v < 30) {
+                        continue;
+                    }
+                    int a = alpha * v / 255;
+                    g.fill(x + c * px, y + r * px, x + (c + 1) * px, y + (r + 1) * px, (a << 24) | rgb);
                 }
             }
         });
