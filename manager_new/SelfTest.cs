@@ -201,6 +201,26 @@ public partial class MainWindow
             Shoot(dir, page);
         }
 
+        // The Manager update notice and settings row, drawn with a made-up release.
+        {
+            var real = latest;
+            latest = new ReleaseInfo("v9.9.9", "https://example.invalid", null, null, 0, null, "", "9.9.9", null, 0, null);
+            Go("Play");
+            await Settle(1200);
+            CheckLayout("Home with a Manager update");
+            Shoot(dir, "Home-manager-update");
+            Go("Settings");
+            await Settle(900);
+            CheckLayout("Settings with a Manager update");
+            Shoot(dir, "Settings-manager-update");
+            Tree(PageHost).OfType<ScrollViewer>().FirstOrDefault()?.ScrollToEnd();
+            await Settle(500);
+            Shoot(dir, "Settings-manager-update-bottom");
+            latest = real;
+            Go("Play");
+            await Settle(600);
+        }
+
         // The boxes.
         Go("Browse");
         await Settle(1200);
@@ -248,59 +268,6 @@ public partial class MainWindow
         searchWith?.Invoke("create");
         await Settle(5000);
         Shoot(dir, "Browse-search");
-        {
-            TextBox? tb = null;
-            void Find(DependencyObject d)
-            {
-                for (var i = 0; i < VisualTreeHelper.GetChildrenCount(d) && tb == null; i++)
-                {
-                    var c = VisualTreeHelper.GetChild(d, i);
-                    if (c is TextBox t) { tb = t; return; }
-                    Find(c);
-                }
-            }
-            Find(PageHost);
-            if (tb != null)
-            {
-                var host = tb.Template.FindName("PART_ContentHost", tb) as ScrollViewer;
-                {
-                    var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap((int)tb.ActualWidth, (int)tb.ActualHeight, 96, 96, PixelFormats.Pbgra32);
-                    rtb.Render(tb);
-                    var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
-                    enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
-                    using var fs = File.Create(Path.Combine(dir, "probe-tb.png"));
-                    enc.Save(fs);
-                {
-                    var stack = new StackPanel { Width = 400, Background = Brushes.Black };
-                    TextBox Mk(string name, Action<TextBox> tweak)
-                    {
-                        var t = new TextBox { Text = "abc " + name, Margin = new Thickness(0, 0, 0, 6) };
-                        tweak(t);
-                        stack.Children.Add(t);
-                        return t;
-                    }
-                    Mk("default", _ => { });
-                    Mk("auto-scroll", t => { t.VerticalScrollBarVisibility = ScrollBarVisibility.Auto; t.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto; });
-                    Mk("search-size", t => { t.Padding = new Thickness(40, 9, 36, 9); t.Height = 40; });
-                    Mk("transparent", t => t.Background = Brushes.Transparent);
-                    Mk("readonly", t => t.IsReadOnly = true);
-                    Mk("red", t => t.Foreground = Brushes.Red);
-                    stack.Measure(new Size(400, 600));
-                    stack.Arrange(new Rect(0, 0, 400, stack.DesiredSize.Height));
-                    stack.UpdateLayout();
-                    var rt = new System.Windows.Media.Imaging.RenderTargetBitmap(400, (int)stack.DesiredSize.Height, 96, 96, PixelFormats.Pbgra32);
-                    rt.Render(stack);
-                    var en = new System.Windows.Media.Imaging.PngBitmapEncoder();
-                    en.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rt));
-                    using var f2 = File.Create(Path.Combine(dir, "probe-variants.png"));
-                    en.Save(f2);
-                }
-                    AppLog.Write($"probe2 font={tb.FontFamily.Source} size={tb.FontSize} ext={host?.ExtentWidth}/{host?.ExtentHeight} off={host?.HorizontalOffset}/{host?.VerticalOffset} pad={tb.Padding} focus={tb.IsKeyboardFocused}");
-                }
-                AppLog.Write($"probe text='{tb.Text}' size={tb.ActualWidth}x{tb.ActualHeight} fg={tb.Foreground} host={host?.ActualWidth}x{host?.ActualHeight} vis={host?.Visibility} opacity={tb.Opacity}/{host?.Opacity}");
-            }
-            else AppLog.Write("probe: no textbox");
-        }
         searchWith?.Invoke("");
         await Settle(2500);
 
@@ -315,6 +282,30 @@ public partial class MainWindow
         await Settle(1800);
         CheckLayout("Mods narrow");
         Shoot(dir, "Narrow-mods");
+
+        // Reading a release: the installer and the newest Manager setup are found among its files.
+        {
+            const string releaseJson = "{\"tag_name\":\"v1.2.3\",\"html_url\":\"https://x\",\"body\":\"n\",\"assets\":[" +
+                "{\"name\":\"Pentecost-Installer-1.2.3.exe\",\"size\":10,\"browser_download_url\":\"https://github.com/a\",\"digest\":\"sha256:AA\"}," +
+                "{\"name\":\"Pentecost-Manager-Setup-0.4.0.exe\",\"size\":20,\"browser_download_url\":\"https://github.com/b\",\"digest\":\"sha256:BB\"}," +
+                "{\"name\":\"Pentecost-Manager-Setup-0.10.1.exe\",\"size\":30,\"browser_download_url\":\"https://github.com/c\",\"digest\":\"sha256:CC\"}]}";
+            var parsed = Updates.Parse(releaseJson);
+            if (parsed == null || parsed.InstallerName != "Pentecost-Installer-1.2.3.exe" || parsed.InstallerSha256 != "AA") Say("release parse: the installer was not found");
+            else if (parsed.ManagerVersion != "0.10.1" || parsed.ManagerUrl != "https://github.com/c" || parsed.ManagerSize != 30 || parsed.ManagerSha256 != "CC") Say("release parse: the newest Manager setup was not picked");
+            if (!Updates.Newer("0.10.1", "0.4.0") || Updates.Newer("0.4.0", "0.4.0")) Say("version order is wrong");
+        }
+
+        // Set PENTECOST_UPDATE_TEST=1 to download the Manager setup of the live release and check its size and SHA-256.
+        if (Environment.GetEnvironmentVariable("PENTECOST_UPDATE_TEST") == "1")
+        {
+            var live = latest;
+            if (live?.ManagerUrl == null) Say("update test: the live release has no Manager setup");
+            else
+            {
+                var (path, err) = await SelfUpdate.Download(live, null, CancellationToken.None);
+                Say(path != null ? "update test: downloaded and checked " + path + " (" + new FileInfo(path).Length + " bytes)" : "update test failed: " + err);
+            }
+        }
 
         var report = new StringBuilder();
         report.AppendLine($"Pentecost Manager self-test, {DateTime.Now:yyyy-MM-dd HH:mm}");

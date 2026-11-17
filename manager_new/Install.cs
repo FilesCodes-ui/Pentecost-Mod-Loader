@@ -25,6 +25,9 @@ public static class SelfInstall
 
     public static bool ShouldOffer => IsBundle && Self != null && !SamePath(Self, TargetExe);
 
+    /// <summary>True for the installed copy. Only it updates itself: a copy run from elsewhere, or from source, has nothing to replace.</summary>
+    public static bool CanUpdate => IsBundle && Self != null && SamePath(Self, TargetExe);
+
     public static string Version => typeof(SelfInstall).Assembly.GetName().Version?.ToString(3) ?? "";
 
     static bool SamePath(string a, string b)

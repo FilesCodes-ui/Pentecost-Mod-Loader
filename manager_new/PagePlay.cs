@@ -42,6 +42,15 @@ public partial class MainWindow
             notice.Margin = new Thickness(0, 12, 0, 0);
             page.Children.Add(notice);
         }
+        if (!installing && ManagerUpdate)
+        {
+            var next = latest!.ManagerVersion;
+            var managerNotice = Notice($"Pentecost Manager {next} is available",
+                $"You have {SelfInstall.Version}. It installs when you close the Manager.",
+                "Update now", () => _ = UpdateManagerNow(), "What's new", () => OpenPath(latest.Url));
+            managerNotice.Margin = new Thickness(0, 12, 0, 0);
+            page.Children.Add(managerNotice);
+        }
 
         // ---- the state of things. Each card opens its page.
         var facts = new UniformGrid { Columns = 4 };

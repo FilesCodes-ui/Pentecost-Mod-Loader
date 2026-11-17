@@ -8,17 +8,33 @@ import org.lwjgl.glfw.GLFWImage;
 import java.nio.ByteBuffer;
 
 /**
- * The window and taskbar icon: Pentecost's mark, a triangle turning in three dimensions, white on a black
- * rounded tile. The turn runs over a whole number of frames, so the loop joins back onto itself.
+ * The window and taskbar icon: Pentecost's white sailboat on a black rounded tile.
+ * The boat stays still and only the waves move, in 8 frames that loop.
  * The same art is drawn by .tools\make_icon.py for pentecost.ico. Change both together.
  */
 final class WindowIcon {
+    /** Same boat as the logo in Ui. 12 pixels wide, 11 tall. */
+    private static final String[] BOAT = {
+            ".....#......",
+            ".....##.....",
+            ".....#.#....",
+            ".....#..#...",
+            "..#..#...#..",
+            ".##..#....#.",
+            "#.#..#######",
+            "###..#......",
+            ".....#......",
+            "############",
+            ".##########."
+    };
 
     private static final int GRID = 16;
-    private static final int FRAMES = 24;
+    private static final int FRAMES = 8;
     private static final int[] SIZES = {32, 64};
-    private static final long STEP_MS = 90;
+    private static final long STEP_MS = 140;
     private static final int TILE = 0xFF0A0A0B;
+    private static final int WHITE = 0xFFF2F2F2;
+    private static final int DIM = 0xFF676767;
 
     private static ByteBuffer[][] frames;
     private static long last;
@@ -28,7 +44,7 @@ final class WindowIcon {
 
     private WindowIcon() {}
 
-    /** Called every frame. Moves to the next frame of the turn about eleven times a second. */
+    /** Called every frame. Moves to the next wave frame about seven times a second. */
     static void frame() {
         if (failed) {
             return;
@@ -50,7 +66,7 @@ final class WindowIcon {
         }
     }
 
-    /** Puts the next frame of the turn on the window. */
+    /** Puts the next wave frame on the window. */
     private static void show(long handle) {
         if (frames == null) {
             frames = new ByteBuffer[FRAMES][SIZES.length];
@@ -73,7 +89,7 @@ final class WindowIcon {
         next = (next + 1) % FRAMES;
     }
 
-    /** Called by the game right after it set its own icon. Puts the mark on the window at boot. */
+    /** Called by the game right after it set its own icon. Puts the boat on the window at boot. */
     static void apply(Object window) {
         if (failed) {
             return;
@@ -89,7 +105,23 @@ final class WindowIcon {
 
     /** One frame at one size, as RGBA bytes. Size must be a multiple of 16. */
     private static ByteBuffer render(int size, int frame) {
-        int[] cells = TriMark.loop(GRID, GRID, frame, FRAMES);
+        int[] grid = new int[GRID * GRID];
+        for (int r = 0; r < BOAT.length; r++) {
+            for (int c = 0; c < BOAT[r].length(); c++) {
+                if (BOAT[r].charAt(c) == '#') {
+                    grid[(r + 1) * GRID + c + 2] = WHITE;
+                }
+            }
+        }
+        double phase = frame * Math.PI * 2 / FRAMES;
+        for (int line = 0; line < 2; line++) {
+            int base = 10 + line * 2;
+            for (int c = 1; c <= 14; c++) {
+                double wave = Math.sin(c * 0.9 - phase + line * 1.7);
+                int row = base + (wave > 0.55 ? -1 : 0) + 1;
+                grid[row * GRID + c] = line == 0 ? WHITE : DIM;
+            }
+        }
         int k = size / GRID;
         double radius = size * 0.22;
         ByteBuffer out = ByteBuffer.allocateDirect(size * size * 4);
@@ -97,8 +129,8 @@ final class WindowIcon {
             for (int x = 0; x < size; x++) {
                 int argb = 0;
                 if (inside(x + 0.5, y + 0.5, size, radius)) {
-                    int v = cells[(y / k) * GRID + x / k];
-                    argb = v < 30 ? TILE : (0xFF000000 | (v << 16) | (v << 8) | v);
+                    int cell = grid[(y / k) * GRID + x / k];
+                    argb = cell != 0 ? cell : TILE;
                 }
                 out.put((byte) (argb >> 16)).put((byte) (argb >> 8)).put((byte) argb).put((byte) (argb >>> 24));
             }

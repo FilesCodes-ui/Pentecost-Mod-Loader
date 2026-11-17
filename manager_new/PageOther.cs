@@ -165,10 +165,17 @@ public partial class MainWindow
             Ui.Btn("Data folder", "Secondary", (_, _) => OpenFolder(Paths.Data)),
             Ui.Btn("Manager log", "Secondary", (_, _) => { if (File.Exists(AppLog.File_)) OpenPath(AppLog.File_); else Toast("The log is empty.", "Warn"); }),
         };
+        var mgrText = !SelfInstall.CanUpdate && !testing ? "This copy is not the installed Manager, so it does not update itself."
+            : latest == null ? "The newest version is not known yet. The Manager checks at start and every half hour."
+            : ManagerUpdate ? $"Version {latest.ManagerVersion} is available. It installs when you close the Manager, or press Update now."
+            : "This Manager is up to date. It checks at start and every half hour.";
+        var mgrButtons = new List<Button> { Ui.Btn("Check for updates", "Secondary", (_, _) => _ = CheckUpdates(true)) };
+        if (ManagerUpdate) mgrButtons.Add(Ui.Btn("Update now", "Primary", (_, _) => _ = UpdateManagerNow()));
         page.Children.Add(Section("About",
             SRow("Pentecost Manager " + version,
                 Paths.DevSource.Length > 0 ? "Run from source is on for this account: " + Paths.DevSource : "Made for Pentecost. Source mode shows when dev.json names a source folder in the data folder.",
-                aboutButtons.ToArray())));
+                aboutButtons.ToArray()),
+            SRow("Manager updates", mgrText, mgrButtons.ToArray())));
         return Scroll(page);
     }
 

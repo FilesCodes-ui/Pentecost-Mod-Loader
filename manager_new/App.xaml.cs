@@ -21,6 +21,7 @@ public partial class App : Application
     ///   --check DIR          walk the whole window by itself, write report.txt and PNG files in DIR, then exit
     ///   --icon FILE          write the program icon from the mark, then exit
     ///   --silent             install the Manager without asking and without starting it, then exit
+    ///   --restart            with --silent: start the installed copy afterwards (the Manager's own update uses this)
     ///   --uninstall          remove the Manager (shortcuts, app list entry, folder), then exit
     ///   --welcome            sent by the setup to the new copy: offer to install Pentecost
     /// Both run off screen and never take focus.
@@ -48,6 +49,7 @@ public partial class App : Application
         {
             var err = SelfInstall.Install();
             if (err != null) AppLog.Write("silent install: " + err);
+            else if (e.Args.Any(a => a.Equals("--restart", StringComparison.OrdinalIgnoreCase))) SelfInstall.Launch("");
             Shutdown(err == null ? 0 : 1);
             return;
         }

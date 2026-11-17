@@ -242,7 +242,7 @@ public final class ClassCache {
     /** One key for everything a transformed class depends on. */
     private static String fingerprint(URL[] urls, String choices) throws Exception {
         MessageDigest sha = MessageDigest.getInstance("SHA-1");
-        feed(sha, "pentecost-class-cache-5");
+        feed(sha, "pentecost-class-cache-6");
         feed(sha, Runtime.version().toString());
         feed(sha, choices);
         Map<String, String> env = new TreeMap<>();

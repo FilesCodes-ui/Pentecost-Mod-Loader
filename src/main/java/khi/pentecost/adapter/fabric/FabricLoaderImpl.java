@@ -171,7 +171,43 @@ public final class FabricLoaderImpl implements FabricLoader {
                 }
             }
         }
-        return Optional.empty();
+        return builtin(id);
+    }
+
+    /**
+     * Minecraft, Java and the loader itself. Fabric answers a lookup for these like for any mod, and mods
+     * such as Presence Footsteps ask for the Minecraft version this way. Without an answer they shut themselves off.
+     */
+    private Optional<ModContainer> builtin(String id) {
+        ModInfo info;
+        switch (id) {
+            case "minecraft" -> info = builtinInfo("minecraft", "Minecraft",
+                    khi.pentecost.boot.PentecostMain.MINECRAFT, gameJar());
+            case "java" -> info = builtinInfo("java", "Java",
+                    System.getProperty("java.specification.version", "21"), Path.of(System.getProperty("java.home", ".")));
+            case "fabricloader" -> info = builtinInfo("fabricloader", "Fabric Loader", "0.16.14", gameJar());
+            default -> {
+                return Optional.empty();
+            }
+        }
+        return Optional.of(containers.computeIfAbsent(id, k -> new Container(info)));
+    }
+
+    private static ModInfo builtinInfo(String id, String name, String version, Path jar) {
+        JsonObject raw = new JsonObject();
+        raw.addProperty("id", id);
+        raw.addProperty("name", name);
+        raw.addProperty("version", version);
+        return new ModInfo(id, name, version, LoaderKind.LIBRARY, jar, Map.of(), List.of(), List.of(), List.of(), raw);
+    }
+
+    private static Path gameJar() {
+        try {
+            var remap = PentecostRuntime.remap;
+            return remap == null ? Path.of(".") : remap.game().clientJar();
+        } catch (java.io.IOException | RuntimeException e) {
+            return Path.of(".");
+        }
     }
 
     @Override

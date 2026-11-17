@@ -11,12 +11,19 @@ public partial class MainWindow : Window
     string? java;
     bool javaDone;
     ReleaseInfo? latest;
+    bool updatesChecked;
+    string? managerSetup;
+    string? managerSetupVersion;
+    Task? managerFetch;
+    bool managerBusy;
+    bool managerHandedOver;
     bool installing;
     ProgressBar? installBar;
     TextBlock? installLabel;
     string current = "";
     readonly TextBox logBox;
     readonly DispatcherTimer toastTimer = new() { Interval = TimeSpan.FromSeconds(4) };
+    readonly DispatcherTimer updateTimer = new() { Interval = TimeSpan.FromMinutes(30) };
     readonly Dictionary<string, FrameworkElement> kept = new();
 
     public MainWindow()
@@ -37,10 +44,13 @@ public partial class MainWindow : Window
         game.Line += s => Dispatcher.BeginInvoke(() => AppendLog(s));
         game.Exited += code => Dispatcher.BeginInvoke(() => OnExited(code));
         toastTimer.Tick += (_, _) => { toastTimer.Stop(); Toast_Hide(); };
+        updateTimer.Tick += (_, _) => { if (!testing && !installing) _ = CheckUpdates(false); };
         StateChanged += (_, _) => Frame.Margin = WindowState == WindowState.Maximized ? new Thickness(7) : new Thickness(0);
         SizeChanged += (_, _) => MoveTabLine();
 
         Closing += (_, _) => iconTimer.Stop();
+        Closing += (_, _) => updateTimer.Stop();
+        Closed += (_, _) => InstallOnClose();
         Closing += (_, _) => Paths.Window = $"{(int)Left},{(int)Top},{(int)Width},{(int)Height},{(WindowState == WindowState.Maximized ? 1 : 0)}";
         Loaded += async (_, _) =>
         {
@@ -54,6 +64,7 @@ public partial class MainWindow : Window
             javaDone = true;
             Refresh();
             await CheckUpdates(false);
+            if (!testing) updateTimer.Start();
             if (App.Welcome && !testing && Paths.Version == null) AskInstall(true);
         };
     }
@@ -320,14 +331,20 @@ public partial class MainWindow : Window
     // ---------------------------------------------------------------- install and update
     async Task CheckUpdates(bool announce)
     {
+        var before = (latest?.Tag, latest?.ManagerVersion);
         try
         {
             latest = await Updates.Latest();
+            FetchManager();
             if (announce)
             {
                 var cur = Paths.Version;
+                var pent = latest != null && (cur == null || Updates.Newer(latest.Version, cur));
+                var mgr = Updates.ManagerNewer(latest);
                 if (latest == null) Toast("Could not read the release list.", "Warn");
-                else if (cur == null || Updates.Newer(latest.Version, cur)) Toast($"Pentecost {latest.Version} is available.");
+                else if (pent && mgr) Toast($"Pentecost {latest.Version} and Manager {latest.ManagerVersion} are available.");
+                else if (pent) Toast($"Pentecost {latest.Version} is available.");
+                else if (mgr) Toast($"Manager {latest.ManagerVersion} is available." + (SelfInstall.CanUpdate ? " It installs when you close the Manager." : ""));
                 else Toast("You are up to date.");
             }
         }
@@ -336,7 +353,79 @@ public partial class MainWindow : Window
             AppLog.Write("update check: " + ex.Message);
             if (announce) Toast("Could not reach GitHub.", "Warn");
         }
-        Refresh();
+        // The half hourly check must not rebuild a page the player is working in, unless something new showed up.
+        if (announce || !updatesChecked) Refresh();
+        else if (before != (latest?.Tag, latest?.ManagerVersion)) RefreshUpdateViews();
+        updatesChecked = true;
+    }
+
+    /// <summary>True when a newer Manager is on the release and this copy can show or apply it.</summary>
+    bool ManagerUpdate => latest != null && Updates.ManagerNewer(latest) && (SelfInstall.CanUpdate || testing);
+
+    /// <summary>Only Home and Settings show update state, so only they are rebuilt.</summary>
+    void RefreshUpdateViews()
+    {
+        if (current is "Play" or "Settings" && !inFull && Modal.Visibility != Visibility.Visible) ShowPage(current, false);
+    }
+
+    /// <summary>
+    /// Fetches the newest Manager setup in the background, so the update is ready when the player presses Update now
+    /// or closes the Manager. Only the installed copy does this.
+    /// </summary>
+    void FetchManager()
+    {
+        var r = latest;
+        if (testing || r == null || !SelfInstall.CanUpdate || !Updates.ManagerNewer(r)) return;
+        if (managerSetupVersion == r.ManagerVersion || managerFetch is { IsCompleted: false }) return;
+        managerFetch = Task.Run(async () =>
+        {
+            var (path, err) = await SelfUpdate.Download(r, null, CancellationToken.None);
+            if (path != null)
+            {
+                managerSetup = path;
+                managerSetupVersion = r.ManagerVersion;
+                AppLog.Write("manager " + r.ManagerVersion + " is ready to install");
+            }
+            else AppLog.Write("manager update: " + err);
+            await Dispatcher.BeginInvoke(() => RefreshUpdateViews());
+        });
+    }
+
+    /// <summary>Update now: the checked Setup replaces the installed Manager and starts it again.</summary>
+    async Task UpdateManagerNow()
+    {
+        if (testing) { AppLog.Write("self-test: did not update the Manager"); return; }
+        var r = latest;
+        if (r == null || !Updates.ManagerNewer(r)) { Toast("The Manager is up to date."); return; }
+        if (!SelfInstall.CanUpdate) { Toast("This copy is not the installed Manager, so it does not update itself.", "Warn"); return; }
+        if (managerBusy) return;
+        managerBusy = true;
+        try
+        {
+            Toast("Getting the new Manager.");
+            if (managerFetch is { IsCompleted: false }) await managerFetch;
+            if (managerSetupVersion != r.ManagerVersion)
+            {
+                var (path, err) = await SelfUpdate.Download(r, null, CancellationToken.None);
+                if (path == null) { Toast(err ?? "Could not get the Manager.", "Bad"); return; }
+                managerSetup = path;
+                managerSetupVersion = r.ManagerVersion;
+            }
+            var run = SelfUpdate.Run(managerSetup!, true);
+            if (run != null) { Toast(run, "Bad"); return; }
+            managerHandedOver = true;
+            Close();
+        }
+        finally { managerBusy = false; }
+    }
+
+    /// <summary>A checked update that was not applied with the button installs now, without a window and without starting again.</summary>
+    void InstallOnClose()
+    {
+        if (testing || managerHandedOver || managerSetup == null || managerSetupVersion == null) return;
+        if (!SelfInstall.CanUpdate) return;
+        AppLog.Write("installing Manager " + managerSetupVersion + " on close");
+        SelfUpdate.Run(managerSetup, false);
     }
 
     async Task RunInstall(bool worlds)

@@ -97,75 +97,6 @@ static class Pixels
         return f;
     }
 
-    /// <summary>
-    /// Pentecost's mark on a grid of cells: a triangle turning in three dimensions, a dot at each corner, the
-    /// corners joined by its edges. Each cell comes back as a brightness from 0 to 255.
-    /// </summary>
-    public static int[] Mark(int w, int h, double t)
-    {
-        var buf = new int[w * h];
-        var eye = 3.1 + 0.55 * Math.Sin(t * 0.47);
-        // Two fading ghosts of where it just was, then the triangle itself over the top.
-        Draw(buf, w, h, t - 0.22, eye, 70);
-        Draw(buf, w, h, t - 0.11, eye, 130);
-        Draw(buf, w, h, t, eye, 255);
-        return buf;
-    }
-
-    static void Draw(int[] buf, int w, int h, double t, double eye, int level)
-    {
-        // Three turns whose speeds share no common beat, so the shape never repeats the same way twice.
-        double ax = t * 0.91, ay = t * 1.37, az = t * 0.58;
-        double midX = w / 2.0 - 0.5, midY = h / 2.0 - 0.5;
-        var reach = Math.Min(w, h) * 0.40;
-        var flat = new (double X, double Y, double Depth)[3];
-        for (var i = 0; i < 3; i++)
-        {
-            var a = Math.PI / 2 + i * 2 * Math.PI / 3;
-            double x = Math.Cos(a), y = Math.Sin(a), z = 0;
-            (y, z) = (y * Math.Cos(ax) - z * Math.Sin(ax), y * Math.Sin(ax) + z * Math.Cos(ax));
-            (x, z) = (x * Math.Cos(ay) + z * Math.Sin(ay), -x * Math.Sin(ay) + z * Math.Cos(ay));
-            (x, y) = (x * Math.Cos(az) - y * Math.Sin(az), x * Math.Sin(az) + y * Math.Cos(az));
-            var k = 2.2 / (eye - z);
-            flat[i] = (midX + x * k * reach, midY - y * k * reach, k);
-        }
-        for (var i = 0; i < 3; i++)
-        {
-            var a = flat[i];
-            var b = flat[(i + 1) % 3];
-            Line(buf, w, h, a.X, a.Y, b.X, b.Y, Dim(level, (a.Depth + b.Depth) / 2));
-        }
-        foreach (var (x, y, depth) in flat)
-        {
-            var r = Math.Min(w, h) >= 26 ? (depth > 0.95 ? 2 : 1) : (depth > 0.95 ? 1 : 0);
-            var bright = Dim(level, depth + 0.25);
-            for (var dy = -r; dy <= r; dy++)
-                for (var dx = -r; dx <= r; dx++)
-                    Put(buf, w, h, (int)Math.Round(x) + dx, (int)Math.Round(y) + dy, bright);
-        }
-    }
-
-    static int Dim(int level, double depth) => (int)Math.Clamp(level * Math.Clamp(depth * 0.78, 0.33, 1.0), 0, 255);
-
-    static void Put(int[] buf, int w, int h, int x, int y, int v)
-    {
-        if (x < 0 || y < 0 || x >= w || y >= h) return;
-        var i = y * w + x;
-        if (buf[i] < v) buf[i] = v;
-    }
-
-    /// <summary>A straight line of cells, the plain way, so the staircase stays visible.</summary>
-    static void Line(int[] buf, int w, int h, double x0, double y0, double x1, double y1, int v)
-    {
-        var steps = (int)Math.Ceiling(Math.Max(Math.Abs(x1 - x0), Math.Abs(y1 - y0)));
-        if (steps <= 0) { Put(buf, w, h, (int)Math.Round(x0), (int)Math.Round(y0), v); return; }
-        for (var s = 0; s <= steps; s++)
-        {
-            var f = (double)s / steps;
-            Put(buf, w, h, (int)Math.Round(x0 + (x1 - x0) * f), (int)Math.Round(y0 + (y1 - y0) * f), v);
-        }
-    }
-
     public static IEnumerable<(int Row, int Col)> BoatCells()
     {
         for (var r = 0; r < Boat.Length; r++)
@@ -227,11 +158,7 @@ public class Wordmark : FrameworkElement
     }
 }
 
-/// <summary>
-/// The logo: Pentecost's mark, a triangle turning in three dimensions with a dot at each corner. It is worked out
-/// on a grid of square cells, so the edges stay blocky at any size. The same shape is drawn by the game
-/// (TriMark.java), the manager and .tools/make_icon.py. Change them together.
-/// </summary>
+/// <summary>The logo: a still sailboat in the water and two thin waves that drift slowly.</summary>
 public class PixelLogo : FrameworkElement
 {
     public static readonly DependencyProperty PixelProperty = DependencyProperty.Register(nameof(Pixel), typeof(double), typeof(PixelLogo),
@@ -243,7 +170,6 @@ public class PixelLogo : FrameworkElement
     public Brush Fill { get => (Brush)GetValue(FillProperty); set => SetValue(FillProperty, value); }
 
     readonly DateTime start = DateTime.UtcNow;
-    int frame;
 
     public PixelLogo()
     {
@@ -253,7 +179,7 @@ public class PixelLogo : FrameworkElement
         Unloaded += (_, _) => CompositionTarget.Rendering -= Tick;
     }
 
-    void Tick(object? sender, EventArgs e) { if (frame++ % 2 == 0) InvalidateVisual(); }
+    void Tick(object? sender, EventArgs e) => InvalidateVisual();
 
     protected override Size MeasureOverride(Size availableSize) => new(Pixels.LogoW * Pixel, Pixels.LogoH * Pixel);
 
@@ -261,24 +187,24 @@ public class PixelLogo : FrameworkElement
     {
         var px = Pixel;
         var t = (DateTime.UtcNow - start).TotalSeconds;
-        var w = Pixels.LogoW;
-        var h = Pixels.LogoH;
-        var cells = Pixels.Mark(w, h, t);
-        var full = Fill;
-        var mid = Fill.Clone();
-        mid.Opacity = 0.55;
-        var faint = Fill.Clone();
-        faint.Opacity = 0.28;
-        for (var r = 0; r < h; r++)
-            for (var c = 0; c < w; c++)
+        foreach (var (r, c) in Pixels.BoatCells())
+            dc.DrawRectangle(Fill, null, new Rect((c + 2) * px, r * px, px, px));
+        var soft = Fill.Clone();
+        soft.Opacity = 0.4;
+        for (var line = 0; line < 2; line++)
+        {
+            var baseRow = 10 + line * 2;
+            var brush = line == 0 ? Fill : soft;
+            for (var c = 0; c < Pixels.LogoW; c++)
             {
-                var v = cells[r * w + c];
-                if (v < 30) continue;
-                var brush = v > 200 ? full : v > 110 ? mid : faint;
-                dc.DrawRectangle(brush, null, new Rect(c * px, r * px, px, px));
+                var wave = Math.Sin(c * 0.9 - t * 0.9 + line * 1.7);
+                var dy = wave > 0.55 ? -1 : 0;
+                dc.DrawRectangle(brush, null, new Rect(c * px, (baseRow + dy) * px, px, px));
             }
+        }
     }
 }
+
 /// <summary>
 /// The boot splash's dithered backdrop: a slow pattern of faint light pixels, strongest on the right, away from the text.
 /// A small bitmap is rebuilt about thirty times a second and drawn large without smoothing, so every cell stays a hard square.

@@ -30,6 +30,7 @@ public final class GameClassLoader extends URLClassLoader {
     }
 
     private final List<ClassTransformer> transformers = new CopyOnWriteArrayList<>();
+    private final List<ClassTransformer> lateTransformers = new CopyOnWriteArrayList<>();
     private volatile ClassTransformer mixin;
     private volatile ClassCache cache;
     private final Map<String, String> modByJarUrl = new HashMap<>();
@@ -172,6 +173,15 @@ public final class GameClassLoader extends URLClassLoader {
         transformers.add(t);
     }
 
+    /**
+     * Adds a transformer that runs after Mixin. Use it for changes that rename a game method or wrap its body:
+     * before Mixin they hide the real body, and every mod hook aimed at that method silently finds nothing.
+     * Late transformers are not cached, so they must stay cheap for classes they do not touch.
+     */
+    public void addLateTransformer(ClassTransformer t) {
+        lateTransformers.add(t);
+    }
+
     public void setMixin(ClassTransformer t) {
         this.mixin = t;
     }
@@ -279,6 +289,9 @@ public final class GameClassLoader extends URLClassLoader {
                     bytes = mx.transform(name, bytes);
                 }
                 boolean mixinTouched = bytes != beforeMixin && !java.util.Arrays.equals(bytes, beforeMixin);
+                for (ClassTransformer late : lateTransformers) {
+                    bytes = late.transform(name, bytes);
+                }
                 long t3 = System.nanoTime();
                 bytes = DefaultConflicts.transform(this, name, bytes);
                 khi.pentecost.core.HudOwner.afterMixin(name, bytes);

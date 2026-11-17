@@ -79,11 +79,21 @@ public final class ClientHooks {
         return g == null || g.allow(instance);
     }
 
+    /** Runs before Mixin. Edits a method body in place, so mod hooks still see the real body. */
     public static ClassTransformer transformer() {
+        return build(false);
+    }
+
+    /** Runs after Mixin. Wraps SoundEngine.play and RenderSystem.limitDisplayFPS, which hides their bodies. */
+    public static ClassTransformer lateTransformer() {
+        return build(true);
+    }
+
+    private static ClassTransformer build(boolean late) {
         return (name, bytes) -> {
-            boolean sounds = name.equals("net.minecraft.client.sounds.SoundEngine");
-            boolean levels = name.equals("net.minecraft.client.renderer.LevelRenderer");
-            boolean render = name.equals("com.mojang.blaze3d.systems.RenderSystem");
+            boolean sounds = late && name.equals("net.minecraft.client.sounds.SoundEngine");
+            boolean levels = !late && name.equals("net.minecraft.client.renderer.LevelRenderer");
+            boolean render = late && name.equals("com.mojang.blaze3d.systems.RenderSystem");
             if (!sounds && !levels && !render) {
                 return bytes;
             }

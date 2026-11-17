@@ -6,7 +6,8 @@ using System.Text.RegularExpressions;
 
 namespace Pentecost.Manager;
 
-public sealed record ReleaseInfo(string Tag, string Url, string? InstallerUrl, string? InstallerName, long InstallerSize, string? InstallerSha256, string Notes)
+public sealed record ReleaseInfo(string Tag, string Url, string? InstallerUrl, string? InstallerName, long InstallerSize, string? InstallerSha256, string Notes,
+    string? ManagerVersion = null, string? ManagerUrl = null, long ManagerSize = 0, string? ManagerSha256 = null)
 {
     public string Version => Tag.TrimStart('v', 'V');
 }
@@ -20,26 +21,47 @@ public static class Updates
     public static async Task<ReleaseInfo?> Latest(CancellationToken ct = default)
     {
         var text = await Modrinth.Client.GetStringAsync($"https://api.github.com/repos/{Repo}/releases/latest", ct);
+        return Parse(text);
+    }
+
+    /// <summary>Reads one release from the GitHub API: the Pentecost installer, and the newest Manager setup among its files.</summary>
+    public static ReleaseInfo? Parse(string text)
+    {
         if (JsonNode.Parse(text) is not JsonObject o) return null;
         var tag = o["tag_name"]?.ToString();
         var url = o["html_url"]?.ToString();
         if (tag == null || url == null) return null;
         string? aUrl = null, aName = null, aSha = null;
         long aSize = 0;
+        string? mVer = null, mUrl = null, mSha = null;
+        long mSize = 0;
         foreach (var a in (o["assets"] as JsonArray)?.OfType<JsonObject>() ?? Enumerable.Empty<JsonObject>())
         {
             var name = a["name"]?.ToString() ?? "";
-            if (!Regex.IsMatch(name, "^Pentecost-Installer-.*\\.exe$", RegexOptions.IgnoreCase)) continue;
-            aUrl = a["browser_download_url"]?.ToString();
-            aName = name;
-            aSize = a["size"]?.GetValue<long>() ?? 0;
+            var dl = a["browser_download_url"]?.ToString();
+            var size = a["size"]?.GetValue<long>() ?? 0;
             var digest = a["digest"]?.ToString();
-            if (digest != null && digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)) aSha = digest[7..];
-            break;
+            var sha = digest != null && digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) ? digest[7..] : null;
+            if (aUrl == null && Regex.IsMatch(name, "^Pentecost-Installer-.*\\.exe$", RegexOptions.IgnoreCase))
+            {
+                aUrl = dl;
+                aName = name;
+                aSize = size;
+                aSha = sha;
+                continue;
+            }
+            var m = Regex.Match(name, "^Pentecost-Manager-Setup-(\\d+(?:\\.\\d+){1,3})\\.exe$", RegexOptions.IgnoreCase);
+            if (m.Success && (mVer == null || Newer(m.Groups[1].Value, mVer)))
+            {
+                mVer = m.Groups[1].Value;
+                mUrl = dl;
+                mSize = size;
+                mSha = sha;
+            }
         }
         var notes = (o["body"]?.ToString() ?? "").Trim();
         if (notes.Length > 600) notes = notes[..600] + "...";
-        return new ReleaseInfo(tag, url, aUrl, aName, aSize, aSha, notes);
+        return new ReleaseInfo(tag, url, aUrl, aName, aSize, aSha, notes, mVer, mUrl, mSize, mSha);
     }
 
     public static bool Newer(string a, string b)
@@ -53,6 +75,9 @@ public static class Updates
         }
         return false;
     }
+
+    /// <summary>True when the release carries a Manager setup newer than the Manager that is running.</summary>
+    public static bool ManagerNewer(ReleaseInfo? r) => r?.ManagerVersion != null && Newer(r.ManagerVersion, SelfInstall.Version);
 
     public static bool IsOfficialAsset(string? url) => url != null && url.StartsWith(DownloadPrefix, StringComparison.Ordinal);
 }
