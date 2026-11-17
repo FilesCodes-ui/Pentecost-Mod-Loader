@@ -22,3 +22,7 @@ installer/obj/
 installer/payload.zip
 installer/worlds.json
 installer/app.ico
+manager_new/bin/
+manager_new/obj/
+manager_new/shots/
+manager_new/plain/

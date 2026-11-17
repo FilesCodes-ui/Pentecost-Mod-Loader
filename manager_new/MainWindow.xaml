@@ -1,0 +1,115 @@
+<Window x:Class="Pentecost.Manager.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        xmlns:local="clr-namespace:Pentecost.Manager"
+        Title="Pentecost Manager" Width="1260" Height="800" MinWidth="1080" MinHeight="660"
+        WindowStyle="None" Background="{StaticResource Bg}" Foreground="{StaticResource Text}"
+        FontFamily="{StaticResource Body}" FontSize="13.5" AllowDrop="True"
+        WindowStartupLocation="CenterScreen" Icon="app.ico" UseLayoutRounding="True" TextOptions.TextFormattingMode="Ideal"
+        DragOver="Window_DragOver" DragLeave="Window_DragLeave" Drop="Window_Drop">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="52" ResizeBorderThickness="6" GlassFrameThickness="0" CornerRadius="0" UseAeroCaptionButtons="False"/>
+    </shell:WindowChrome.WindowChrome>
+    <Window.Resources>
+        <Style x:Key="TabWord" TargetType="local:Wordmark">
+            <Setter Property="Pixel" Value="1"/>
+            <Setter Property="Fill" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}"/>
+        </Style>
+    </Window.Resources>
+
+    <Border x:Name="Frame" Background="{StaticResource Bg}" BorderBrush="{StaticResource Line}" BorderThickness="1">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="264"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Left: everything about starting the game. It never changes with the page. -->
+            <Grid Grid.Column="0" Background="{StaticResource Side}" ClipToBounds="True">
+                <local:DitherBackdrop FromLeft="True" Opacity="0.55"/>
+                <Border BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0"/>
+                <DockPanel Margin="22,24,23,18" LastChildFill="False">
+                    <StackPanel DockPanel.Dock="Top">
+                        <local:TriSpinner Width="72" Height="72" Cells="44" HorizontalAlignment="Left" Margin="-4,-4,0,0"/>
+                        <local:Wordmark Text="PENTECOST" Pixel="1.5" HorizontalAlignment="Left" Margin="0,18,0,0"/>
+                        <TextBlock Text="MOD LOADER FOR MINECRAFT 1.20.1" Style="{StaticResource Cap}" Margin="1,9,0,0"/>
+                    </StackPanel>
+                    <StackPanel x:Name="Cockpit" DockPanel.Dock="Top" Margin="0,30,0,0"/>
+
+                    <Grid DockPanel.Dock="Bottom">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Background="Transparent" Cursor="Hand" MouseLeftButtonUp="Account_Click" ToolTip="Account settings">
+                            <StackPanel Orientation="Horizontal">
+                                <Border x:Name="AccountTile" Width="36" Height="36" Background="{StaticResource Panel2}" BorderBrush="{StaticResource Line}" BorderThickness="1" Margin="0,0,11,0">
+                                    <TextBlock x:Name="AccountLetter" Text="?" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="{StaticResource Muted}"/>
+                                </Border>
+                                <StackPanel VerticalAlignment="Center" MaxWidth="130">
+                                    <TextBlock x:Name="AccountName" Text="Offline" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock x:Name="AccountSub" Text="Sign in inside the game" FontSize="11" Foreground="{StaticResource Faint}" TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                        <Button Grid.Column="1" Style="{StaticResource IconBtn}" Content="&#xE765;" Click="Keys_Click" ToolTip="Keyboard shortcuts (F1)" VerticalAlignment="Center"/>
+                    </Grid>
+                    <StackPanel x:Name="DlPanel" DockPanel.Dock="Bottom" Margin="0,0,0,16"/>
+                </DockPanel>
+            </Grid>
+
+            <!-- Right: the pages -->
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="52"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <Grid x:Name="TabHost" Grid.Row="0">
+                    <StackPanel x:Name="NavPanel" Orientation="Horizontal" Margin="24,0,0,0" HorizontalAlignment="Left" shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                        <RadioButton Uid="Play" GroupName="nav" Style="{StaticResource Tab}" Checked="Nav_Checked"><local:Wordmark Text="HOME" Style="{StaticResource TabWord}"/></RadioButton>
+                        <RadioButton Uid="Mods" GroupName="nav" Style="{StaticResource Tab}" Checked="Nav_Checked"><local:Wordmark Text="MODS" Style="{StaticResource TabWord}"/></RadioButton>
+                        <RadioButton Uid="Browse" GroupName="nav" Style="{StaticResource Tab}" Checked="Nav_Checked"><local:Wordmark Text="BROWSE" Style="{StaticResource TabWord}"/></RadioButton>
+                        <RadioButton Uid="Profiles" GroupName="nav" Style="{StaticResource Tab}" Checked="Nav_Checked"><local:Wordmark Text="PROFILES" Style="{StaticResource TabWord}"/></RadioButton>
+                        <RadioButton Uid="Crashes" GroupName="nav" Style="{StaticResource Tab}" Checked="Nav_Checked"><local:Wordmark Text="CRASHES" Style="{StaticResource TabWord}"/></RadioButton>
+                        <RadioButton Uid="Log" GroupName="nav" Style="{StaticResource Tab}" Checked="Nav_Checked"><local:Wordmark Text="LOG" Style="{StaticResource TabWord}"/></RadioButton>
+                        <RadioButton Uid="Settings" GroupName="nav" Style="{StaticResource Tab}" Checked="Nav_Checked"><local:Wordmark Text="SETTINGS" Style="{StaticResource TabWord}"/></RadioButton>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                        <Button Style="{StaticResource IconBtn}" Content="&#xE921;" Height="40" Width="46" Click="Min_Click" ToolTip="Minimise"/>
+                        <Button Style="{StaticResource IconBtn}" Content="&#xE922;" Height="40" Width="46" Click="Max_Click" ToolTip="Maximise"/>
+                        <Button Style="{StaticResource IconBtn}" Content="&#xE8BB;" Height="40" Width="46" Click="Close_Click" ToolTip="Close"/>
+                    </StackPanel>
+                    <Border Height="1" VerticalAlignment="Bottom" Background="{StaticResource Line}"/>
+                    <Border x:Name="TabLine" Height="2" Width="0" HorizontalAlignment="Left" VerticalAlignment="Bottom" Background="{StaticResource Text}">
+                        <Border.RenderTransform><TranslateTransform x:Name="TabLineMove"/></Border.RenderTransform>
+                    </Border>
+                </Grid>
+
+                <ContentControl x:Name="PageHost" Grid.Row="1" Margin="34,24,28,0" IsTabStop="False"/>
+
+                <!-- Shown while mod files are being dragged over the window -->
+                <Grid x:Name="DropHint" Grid.Row="1" Visibility="Collapsed" Background="#E6080809" IsHitTestVisible="False">
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                        <TextBlock Text="&#xE896;" FontFamily="{StaticResource Icons}" FontSize="40" HorizontalAlignment="Center" Foreground="{StaticResource Text}"/>
+                        <TextBlock Text="Drop the .jar files to add them" FontSize="16" FontWeight="SemiBold" Margin="0,18,0,0" HorizontalAlignment="Center"/>
+                        <TextBlock Text="They go straight into your mods folder" FontSize="12.5" Foreground="{StaticResource Muted}" Margin="0,6,0,0" HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Grid>
+                <Border x:Name="ToastBox" Grid.Row="1" VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="0,0,0,24" Padding="18,11"
+                        Background="{StaticResource Panel2}" BorderBrush="{StaticResource Edge}" BorderThickness="1" Opacity="0" MaxWidth="640" Cursor="Hand" MouseLeftButtonUp="Toast_Click" ToolTip="Click to dismiss">
+                    <StackPanel Orientation="Horizontal">
+                        <Border x:Name="ToastDot" Width="8" Height="8" Background="{StaticResource Ok}" Margin="0,1,12,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="ToastText" TextWrapping="Wrap" FontSize="13"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- Boxes that open over everything -->
+            <Grid x:Name="Modal" Grid.ColumnSpan="2" Visibility="Collapsed" Background="#D9050506">
+                <ContentControl x:Name="ModalHost" HorizontalAlignment="Center" VerticalAlignment="Center" IsTabStop="False" RenderTransformOrigin="0.5,0.5"/>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>
