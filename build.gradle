@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'khi.pentecost'
-version = '0.5.0'
+version = '0.6.0'
 
 java {
     toolchain {
@@ -111,12 +111,21 @@ def pentecostExec = { String taskName, List<String> taskArgs ->
         def pentecostSettings = file('run/config/pentecost/settings.json')
         def saved = pentecostSettings.isFile() ? new groovy.json.JsonSlurper().parseText(pentecostSettings.text) : [:]
         int heapGb = Math.max(2, (saved['java.memory'] ?: '6') as int)
-        int youngGb = Math.max(1, Math.min((saved['java.young'] ?: '3') as int, heapGb - 1))
-        jvmArgs "-Xms${heapGb}G", "-Xmx${heapGb}G", "-Xmn${youngGb}G"
+        // Backup memory: room above the working size for spikes. The game never goes past the two added together.
+        int reserveGb = Math.max(0, (saved['java.reserve'] ?: '2') as int)
+        int youngSaved = (saved['java.young'] ?: '0') as int
+        int youngGb = youngSaved > 0 ? Math.max(1, Math.min(youngSaved, heapGb - 1)) : Math.max(1, heapGb.intdiv(2))
+        jvmArgs "-Xms${heapGb}G", "-Xmx${heapGb + reserveGb}G"
         if ((saved['java.gc'] ?: 'g1') == 'zgc') {
             jvmArgs '-XX:+UseZGC', '-XX:+ZGenerational'
-        } else if ((saved['java.gc'] ?: 'g1') == 'parallel') {
-            jvmArgs '-XX:+UseParallelGC'
+            if (reserveGb > 0) {
+                jvmArgs "-XX:SoftMaxHeapSize=${heapGb}G"
+            }
+        } else {
+            jvmArgs "-Xmn${youngGb}G"
+            if ((saved['java.gc'] ?: 'g1') == 'parallel') {
+                jvmArgs '-XX:+UseParallelGC'
+            }
         }
         def flagFile = file('run/config/pentecost/jvm-flags.txt')
         if (flagFile.isFile()) {

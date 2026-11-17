@@ -94,9 +94,12 @@ if (Test-Path $flagFile) {
     $mem = @(Get-Content $flagFile | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') })
 } else {
     $gb = [math]::Floor((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
-    if ($gb -ge 24) { $heap = 8; $young = 4 } elseif ($gb -ge 16) { $heap = 6; $young = 3 } elseif ($gb -ge 12) { $heap = 5; $young = 2 }
-    elseif ($gb -ge 8) { $heap = 4; $young = 2 } else { $heap = 3; $young = 1 }
-    $mem = @("-Xms${heap}G", "-Xmx${heap}G", "-Xmn${young}G")
+    # A working size and a backup above it. The game stays near the working size and reaches into the backup for spikes.
+    if ($gb -ge 24) { $heap = 8; $young = 4; $reserve = 2 } elseif ($gb -ge 16) { $heap = 6; $young = 3; $reserve = 2 } elseif ($gb -ge 12) { $heap = 5; $young = 2; $reserve = 2 }
+    elseif ($gb -ge 8) { $heap = 4; $young = 2; $reserve = 1 } else { $heap = 3; $young = 1; $reserve = 0 }
+    $reserve = [math]::Max(0, [math]::Min($reserve, $gb - 2 - $heap))
+    $ceiling = $heap + $reserve
+    $mem = @("-Xms${heap}G", "-Xmx${ceiling}G", "-Xmn${young}G")
 }
 
 $lib = Join-Path $PentecostHome 'lib'

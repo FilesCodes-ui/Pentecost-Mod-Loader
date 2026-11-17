@@ -42,6 +42,8 @@ public static class Paths
     public static string Crashes => Path.Combine(Home, "run", "crash-reports");
     /// <summary>Where the game's own Mods screen keeps its switches, among them the list of mods turned off.</summary>
     public static string Choices => Path.Combine(Home, "run", "config", "pentecost", "choices.json");
+    /// <summary>The game's own settings. The memory numbers of a profile are written here, so the game agrees with the Manager.</summary>
+    public static string GameSettings => Path.Combine(Home, "run", "config", "pentecost", "settings.json");
     public static string Logs => Path.Combine(Home, "run", "logs");
     public static bool Installed => Directory.Exists(Path.Combine(Home, "lib"));
 

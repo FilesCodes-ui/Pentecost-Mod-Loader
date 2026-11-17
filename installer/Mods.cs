@@ -65,13 +65,16 @@ public static class VideoMods
         var sha1 = file["hashes"]?["sha1"]?.ToString() ?? "";
         if (!name.EndsWith(".jar", StringComparison.OrdinalIgnoreCase) || sha1.Length != 40
             || !Uri.TryCreate(link, UriKind.Absolute, out var uri) || uri.Scheme != "https"
-            || !uri.Host.EndsWith("modrinth.com", StringComparison.OrdinalIgnoreCase))
+            || !(uri.Host.Equals("modrinth.com", StringComparison.OrdinalIgnoreCase) || uri.Host.EndsWith(".modrinth.com", StringComparison.OrdinalIgnoreCase)))
             throw new IOException($"{project}: the file entry is not one I will download");
 
         if (!AlreadyThere(mods, name))
         {
             var bytes = await Http.GetByteArrayAsync(uri, ct);
             if (!string.Equals(Convert.ToHexString(SHA1.HashData(bytes)), sha1, StringComparison.OrdinalIgnoreCase))
+                throw new IOException($"{name} did not match its checksum");
+            var sha512 = file["hashes"]?["sha512"]?.ToString();
+            if (sha512 is { Length: 128 } && !string.Equals(Convert.ToHexString(SHA512.HashData(bytes)), sha512, StringComparison.OrdinalIgnoreCase))
                 throw new IOException($"{name} did not match its checksum");
             var tmp = Path.Combine(mods, name + ".part");
             await File.WriteAllBytesAsync(tmp, bytes, ct);

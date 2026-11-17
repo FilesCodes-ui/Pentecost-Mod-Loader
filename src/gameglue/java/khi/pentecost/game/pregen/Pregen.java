@@ -37,7 +37,8 @@ public final class Pregen {
     private static final int UNLOAD_BOOST = 96;
 
     private static final Map<ServerLevel, ChunkPregen> RUNS = new ConcurrentHashMap<>();
-    private static MinecraftServer known;
+    /** The last server that ticked. Weak, so a world the player left can be freed. */
+    private static java.lang.ref.WeakReference<MinecraftServer> known = new java.lang.ref.WeakReference<>(null);
     private static int sinceCheck = 1000;
 
     private Pregen() {}
@@ -47,10 +48,22 @@ public final class Pregen {
         ServerTuning.ticker = Pregen::tick;
     }
 
+    /**
+     * Client side, once per frame. When no world is open, the runs and the flight follower let go of the last server.
+     * They hold its levels, and a closed world would otherwise stay in memory until the next one starts.
+     */
+    public static void forgetStoppedServer(net.minecraft.client.Minecraft mc) {
+        if (mc.getSingleplayerServer() == null && (known.get() != null || !RUNS.isEmpty())) {
+            known.clear();
+            RUNS.clear();
+            FlightFollow.reset();
+        }
+    }
+
     private static void tick(Object o) {
         MinecraftServer server = (MinecraftServer) o;
-        if (server != known) {
-            known = server;
+        if (server != known.get()) {
+            known = new java.lang.ref.WeakReference<>(server);
             RUNS.clear();
             FlightFollow.reset();
             sinceCheck = 1000;

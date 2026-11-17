@@ -43,6 +43,7 @@ public final class ModsScreens {
             WindowIcon.frame();
             testPause();
             khi.pentecost.game.menuworld.MenuHost.release(Minecraft.getInstance());
+            khi.pentecost.game.pregen.Pregen.forgetStoppedServer(Minecraft.getInstance());
         };
         WidgetStyle.install();
         khi.pentecost.core.ZoomHooks.frameStart = PauseCinema::frame;

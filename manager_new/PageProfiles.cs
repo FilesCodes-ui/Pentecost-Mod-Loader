@@ -21,7 +21,7 @@ public partial class MainWindow
             var isActive = prof.Name == file.Active;
             var name = Ui.H(Ui.T(prof.Name, 15, bold: true));
             if (isActive) name.Children.Add(Ui.Pill("Active", "Ok").With(new Thickness(10, 1, 0, 0)));
-            var mem = prof.MemoryGb > 0 ? prof.MemoryGb + " GB" : "Automatic, " + GameRun.AutoMemory().Heap + " GB";
+            var mem = GameRun.MemoryText(prof, "Automatic");
             var setText = prof.On.Count + prof.Off.Count == 0
                 ? "Leaves your mods alone"
                 : prof.On.Count == 0 ? $"Turns all {prof.Off.Count} mods off" : $"{prof.On.Count} mods on, {prof.Off.Count} off";
@@ -83,6 +83,7 @@ public partial class MainWindow
         var name = new TextBox { Text = existing?.Name ?? "" };
         var args = new TextBox { Text = existing?.JvmArgs ?? "" };
         var mem = existing?.MemoryGb ?? 0;
+        var reserve = existing?.ReserveGb ?? -1;
         var maxGb = (int)Math.Max(2, Math.Floor(GameRun.TotalGb * 0.75));
         var seg = new WrapPanel();
         foreach (var gb in new[] { 0, 2, 3, 4, 6, 8, 12, 16 }.Where(g => g == 0 || g <= maxGb || g == mem))
@@ -92,8 +93,20 @@ public partial class MainWindow
             rb.Click += (_, _) => mem = v;
             seg.Children.Add(rb);
         }
-        var memNote = Ui.T($"This computer has about {GameRun.TotalGb:0} GB. More than {maxGb} GB is not offered, so Windows keeps enough.", 11.5, "Faint", wrap: true);
+        var memNote = Ui.T($"This computer has about {GameRun.TotalGb:0} GB. More than {maxGb} GB is not offered, so Windows keeps enough. "
+            + "Auto leaves the number to the game's own Settings screen.", 11.5, "Faint", wrap: true);
         memNote.Margin = new Thickness(0, 6, 0, 0);
+        var reserveSeg = new WrapPanel();
+        foreach (var gb in new[] { -1, 0, 1, 2, 3, 4, 6, 8 }.Concat(reserve > 8 ? new[] { reserve } : Array.Empty<int>()))
+        {
+            var v = gb;
+            var rb = new RadioButton { Content = gb < 0 ? "Auto" : gb == 0 ? "None" : gb + " GB", Style = Ui.St("Seg"), GroupName = "reserve", IsChecked = gb == reserve, Margin = new Thickness(0, 0, 0, 6) };
+            rb.Click += (_, _) => reserve = v;
+            reserveSeg.Children.Add(rb);
+        }
+        var reserveNote = Ui.T("Extra room above Memory, for spikes. The game stays near Memory and reaches into the backup only when it runs short. "
+            + "Auto picks an amount for this computer and always leaves 2 GB free for Windows.", 11.5, "Faint", wrap: true);
+        reserveNote.Margin = new Thickness(0, 6, 0, 0);
 
         // Which mods the profile starts with. This used to happen silently, which was a surprise.
         var mods = "keep";
@@ -143,6 +156,7 @@ public partial class MainWindow
             var wasActive = existing != null && ProfileStore.Load().Active == existing.Name;
             p.Name = wanted;
             p.MemoryGb = mem;
+            p.ReserveGb = reserve;
             p.JvmArgs = args.Text.Trim();
             if (mods == "copy") ProfileStore.Capture(p);
             else if (mods == "none") ProfileStore.CaptureNone(p);
@@ -164,6 +178,7 @@ public partial class MainWindow
         var box = Ui.V(Ui.T(isNew ? "New profile" : "Edit profile", 17, bold: true),
             Ui.Cap("Name").With(new Thickness(0, 20, 0, 6)), name,
             Ui.Cap("Memory").With(new Thickness(0, 18, 0, 8)), seg, memNote,
+            Ui.Cap("Backup memory").With(new Thickness(0, 18, 0, 8)), reserveSeg, reserveNote,
             Ui.Cap(isNew ? "Mods" : "Change the mods in this profile").With(new Thickness(0, 18, 0, 8)), modRow, modNote,
             Ui.Cap("Extra Java arguments").With(new Thickness(0, 18, 0, 6)), args,
             error, buttons.With(new Thickness(0, 22, 0, 0)));

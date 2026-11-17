@@ -327,6 +327,49 @@ public partial class MainWindow
             }
         }
 
+        // Download rules, pack rules and the memory plan.
+        {
+            if (!Modrinth.IsModrinthHost("cdn.modrinth.com") || !Modrinth.IsModrinthHost("modrinth.com")) Say("host rule: a real Modrinth host was refused");
+            if (Modrinth.IsModrinthHost("evilmodrinth.com") || Modrinth.IsModrinthHost("modrinth.com.evil.net")) Say("host rule: a lookalike host was accepted");
+            if (Packs.SafeTarget(@"C:\game\run", "mods/../../x.jar") != null || Packs.SafeTarget(@"C:\game\run", "/windows/x.jar") != null
+                || Packs.SafeTarget(@"C:\game\run", @"C:\x.jar") != null) Say("pack rule: a path outside the game folder was accepted");
+            if (Packs.SafeTarget(@"C:\game\run", "config/a/b.toml") == null) Say("pack rule: a normal path was refused");
+            System.Text.Json.Nodes.JsonObject Idx(string deps) => System.Text.Json.Nodes.JsonNode.Parse("{\"dependencies\":" + deps + "}")!.AsObject();
+            if (Packs.Problem(Idx("{\"minecraft\":\"1.20.1\",\"neoforge\":\"47.1\"}")) == null) Say("pack rule: a NeoForge only pack was accepted");
+            if (Packs.Problem(Idx("{\"minecraft\":\"1.20.1\",\"forge\":\"47.2.0\"}")) != null) Say("pack rule: a Forge pack was refused");
+            if (Packs.Problem(Idx("{\"minecraft\":\"1.20.1\",\"fabric-loader\":\"0.15\"}")) != null) Say("pack rule: a Fabric pack was refused");
+            if (Packs.Problem(Idx("{\"minecraft\":\"1.19.2\",\"forge\":\"43.0\"}")) == null) Say("pack rule: a 1.19.2 pack was accepted");
+            if (Modrinth.Strong("abc") != null || Modrinth.Strong(new string('a', 128)) == null) Say("hash rule: a SHA-512 was judged wrongly");
+
+            var (h0, r0, y0) = GameRun.PlanFor(new ModProfile { MemoryGb = 6, ReserveGb = 0 });
+            if (h0 != 6 || r0 != 0 || y0 != 3) Say("memory: 6 GB with no backup gave " + h0 + " + " + r0 + ", young " + y0);
+            var (h1, r1, _) = GameRun.PlanFor(new ModProfile { MemoryGb = 6, ReserveGb = 3 });
+            if (h1 != 6 || r1 < 0 || r1 > 3 || (r1 > 0 && h1 + r1 > GameRun.TotalGb - 2 + 0.001)) Say("memory: 6 GB with a 3 GB backup gave " + h1 + " + " + r1);
+            var (h2, r2, _) = GameRun.PlanFor(new ModProfile());
+            if (h2 < 3 || r2 < 0 || r2 > 2) Say("memory: an automatic profile gave " + h2 + " + " + r2);
+
+            var keepHome = Paths.Home;
+            var settingsHome = Path.Combine(Path.GetTempPath(), "pentecost-memory-test-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Paths.Home = settingsHome;
+                Directory.CreateDirectory(Path.GetDirectoryName(Paths.GameSettings)!);
+                System.IO.File.WriteAllText(Paths.GameSettings, "{\"sound.limit\":\"20\"}");
+                GameRun.SyncGameSettings(new ModProfile { MemoryGb = 5, ReserveGb = 0 });
+                var saved = System.IO.File.ReadAllText(Paths.GameSettings);
+                if (!saved.Contains("\"java.memory\": \"5\"") || !saved.Contains("\"java.reserve\": \"0\"") || !saved.Contains("sound.limit"))
+                    Say("memory: the game settings file was not written as expected: " + saved);
+                GameRun.SyncGameSettings(new ModProfile());
+                if (System.IO.File.ReadAllText(Paths.GameSettings) != saved) Say("memory: an automatic profile changed the game settings");
+            }
+            catch (Exception ex) { Say("memory test threw " + ex.GetType().Name + ": " + ex.Message); }
+            finally
+            {
+                Paths.Home = keepHome;
+                try { Directory.Delete(settingsHome, true); } catch { }
+            }
+        }
+
         // Set PENTECOST_UPDATE_TEST=1 to download the Manager setup of the live release and check its size and SHA-256.
         if (Environment.GetEnvironmentVariable("PENTECOST_UPDATE_TEST") == "1")
         {

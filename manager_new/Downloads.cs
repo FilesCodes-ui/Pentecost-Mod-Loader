@@ -13,7 +13,8 @@ public sealed class DlJob
 
 /// <summary>
 /// Every download goes through here. Three run at once and the rest wait their turn.
-/// Rules: https from modrinth.com only, .jar or .zip only, SHA-1 checked, written as .part first.
+/// Rules: https from modrinth.com or its subdomains only, .jar, .zip or .mrpack only, SHA-1 checked (and SHA-512 when the
+/// file lists one), written as .part first.
 /// </summary>
 public static class Downloads
 {
@@ -26,12 +27,12 @@ public static class Downloads
 
     public static List<DlJob> Snapshot() { lock (Gate) return Jobs.ToList(); }
 
-    public static async Task Fetch(string link, string dir, string name, string sha1, CancellationToken ct)
+    public static async Task Fetch(string link, string dir, string name, string sha1, CancellationToken ct, string? sha512 = null)
     {
-        var okType = name.EndsWith(".jar", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase);
-        if (!okType || name != Path.GetFileName(name) || sha1.Length != 40
-            || !Uri.TryCreate(link, UriKind.Absolute, out var uri) || uri.Scheme != "https"
-            || !uri.Host.EndsWith("modrinth.com", StringComparison.OrdinalIgnoreCase))
+        var okType = name.EndsWith(".jar", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith(".mrpack", StringComparison.OrdinalIgnoreCase);
+        if (!okType || name != Path.GetFileName(name) || sha1.Length != 40 || (sha512 != null && sha512.Length != 128)
+            || !Uri.TryCreate(link, UriKind.Absolute, out var uri) || uri.Scheme != "https" || !Modrinth.IsModrinthHost(uri.Host))
             throw new IOException($"{name}: the file entry is not one I will download");
 
         var job = new DlJob { Name = name };
@@ -47,12 +48,17 @@ public static class Downloads
                 Changed?.Invoke();
                 Directory.CreateDirectory(dir);
                 string got;
+                string? got512 = null;
                 using (var resp = await Modrinth.Client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct))
                 {
                     resp.EnsureSuccessStatusCode();
+                    // A redirect must stay on Modrinth too.
+                    if (resp.RequestMessage?.RequestUri is { } landed && (landed.Scheme != "https" || !Modrinth.IsModrinthHost(landed.Host)))
+                        throw new IOException($"{name}: the download was sent to another site, so it was not used");
                     var total = resp.Content.Headers.ContentLength ?? 0;
                     using var src = await resp.Content.ReadAsStreamAsync(ct);
                     using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA1);
+                    using var sha5 = sha512 != null ? IncrementalHash.CreateHash(HashAlgorithmName.SHA512) : null;
                     await using (var dst = File.Create(tmp))
                     {
                         var buf = new byte[81920];
@@ -63,14 +69,17 @@ public static class Downloads
                         {
                             await dst.WriteAsync(buf.AsMemory(0, n), ct);
                             sha.AppendData(buf, 0, n);
+                            sha5?.AppendData(buf, 0, n);
                             done += n;
                             if (total > 0) job.Progress = done / (double)total;
                             if (Environment.TickCount64 - last > 120) { last = Environment.TickCount64; Changed?.Invoke(); }
                         }
                     }
                     got = Convert.ToHexString(sha.GetHashAndReset());
+                    if (sha5 != null) got512 = Convert.ToHexString(sha5.GetHashAndReset());
                 }
-                if (!string.Equals(got, sha1, StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(got, sha1, StringComparison.OrdinalIgnoreCase)
+                    || (sha512 != null && !string.Equals(got512, sha512, StringComparison.OrdinalIgnoreCase)))
                     throw new IOException($"{name} did not match its checksum");
                 File.Move(tmp, Path.Combine(dir, name), true);
                 job.Progress = 1;

@@ -61,7 +61,8 @@ public partial class MainWindow
         StackPanel loaders = null!; WrapPanel catPanel = null!; ToggleButton filtersBtn = null!;
         var types = Ui.H(Seg("Mods", "bt", true, () => SetType("mod")),
             Seg("Shaders", "bt", false, () => SetType("shader")),
-            Seg("Resource packs", "bt", false, () => SetType("resourcepack")));
+            Seg("Resource packs", "bt", false, () => SetType("resourcepack")),
+            Seg("Modpacks", "bt", false, () => SetType("modpack")));
         loaders = Ui.H(Seg("All", "bl", true, () => { loader = "All"; _ = Search(true); }),
             Seg("Forge", "bl", false, () => { loader = "Forge"; _ = Search(true); }),
             Seg("Fabric", "bl", false, () => { loader = "Fabric"; _ = Search(true); }),
@@ -107,7 +108,7 @@ public partial class MainWindow
             cats.Clear();
             filtersBtn.Content = "Filters";
             FillCats();
-            loaders.Visibility = t == "mod" ? Visibility.Visible : Visibility.Collapsed;
+            loaders.Visibility = t is "mod" or "modpack" ? Visibility.Visible : Visibility.Collapsed;
             _ = Search(true);
         }
 
@@ -244,6 +245,14 @@ public partial class MainWindow
             Redraw(h);
             try
             {
+                if (h.Type == "modpack")
+                {
+                    Toast("Installing " + h.Title + ". Its mods download in the background.");
+                    var pack = await Packs.InstallFromModrinth(h.ProjectId, loader == "All" ? null : loader.ToLowerInvariant(), CancellationToken.None);
+                    installedIds.Add(h.ProjectId);
+                    Toast(pack.Summary);
+                    return;
+                }
                 var added = h.Type == "mod"
                     ? await Modrinth.Install(h.ProjectId, loaderName, _ => { }, CancellationToken.None)
                     : await Modrinth.InstallOther(h.ProjectId, h.Type, CancellationToken.None);

@@ -786,6 +786,17 @@ public final class Hooks {
             }
             hudCallback = cb;
         }
+        if (cb.length > 4 && cb[3] instanceof java.lang.invoke.MethodHandle invokerHandle
+                && cb[4] instanceof java.lang.invoke.MethodHandle callHandle) {
+            try {
+                Object invoker = (Object) invokerHandle.invokeExact();
+                callHandle.invokeExact(invoker, graphics, partialTick);
+                return;
+            } catch (Throwable handleFailed) {
+                // fall back to reflection below, and stop trying the handles
+                hudCallback = new Object[]{cb[0], cb[1], cb[2]};
+            }
+        }
         try {
             Object invoker = ((java.lang.reflect.Method) cb[1]).invoke(cb[0]);
             ((java.lang.reflect.Method) cb[2]).invoke(invoker, graphics, partialTick);
@@ -816,7 +827,16 @@ public final class Hooks {
                 return null;
             }
             Log.info("Forge layer: Pentecost fires Fabric HUD callbacks after Forge's HUD");
-            return new Object[]{event, invoker, call};
+            try {
+                java.lang.invoke.MethodHandles.Lookup lookup = java.lang.invoke.MethodHandles.lookup();
+                java.lang.invoke.MethodHandle invokerHandle = lookup.unreflect(invoker).bindTo(event)
+                        .asType(java.lang.invoke.MethodType.methodType(Object.class));
+                java.lang.invoke.MethodHandle callHandle = lookup.unreflect(call).asType(
+                        java.lang.invoke.MethodType.methodType(void.class, Object.class, Object.class, float.class));
+                return new Object[]{event, invoker, call, invokerHandle, callHandle};
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError handles) {
+                return new Object[]{event, invoker, call};
+            }
         } catch (ClassNotFoundException noFabricApi) {
             return null;
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {

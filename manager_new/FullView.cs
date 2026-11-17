@@ -205,10 +205,10 @@ public partial class MainWindow
             foreach (var v in versions.Take(40))
             {
                 var ver = v;
-                var here = File.Exists(Path.Combine(Modrinth.DirFor(type), v.FileName)) || File.Exists(Path.Combine(Modrinth.DirFor(type), v.FileName) + ".disabled");
+                var here = type != "modpack" && (File.Exists(Path.Combine(Modrinth.DirFor(type), v.FileName)) || File.Exists(Path.Combine(Modrinth.DirFor(type), v.FileName) + ".disabled"));
                 var name = Ui.H(Ui.T(v.Number.Length > 0 ? v.Number : v.Name, 13.5, bold: true, trim: true),
                     Ui.Pill(v.Channel, v.Channel == "release" ? "Ok" : v.Channel == "beta" ? "Warn" : "Bad").With(new Thickness(10, 0, 0, 0)));
-                var loaders = type == "mod" ? string.Join(", ", v.Loaders.Select(Ui.Nice)) + "    " : "";
+                var loaders = type is "mod" or "modpack" ? string.Join(", ", v.Loaders.Select(Ui.Nice)) + "    " : "";
                 var sub = Ui.T(loaders + (v.Date.Year > 2000 ? v.Date.ToString("yyyy-MM-dd") + "    " : "") + Ui.Bytes(v.Size) + "    " + Ui.Num(v.Downloads) + " downloads", 11.5, "Faint", trim: true);
                 sub.Margin = new Thickness(0, 3, 0, 0);
                 var btn = Ui.Btn(here ? "Installed" : "Install", "Secondary");
@@ -222,6 +222,15 @@ public partial class MainWindow
                     btn.Content = "Installing";
                     try
                     {
+                        if (type == "modpack")
+                        {
+                            Toast("Installing " + title + ". Its mods download in the background.");
+                            var pack = await Packs.InstallVersion(ver, CancellationToken.None);
+                            btn.Content = "Installed";
+                            Toast(pack.Summary);
+                            onInstalled();
+                            return;
+                        }
                         var added = await Modrinth.InstallVersion(ver, type, CancellationToken.None);
                         btn.Content = "Installed";
                         Toast(added.Count == 0 ? "That version is already there." : "Installed " + title + " " + ver.Number + (added.Count > 1 ? $" and {added.Count - 1} needed mods" : ""));

@@ -250,14 +250,23 @@ public static class Setup
         File.Move(tmp, file, true);
     }
 
-    static (int heap, int young) MemoryTier()
+    static int MachineGb() => (int)(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / (1L << 30));
+
+    /// <summary>The backup for a heap of this size: 2 GB on a big PC, less on a small one, and 2 GB always stay free.</summary>
+    static int ReserveFor(int heap)
     {
-        var gb = (int)(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / (1L << 30));
-        if (gb >= 24) return (8, 4);
-        if (gb >= 16) return (6, 3);
-        if (gb >= 12) return (5, 2);
-        if (gb >= 8) return (4, 2);
-        return (3, 1);
+        var gb = MachineGb();
+        var tier = gb >= 12 ? 2 : gb >= 8 ? 1 : 0;
+        return Math.Max(0, Math.Min(tier, gb - 2 - heap));
+    }
+
+    /// <summary>The working size, the new objects area and the backup above the working size. The game stays near the
+    /// working size and reaches into the backup only when it spikes.</summary>
+    static (int heap, int young, int reserve) MemoryTier()
+    {
+        var gb = MachineGb();
+        var (heap, young) = gb >= 24 ? (8, 4) : gb >= 16 ? (6, 3) : gb >= 12 ? (5, 2) : gb >= 8 ? (4, 2) : (3, 1);
+        return (heap, young, ReserveFor(heap));
     }
 
     static void WriteProfile(string mc, string home, string versionId)
@@ -274,6 +283,15 @@ public static class Setup
             // An update only points the profile at the new version. Its name, icon, Java arguments and last-used time
             // stay as the player has them, and the launcher's file is not written at all when nothing would change.
             var changed = false;
+            // A profile that still has the installer's old fixed heap gets a backup above it. Any other Java arguments are the player's own and stay.
+            var oldArgs = System.Text.RegularExpressions.Regex.Match(existing["javaArgs"]?.ToString() ?? "",
+                @"^-Xms(\d+)G -Xmx(\d+)G -Xmn(\d+)G -XX:-DontCompileHugeMethods$");
+            if (oldArgs.Success && oldArgs.Groups[1].Value == oldArgs.Groups[2].Value && int.Parse(oldArgs.Groups[1].Value) is var oldHeap && ReserveFor(oldHeap) > 0)
+            {
+                existing["javaArgs"] = $"-Xms{oldHeap}G -Xmx{oldHeap + ReserveFor(oldHeap)}G -Xmn{oldArgs.Groups[3].Value}G -XX:-DontCompileHugeMethods";
+                Log.Write($"profile heap {oldHeap} G now has a {ReserveFor(oldHeap)} G backup");
+                changed = true;
+            }
             if (existing["lastVersionId"]?.ToString() != versionId) { existing["lastVersionId"] = versionId; changed = true; }
             if (!string.Equals(existing["gameDir"]?.ToString(), home, StringComparison.OrdinalIgnoreCase)) { existing["gameDir"] = home; changed = true; }
             if (!changed)
@@ -286,13 +304,13 @@ public static class Setup
             return;
         }
 
-        var (heap, young) = MemoryTier();
+        var (heap, young, reserve) = MemoryTier();
         var entry = new JsonObject
         {
             ["name"] = "Pentecost",
             ["type"] = "custom",
             ["created"] = now,
-            ["javaArgs"] = $"-Xms{heap}G -Xmx{heap}G -Xmn{young}G -XX:-DontCompileHugeMethods",
+            ["javaArgs"] = $"-Xms{heap}G -Xmx{heap + reserve}G -Xmn{young}G -XX:-DontCompileHugeMethods",
         };
         var png = Path.Combine(home, "pentecost_still_256.png");
         entry["icon"] = File.Exists(png) && new FileInfo(png).Length < 80000
@@ -302,7 +320,7 @@ public static class Setup
         entry["gameDir"] = home;
         entry["lastUsed"] = now;
         profiles[ProfileKey] = entry;
-        Log.Write($"profile added, heap {heap} G");
+        Log.Write($"profile added, heap {heap} G, backup {reserve} G");
         SaveProfiles(mc, root);
     }
 

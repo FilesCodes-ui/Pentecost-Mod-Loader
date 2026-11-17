@@ -60,7 +60,7 @@ public partial class MainWindow
         var modsSub = Ui.T("Checking", 11.5, "Faint", trim: true);
         facts.Children.Add(FactCard("Mods", modsValue, modsSub, "Mods"));
         var p = ProfileStore.Active;
-        facts.Children.Add(Fact("Profile", p.Name, "Memory " + (p.MemoryGb > 0 ? p.MemoryGb + " GB" : "automatic, " + GameRun.AutoMemory().Heap + " GB"), "Profiles"));
+        facts.Children.Add(Fact("Profile", p.Name, "Memory " + GameRun.MemoryText(p, "automatic"), "Profiles"));
         for (var i = 1; i < 4; i++) ((Border)facts.Children[i]).BorderThickness = new Thickness(1, 0, 0, 0);
         var strip = Ui.SheetCard(facts, 0);
         strip.Margin = new Thickness(0, 12, 0, 0);

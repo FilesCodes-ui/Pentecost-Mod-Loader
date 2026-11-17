@@ -1506,13 +1506,24 @@ public final class PentecostSettingsScreen extends Screen {
             {"parallel", "Parallel", "Highest raw speed, longer pauses. Fine for short sessions."}};
 
     private List<Folder> javaFolders() {
-        int cap = Math.max(4, Math.min(32, machineGigabytes() - 2));
-        Row heap = settingSlider("Memory", "The most memory the game may use. Your PC has about " + machineGigabytes()
+        int machine = machineGigabytes();
+        int cap = khi.pentecost.control.MemoryPlan.cap(machine);
+        int[] tier = khi.pentecost.control.MemoryPlan.tier(machine);
+        Row heap = settingSlider("Memory", "The working size. The game is set to use about this much. Your PC has about " + machine
                 + " GB, so Pentecost keeps 2 GB free for it. Too little stutters, too much starves other programs.",
-                "Restart", Settings.JAVA_MEMORY, 6, 2, cap, 1, " GB", null);
+                "Restart", Settings.JAVA_MEMORY, Math.min(cap, tier[0]), 2, cap, 1, " GB", null);
+        Row reserve = settingSlider("Backup memory", "Extra room above Memory, for spikes. The game reaches into it only when it "
+                + "runs short and lets it go afterwards. The most the game can use is Memory plus this. None turns it off.",
+                "Restart", Settings.JAVA_RESERVE, tier[1], 0, Math.max(1, Math.min(16, machine - 4)), 1, " GB", "None");
         Row young = settingSlider("New objects area", "The part of memory for short-lived objects. A big area means fewer cleanups. "
                 + "Half of the memory suits the game. It never goes above memory minus 1 GB.", "Restart",
-                Settings.JAVA_YOUNG, 3, 1, Math.max(1, cap - 1), 1, " GB", null);
+                Settings.JAVA_YOUNG, 0, 0, Math.max(1, cap - 1), 1, " GB", "Half of memory");
+        java.util.List<String> jvmFlags = java.lang.management.ManagementFactory.getRuntimeMXBean().getInputArguments();
+        khi.pentecost.control.MemoryPlan.Effective now = khi.pentecost.control.MemoryPlan.effective(jvmFlags);
+        long ceilingMb = Runtime.getRuntime().maxMemory() >> 20;
+        long startMb = now.startMb() > 0 ? now.startMb() : ceilingMb;
+        String workingNow = Math.round(startMb / 1024.0) + " GB";
+        String backupNow = ceilingMb > startMb ? Math.round((ceilingMb - startMb) / 1024.0) + " GB" : "None";
         List<Row> gc = new ArrayList<>();
         for (String[] g : GCS) {
             gc.add(Row.pick(g[1], g[2], () -> g[0].equals(Settings.get(Settings.JAVA_GC).isEmpty() ? "g1" : Settings.get(Settings.JAVA_GC)),
@@ -1520,8 +1531,10 @@ public final class PentecostSettingsScreen extends Screen {
         }
         java.nio.file.Path flags = khi.pentecost.boot.Dirs.config().resolve("pentecost").resolve("jvm-flags.txt");
         return List.of(
-                new Folder("Memory", List.of(heap, young,
-                        Row.info("Running now", (Runtime.getRuntime().maxMemory() >> 30) + " GB limit"))),
+                new Folder("Memory", List.of(heap, reserve, young,
+                        Row.info("Working size now", workingNow),
+                        Row.info("Backup now", backupNow),
+                        Row.info("Ceiling now", Math.round(ceilingMb / 1024.0) + " GB"))),
                 new Folder("Garbage collector", gc),
                 new Folder("Extra flags", List.of(
                         Row.button("Edit extra flags", "One flag per line. A line starting with # is ignored. "
@@ -1546,6 +1559,7 @@ public final class PentecostSettingsScreen extends Screen {
     private List<Shortcut> javaShortcuts() {
         return List.of(new Shortcut("Reset Java settings", () -> {
             Settings.reset(Settings.JAVA_MEMORY);
+            Settings.reset(Settings.JAVA_RESERVE);
             Settings.reset(Settings.JAVA_YOUNG);
             Settings.reset(Settings.JAVA_GC);
         }));

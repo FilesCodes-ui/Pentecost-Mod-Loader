@@ -12,6 +12,7 @@ import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.state.BlockState;
@@ -23,14 +24,17 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
  * Building from a distance: two corners, then fill, replace, walls, spheres and more, with undo.
- * An edit is limited to 250,000 blocks, and the last 10 edits of each player can be undone (until the world closes).
+ * An edit is limited to 250,000 blocks, and the last 10 edits of each player can be undone. The history is dropped when
+ * the world closes, and a player's history is dropped half an hour after they leave.
  */
 final class BuildCmds {
     private static final String C = "Build";
@@ -72,11 +76,50 @@ final class BuildCmds {
     private static final Map<UUID, Sel> SELS = new HashMap<>();
     private static final Map<UUID, Deque<Job>> UNDO = new HashMap<>();
     private static final Map<UUID, Clip> CLIPS = new HashMap<>();
+    /** When each player with saved build state left, so the state of players who never come back is let go. */
+    private static final Map<UUID, Long> AWAY = new HashMap<>();
+    private static final long KEEP_MS = 30L * 60_000L;
+    private static int sinceSweep;
 
     static final SuggestionProvider<CommandSourceStack> BLOCKS = (c, b) -> SharedSuggestionProvider.suggest(
             BuiltInRegistries.BLOCK.keySet().stream().map(r -> r.getNamespace().equals("minecraft") ? r.getPath() : r.toString()), b);
 
     private BuildCmds() {}
+
+    /** For a new server. The history holds the old world's levels, so it must not outlive that world. */
+    static void clear() {
+        SELS.clear();
+        UNDO.clear();
+        CLIPS.clear();
+        AWAY.clear();
+        sinceSweep = 0;
+    }
+
+    /** Driven by Qol.tick. Once a minute, drops the build state of players who have been gone for half an hour. */
+    static void tick(MinecraftServer server) {
+        if (++sinceSweep < 1200) {
+            return;
+        }
+        sinceSweep = 0;
+        Set<UUID> holders = new HashSet<>(SELS.keySet());
+        holders.addAll(UNDO.keySet());
+        holders.addAll(CLIPS.keySet());
+        long now = System.currentTimeMillis();
+        for (UUID id : holders) {
+            if (server.getPlayerList().getPlayer(id) != null) {
+                AWAY.remove(id);
+                continue;
+            }
+            Long since = AWAY.putIfAbsent(id, now);
+            if (since != null && now - since > KEEP_MS) {
+                SELS.remove(id);
+                UNDO.remove(id);
+                CLIPS.remove(id);
+                AWAY.remove(id);
+            }
+        }
+        AWAY.keySet().retainAll(holders);
+    }
 
     // ---------------------------------------------------------------- helpers
 

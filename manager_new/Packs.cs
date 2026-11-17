@@ -4,7 +4,11 @@ using System.Text.Json.Nodes;
 
 namespace Pentecost.Manager;
 
-public sealed record PackResult(string Name, int Mods, int Downloaded, int Copied, List<string> Problems);
+public sealed record PackResult(string Name, int Mods, int Downloaded, int Copied, List<string> Problems)
+{
+    public string Summary => $"Pack {Name} is ready: {Mods} mods, {Downloaded} downloaded"
+        + (Problems.Count > 0 ? $", {Problems.Count} skipped. The log lists them." : ".");
+}
 
 /// <summary>
 /// Modrinth packs (.mrpack). Export writes the mods of a profile. Import downloads a pack's mods and makes a profile
@@ -14,6 +18,10 @@ public sealed record PackResult(string Name, int Mods, int Downloaded, int Copie
 public static class Packs
 {
     static string RunDir => Path.Combine(Paths.Home, "run");
+    const long MaxIndex = 8_000_000;
+    const long MaxFile = 512L * 1024 * 1024;
+    const long MaxTotal = 4L * 1024 * 1024 * 1024;
+    const int MaxEntries = 20_000;
     static readonly string[] Folders = { "mods", "shaderpacks", "resourcepacks" };
 
     public static async Task<(int Linked, int Bundled)> Export(ModProfile profile, string path, CancellationToken ct)
@@ -69,15 +77,57 @@ public static class Packs
         return (linked, bundled);
     }
 
+    /// <summary>Why this pack cannot run here, or null when it can.</summary>
+    public static string? Problem(JsonObject index)
+    {
+        var deps = index["dependencies"] as JsonObject;
+        var mc = deps?["minecraft"]?.ToString();
+        if (mc != null && mc != "1.20.1") return $"This pack is for Minecraft {mc}. Pentecost runs 1.20.1.";
+        if (deps != null && deps.ContainsKey("neoforge") && !deps.ContainsKey("forge") && !deps.ContainsKey("fabric-loader") && !deps.ContainsKey("quilt-loader"))
+            return "This pack needs NeoForge. Pentecost runs Forge, Fabric and Quilt mods.";
+        return null;
+    }
+
+    /// <summary>Where a pack's file goes inside the game folder, or null when its name would reach outside it.</summary>
+    public static string? SafeTarget(string root, string rel)
+    {
+        if (string.IsNullOrEmpty(rel) || rel.Contains(':')) return null;
+        var rootFull = Path.GetFullPath(root) + Path.DirectorySeparatorChar;
+        var dest = Path.GetFullPath(Path.Combine(rootFull, rel.Replace('/', Path.DirectorySeparatorChar)));
+        return dest.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase) ? dest : null;
+    }
+
+    /// <summary>Downloads the newest pack file of a Modrinth modpack for Minecraft 1.20.1 and imports it.</summary>
+    public static async Task<PackResult> InstallFromModrinth(string projectId, string? loader, CancellationToken ct)
+    {
+        var versions = await Modrinth.Versions(projectId, null, ct);
+        var wanted = loader == null ? versions : versions.Where(v => v.Loaders.Contains(loader)).ToList();
+        if (wanted.Count == 0) wanted = versions;
+        var pick = wanted.FirstOrDefault(v => v.Channel == "release") ?? wanted.FirstOrDefault()
+            ?? throw new IOException("There is no version of this pack for Minecraft 1.20.1");
+        return await InstallVersion(pick, ct);
+    }
+
+    /// <summary>Downloads one version of a modpack, checks it, imports it, and removes the pack file.</summary>
+    public static async Task<PackResult> InstallVersion(VersionInfo v, CancellationToken ct)
+    {
+        if (!v.FileName.EndsWith(".mrpack", StringComparison.OrdinalIgnoreCase)) throw new IOException("That version is not a Modrinth pack file.");
+        var dir = Path.Combine(Paths.Data, "packs");
+        var file = Path.Combine(dir, v.FileName);
+        await Downloads.Fetch(v.Url, dir, v.FileName, v.Sha1, ct, Modrinth.Strong(v.Sha512));
+        try { return await Import(file, ct); }
+        finally { try { File.Delete(file); } catch { } }
+    }
+
     public static async Task<PackResult> Import(string path, CancellationToken ct)
     {
         using var zip = ZipFile.OpenRead(path);
         var indexEntry = zip.GetEntry("modrinth.index.json") ?? throw new IOException("This file is not a Modrinth pack.");
+        if (indexEntry.Length > MaxIndex || zip.Entries.Count > MaxEntries) throw new IOException("This pack is larger than a pack should be, so it was not opened.");
         JsonObject index;
         using (var r = new StreamReader(indexEntry.Open()))
             index = JsonNode.Parse(await r.ReadToEndAsync(ct)) as JsonObject ?? throw new IOException("The pack's index cannot be read.");
-        var mc = index["dependencies"]?["minecraft"]?.ToString();
-        if (mc != null && mc != "1.20.1") throw new IOException($"This pack is for Minecraft {mc}. Pentecost runs 1.20.1.");
+        if (Problem(index) is { } bad) throw new IOException(bad);
         var name = index["name"]?.ToString() is { Length: > 0 } n ? n : Path.GetFileNameWithoutExtension(path);
 
         var modNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -85,9 +135,9 @@ public static class Packs
         var downloaded = 0;
         var jobs = new List<Task>();
 
-        async Task Get(string url, string dir, string file, string sha1)
+        async Task Get(string url, string dir, string file, string sha1, string? sha512)
         {
-            try { await Downloads.Fetch(url, dir, file, sha1, ct); Interlocked.Increment(ref downloaded); }
+            try { await Downloads.Fetch(url, dir, file, sha1, ct, sha512); Interlocked.Increment(ref downloaded); }
             catch (Exception ex) { lock (problems) problems.Add(file + ": " + ex.Message); }
         }
 
@@ -101,13 +151,18 @@ public static class Packs
                 continue;
             }
             var file = parts[1];
+            if (parts[0] == "mods" && !file.EndsWith(".jar", StringComparison.OrdinalIgnoreCase))
+            {
+                problems.Add(file + ": a mod file that is not a .jar, skipped");
+                continue;
+            }
             var dir = Path.Combine(RunDir, parts[0]);
             if (parts[0] == "mods") modNames.Add(file);
             if (File.Exists(Path.Combine(dir, file)) || File.Exists(Path.Combine(dir, file) + ".disabled")) continue;
             var url = (f["downloads"] as JsonArray)?.Select(x => x?.ToString()).FirstOrDefault(u => Modrinth.SafeImage(u) != null);
             var sha1 = f["hashes"]?["sha1"]?.ToString() ?? "";
             if (url == null) { problems.Add(file + ": not hosted on Modrinth, skipped"); continue; }
-            jobs.Add(Get(url, dir, file, sha1));
+            jobs.Add(Get(url, dir, file, sha1, Modrinth.Strong(f["hashes"]?["sha512"]?.ToString())));
         }
         await Task.WhenAll(jobs);
 
@@ -115,7 +170,7 @@ public static class Packs
         var copied = await Task.Run(() =>
         {
             var count = 0;
-            var rootFull = Path.GetFullPath(RunDir) + Path.DirectorySeparatorChar;
+            long total = 0;
             foreach (var e in zip.Entries)
             {
                 var full = e.FullName.Replace('\\', '/');
@@ -123,8 +178,13 @@ public static class Packs
                 if (string.IsNullOrEmpty(rel) || full.EndsWith('/')) continue;
                 var top = rel.Split('/')[0];
                 if (top != "config" && !Folders.Contains(top)) continue;
-                var dest = Path.GetFullPath(Path.Combine(RunDir, rel.Replace('/', Path.DirectorySeparatorChar)));
-                if (!dest.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase)) continue;
+                var dest = SafeTarget(RunDir, rel);
+                if (dest == null) continue;
+                if (e.Length > MaxFile || (total += e.Length) > MaxTotal)
+                {
+                    lock (problems) problems.Add(rel + ": too large, skipped");
+                    continue;
+                }
                 if (top == "mods")
                 {
                     if (!rel.EndsWith(".jar", StringComparison.OrdinalIgnoreCase) || rel.Count(c => c == '/') != 1) continue;

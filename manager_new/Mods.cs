@@ -5,7 +5,7 @@ using System.Text.RegularExpressions;
 
 namespace Pentecost.Manager;
 
-public sealed record ModUpdate(string FileName, string Url, string Sha1, string VersionNumber);
+public sealed record ModUpdate(string FileName, string Url, string Sha1, string VersionNumber, string Sha512 = "");
 
 public sealed class ModEntry
 {

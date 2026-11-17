@@ -354,25 +354,68 @@ public final class PentecostMain {
         }
     }
 
-    /** Starts this same launch again in a new JVM whose classpath also has Forge's securejarhandler, and exits with its code. */
-    private static void relaunch(List<Path> modDirs) throws Exception {
-        String extra = khi.pentecost.install.ForgeSetup.secureJarHandlerClasspath();
-        if (extra == null) {
-            Log.error("Forge's securejarhandler is missing after the Forge install. Starting without the Forge layer's loader library.");
-            return;
+    /**
+     * The JVM flags to restart with when the memory settings differ from the running JVM, or null when nothing changes.
+     * Only settings the player chose are applied, so a launcher profile's own flags stay unless the player changed them
+     * in the game. Flags in config/pentecost/jvm-flags.txt come last, so they win.
+     */
+    private static List<String> memoryRestart() {
+        try {
+            if (System.getenv("PENTECOST_JVM") != null || System.getenv("PENTECOST_NOMEMPLAN") != null) {
+                return null;
+            }
+            List<String> running = java.lang.management.ManagementFactory.getRuntimeMXBean().getInputArguments();
+            List<String> extra = khi.pentecost.control.MemoryPlan.extraFlags(
+                    Dirs.config().resolve("pentecost").resolve("jvm-flags.txt"));
+            if (!khi.pentecost.control.MemoryPlan.anySet(khi.pentecost.control.Settings::get) && extra.isEmpty()) {
+                return null;
+            }
+            khi.pentecost.control.MemoryPlan.Plan plan = khi.pentecost.control.MemoryPlan.plan(
+                    khi.pentecost.control.MemoryPlan.machineGb(), running, khi.pentecost.control.Settings::get);
+            List<String> want = khi.pentecost.control.MemoryPlan.apply(running, plan, extra);
+            if (khi.pentecost.control.MemoryPlan.effective(want).equals(khi.pentecost.control.MemoryPlan.effective(running))
+                    && running.containsAll(extra)) {
+                return null;
+            }
+            Log.info("Memory settings: working size " + plan.targetGb() + " GB, backup " + plan.reserveGb()
+                    + " GB. This JVM has other flags, so Pentecost restarts once with them");
+            return want;
+        } catch (java.io.IOException | RuntimeException e) {
+            Log.warn("Memory settings could not be applied: " + e);
+            return null;
         }
-        Log.info("Restarting once with Forge's loader library on the classpath");
+    }
+
+    /**
+     * Starts this same launch again in a new JVM and exits with its code. The new JVM gets Forge's securejarhandler on its
+     * classpath when needLoader is set, and the given JVM flags when jvmArgs is not null. Returns false when it could not.
+     */
+    private static boolean relaunch(List<Path> modDirs, List<String> jvmArgs, boolean needLoader) throws Exception {
+        String extra = null;
+        if (needLoader) {
+            extra = khi.pentecost.install.ForgeSetup.secureJarHandlerClasspath();
+            if (extra == null) {
+                Log.error("Forge's securejarhandler is missing after the Forge install. Starting without the Forge layer's loader library.");
+                if (jvmArgs == null) {
+                    return false;
+                }
+            }
+        }
+        Log.info(extra != null ? "Restarting once with Forge's loader library on the classpath"
+                : "Restarting once with the memory settings");
         List<String> cmd = new ArrayList<>();
         cmd.add(Path.of(System.getProperty("java.home"), "bin",
                 System.getProperty("os.name", "").toLowerCase().contains("win") ? "java.exe" : "java").toString());
-        for (String a : java.lang.management.ManagementFactory.getRuntimeMXBean().getInputArguments()) {
+        List<String> flags = jvmArgs != null ? jvmArgs
+                : java.lang.management.ManagementFactory.getRuntimeMXBean().getInputArguments();
+        for (String a : flags) {
             if (!a.startsWith("-Djava.class.path") && !a.equals("-cp") && !a.equals("-classpath")) {
                 cmd.add(a);
             }
         }
         cmd.add("-Dpentecost.relaunched=true");
         cmd.add("-cp");
-        cmd.add(System.getProperty("java.class.path") + java.io.File.pathSeparator + extra);
+        cmd.add(System.getProperty("java.class.path") + (extra != null ? java.io.File.pathSeparator + extra : ""));
         cmd.add("khi.pentecost.boot.PentecostMain");
         cmd.add("launch");
         cmd.add("--forge");
@@ -388,16 +431,22 @@ public final class PentecostMain {
         }
         Process p = new ProcessBuilder(cmd).inheritIO().start();
         System.exit(p.waitFor());
+        return true;
     }
 
     private static void launch(List<Path> modDirs) throws Exception {
         khi.pentecost.core.WallProfiler.startIfAsked(Thread.currentThread());
-        if (forge && System.getProperty("pentecost.forgeglue") != null) {
-            // A copy of Pentecost without Gradle installs Forge itself on the first run. The JVM needs Forge's
-            // securejarhandler on its own classpath, so after a fresh install it starts once more with it added.
+        boolean viaForgeGlue = forge && System.getProperty("pentecost.forgeglue") != null;
+        if (viaForgeGlue) {
+            // A copy of Pentecost without Gradle installs Forge itself on the first run.
             khi.pentecost.install.ForgeSetup.ensure();
-            if (!onClasspath("cpw.mods.jarhandling.SecureJar") && System.getProperty("pentecost.relaunched") == null) {
-                relaunch(modDirs);
+        }
+        if (System.getProperty("pentecost.relaunched") == null) {
+            // The JVM needs Forge's securejarhandler on its own classpath, so after a fresh install it starts once more
+            // with it added. It also starts once more when the player's memory settings differ from this JVM's flags.
+            boolean needLoader = viaForgeGlue && !onClasspath("cpw.mods.jarhandling.SecureJar");
+            List<String> memoryArgs = memoryRestart();
+            if ((needLoader || memoryArgs != null) && relaunch(modDirs, memoryArgs, needLoader)) {
                 return;
             }
         }

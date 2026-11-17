@@ -88,6 +88,61 @@ public sealed class GameRun
 
     public static double TotalGb => GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / (1024.0 * 1024 * 1024);
 
+    /// <summary>The backup that suits this computer for a heap of this size. It always leaves 2 GB free for Windows.</summary>
+    public static int AutoReserve(int heap)
+    {
+        var gb = (int)TotalGb;
+        return FitReserve(heap, gb >= 12 ? 2 : gb >= 8 ? 1 : 0);
+    }
+
+    /// <summary>A backup, cut down so that heap plus backup leaves 2 GB free.</summary>
+    public static int FitReserve(int heap, int reserve) => Math.Max(0, Math.Min(Math.Min(16, reserve), (int)TotalGb - 2 - heap));
+
+    /// <summary>The working size, the backup above it and the new objects area the game starts with for a profile.</summary>
+    public static (int Heap, int Reserve, int Young) PlanFor(ModProfile p)
+    {
+        var heap = p.MemoryGb > 0 ? p.MemoryGb : AutoMemory().Heap;
+        var reserve = p.ReserveGb >= 0 ? FitReserve(heap, p.ReserveGb) : AutoReserve(heap);
+        return (heap, reserve, Math.Max(1, heap / 2));
+    }
+
+    /// <summary>For the facts on a page, such as "8 GB + 2 GB backup" or "Automatic, 8 GB + 2 GB backup".</summary>
+    public static string MemoryText(ModProfile p, string auto)
+    {
+        var (heap, reserve, _) = PlanFor(p);
+        return (p.MemoryGb > 0 ? "" : auto + ", ") + heap + " GB" + (reserve > 0 ? " + " + reserve + " GB backup" : "");
+    }
+
+    /// <summary>
+    /// The game reads its memory choices from config/pentecost/settings.json at launch and restarts itself once when the
+    /// JVM flags differ. A profile with its own numbers writes them there, so the Manager and the game's Settings screen
+    /// agree. An automatic profile leaves the file alone, so the game's own choice stands.
+    /// </summary>
+    public static void SyncGameSettings(ModProfile p)
+    {
+        if (p.MemoryGb <= 0 && p.ReserveGb < 0) return;
+        try
+        {
+            var file = Paths.GameSettings;
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            var root = File.Exists(file) ? JsonNode.Parse(File.ReadAllText(file)) as JsonObject ?? new JsonObject() : new JsonObject();
+            var changed = false;
+            void Put(string key, int value)
+            {
+                if (root[key]?.ToString() == value.ToString()) return;
+                root[key] = value.ToString();
+                changed = true;
+            }
+            if (p.MemoryGb > 0) Put("java.memory", p.MemoryGb);
+            if (p.ReserveGb >= 0) Put("java.reserve", FitReserve(p.MemoryGb > 0 ? p.MemoryGb : AutoMemory().Heap, p.ReserveGb));
+            if (!changed) return;
+            var tmp = file + ".pentecost-tmp";
+            File.WriteAllText(tmp, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+            File.Move(tmp, file, true);
+        }
+        catch (Exception ex) { AppLog.Write("game settings: " + ex.Message); }
+    }
+
     public string? Start(LaunchMode mode, string? java, ModProfile profile)
     {
         if (Running) return "The game is already running.";
@@ -150,8 +205,9 @@ public sealed class GameRun
             var bak = file + ".pentecost-manager.bak";
             if (!File.Exists(bak)) File.Copy(file, bak);
             prof["lastUsed"] = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");
-            var (heap, young) = profile.MemoryGb > 0 ? (profile.MemoryGb, Math.Max(1, profile.MemoryGb / 2)) : AutoMemory();
-            prof["javaArgs"] = $"-Xms{heap}G -Xmx{heap}G -Xmn{young}G -XX:-DontCompileHugeMethods {profile.JvmArgs}".Trim();
+            var (heap, reserve, young) = PlanFor(profile);
+            prof["javaArgs"] = $"-Xms{heap}G -Xmx{heap + reserve}G -Xmn{young}G -XX:-DontCompileHugeMethods {profile.JvmArgs}".Trim();
+            SyncGameSettings(profile);
             var tmp = file + ".pentecost-tmp";
             File.WriteAllText(tmp, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
             File.Move(tmp, file, true);
@@ -211,15 +267,12 @@ public sealed class GameRun
 
         var args = new List<string>();
         var flags = Path.Combine(home, "jvm-args.txt");
-        if (profile.MemoryGb > 0)
-            args.AddRange(new[] { $"-Xms{profile.MemoryGb}G", $"-Xmx{profile.MemoryGb}G", $"-Xmn{Math.Max(1, profile.MemoryGb / 2)}G" });
-        else if (File.Exists(flags))
+        SyncGameSettings(profile);
+        var (heap, reserve, young) = PlanFor(profile);
+        if (profile.MemoryGb <= 0 && File.Exists(flags))
             args.AddRange(File.ReadAllLines(flags).Select(l => l.Trim()).Where(l => l.Length > 0 && !l.StartsWith('#')));
         else
-        {
-            var (heap, young) = AutoMemory();
-            args.AddRange(new[] { $"-Xms{heap}G", $"-Xmx{heap}G", $"-Xmn{young}G" });
-        }
+            args.AddRange(new[] { $"-Xms{heap}G", $"-Xmx{heap + reserve}G", $"-Xmn{young}G" });
         if (profile.JvmArgs.Trim().Length > 0)
             args.AddRange(profile.JvmArgs.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
         args.AddRange(new[]

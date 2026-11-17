@@ -55,6 +55,8 @@ public final class Settings {
     public static final String TAG_LENGTH = "interface.tagLength";
     public static final String JAVA_MEMORY = "java.memory";
     public static final String JAVA_YOUNG = "java.young";
+    /** Backup memory in GB, on top of java.memory. Unset means the default for this PC, 0 means none. */
+    public static final String JAVA_RESERVE = "java.reserve";
     public static final String JAVA_GC = "java.gc";
     public static final String FAR_RANGE = "server.farRange";
     public static final String FAR_EVERY = "server.farEvery";

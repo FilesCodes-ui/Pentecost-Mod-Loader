@@ -106,7 +106,7 @@ public partial class MainWindow
         }
         Fact("Java", Ui.T(!javaDone ? "looking" : java == null ? "not found" : "21 or newer", 11.5, "Soft", trim: true), java);
         var prof = ProfileStore.Active;
-        Fact("Memory", Ui.T(prof.MemoryGb > 0 ? prof.MemoryGb + " GB" : "auto, " + GameRun.AutoMemory().Heap + " GB", 11.5, "Soft"));
+        Fact("Memory", Ui.T(GameRun.MemoryText(prof, "auto"), 11.5, "Soft"));
         var modCount = Ui.T("counting", 11.5, "Soft", trim: true);
         Fact("Mods", modCount);
         Cockpit.Children.Add(readout);

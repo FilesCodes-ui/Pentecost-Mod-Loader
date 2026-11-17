@@ -10,7 +10,7 @@ public sealed record SearchPage(List<Hit> Hits, int Total);
 public sealed record Missing(string ProjectId, string Title, string NeededBy, string? IconUrl);
 public sealed record Category(string Name, string Type);
 public sealed record VersionInfo(string Id, string Name, string Number, string Channel, string[] Loaders, DateTime Date,
-    long Downloads, string FileName, string Url, string Sha1, long Size, string[] Requires);
+    long Downloads, string FileName, string Url, string Sha1, long Size, string[] Requires, string Sha512 = "");
 public sealed record ProjectInfo(string Id, string Slug, string Title, string Desc, string Body, string? IconUrl, string Type,
     long Downloads, long Follows, string[] Categories, string[] Gallery);
 
@@ -37,7 +37,14 @@ public static class Modrinth
 
     /// <summary>An image link is used only when it points at Modrinth's own CDN.</summary>
     public static Uri? SafeImage(string? url) =>
-        Uri.TryCreate(url, UriKind.Absolute, out var u) && u.Scheme == "https" && u.Host.EndsWith("modrinth.com", StringComparison.OrdinalIgnoreCase) ? u : null;
+        Uri.TryCreate(url, UriKind.Absolute, out var u) && u.Scheme == "https" && IsModrinthHost(u.Host) ? u : null;
+
+    /// <summary>modrinth.com or one of its own subdomains. A name that only ends the same way, like evilmodrinth.com, is not Modrinth.</summary>
+    public static bool IsModrinthHost(string host) =>
+        host.Equals("modrinth.com", StringComparison.OrdinalIgnoreCase) || host.EndsWith(".modrinth.com", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A SHA-512 worth checking, or null when the file did not list a proper one.</summary>
+    public static string? Strong(string? hash) => hash is { Length: 128 } ? hash : null;
 
     /// <summary>Where a kind of project is kept inside the game folder.</summary>
     public static string DirFor(string type) => type switch
@@ -70,7 +77,7 @@ public static class Modrinth
         var facets = new JsonArray(
             new JsonArray(JsonValue.Create("versions:1.20.1")),
             new JsonArray(JsonValue.Create("project_type:" + type)));
-        if (type == "mod")
+        if (type is "mod" or "modpack")
             facets.Add(loader == "All"
                 ? new JsonArray(JsonValue.Create("categories:forge"), JsonValue.Create("categories:fabric"), JsonValue.Create("categories:quilt"))
                 : new JsonArray(JsonValue.Create("categories:" + loader.ToLowerInvariant())));
@@ -138,12 +145,13 @@ public static class Modrinth
             var link = file?["url"]?.ToString();
             var sha1 = file?["hashes"]?["sha1"]?.ToString();
             if (file == null || name.Length == 0 || link == null || sha1 == null) continue;
+            var sha512 = file["hashes"]?["sha512"]?.ToString() ?? "";
             var requires = (v["dependencies"] as JsonArray)?.OfType<JsonObject>()
                 .Where(d => d["dependency_type"]?.ToString() == "required")
                 .Select(d => d["project_id"]?.ToString() ?? "").Where(p => p.Length > 0).ToArray() ?? Array.Empty<string>();
             DateTime.TryParse(v["date_published"]?.ToString(), out var date);
             list.Add(new VersionInfo(v["id"]?.ToString() ?? "", v["name"]?.ToString() ?? "", v["version_number"]?.ToString() ?? "",
-                v["version_type"]?.ToString() ?? "release", Strings(v["loaders"]), date, Long(v["downloads"]), name, link, sha1, Long(file["size"]), requires));
+                v["version_type"]?.ToString() ?? "release", Strings(v["loaders"]), date, Long(v["downloads"]), name, link, sha1, Long(file["size"]), requires, sha512));
         }
         return list;
     }
@@ -214,7 +222,7 @@ public static class Modrinth
                         var url = file?["url"]?.ToString();
                         if (file == null || sha1 == null || url == null || name.Length == 0) continue;
                         if (!string.Equals(sha1, m.Sha1, StringComparison.OrdinalIgnoreCase))
-                            m.Update = new ModUpdate(name, url, sha1, vo["version_number"]?.ToString() ?? "");
+                            m.Update = new ModUpdate(name, url, sha1, vo["version_number"]?.ToString() ?? "", file["hashes"]?["sha512"]?.ToString() ?? "");
                     }
                 }
                 catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) { AppLog.Write("update lookup: " + ex.Message); }
@@ -291,7 +299,7 @@ public static class Modrinth
         var dest = Path.Combine(dir, v.FileName);
         if (File.Exists(dest) || File.Exists(dest + ".disabled")) return added;
         var old = type == "mod" ? ModScan.Scan().Where(m => BaseName(m.File) == BaseName(v.FileName)).ToList() : new List<ModEntry>();
-        await Downloads.Fetch(v.Url, dir, v.FileName, v.Sha1, ct);
+        await Downloads.Fetch(v.Url, dir, v.FileName, v.Sha1, ct, Strong(v.Sha512));
         added.Add(v.FileName);
         foreach (var m in old)
             try { ModScan.Delete(m); } catch (Exception ex) { AppLog.Write("replace " + m.BaseName + ": " + ex.Message); }
@@ -322,7 +330,7 @@ public static class Modrinth
         if (!AlreadyThere(version.FileName))
         {
             report("Downloading " + version.FileName);
-            await Downloads.Fetch(version.Url, Paths.Mods, version.FileName, version.Sha1, ct);
+            await Downloads.Fetch(version.Url, Paths.Mods, version.FileName, version.Sha1, ct, Strong(version.Sha512));
             added.Add(version.FileName);
         }
         foreach (var id in version.Requires)
@@ -335,7 +343,7 @@ public static class Modrinth
         var u = m.Update ?? throw new IOException("There is no update for this mod.");
         var wasOff = m.File.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase);
         report("Downloading " + u.FileName);
-        await Downloads.Fetch(u.Url, Paths.Mods, u.FileName, u.Sha1, ct);
+        await Downloads.Fetch(u.Url, Paths.Mods, u.FileName, u.Sha1, ct, Strong(u.Sha512));
         var fresh = Path.Combine(Paths.Mods, u.FileName);
         if (!string.Equals(Path.GetFileName(m.File), u.FileName, StringComparison.OrdinalIgnoreCase)) ModScan.Delete(m);
         m.Update = null;

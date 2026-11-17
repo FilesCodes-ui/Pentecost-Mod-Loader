@@ -117,6 +117,7 @@ public final class Qol {
             Admin2Cmds.clear();
             GroupCmds.clear();
             ServerCmds.reset();
+            BuildCmds.clear();
             Store.bind(server);
         }
     }
@@ -130,6 +131,7 @@ public final class Qol {
             ServerCmds.tick(server);
             Admin2Cmds.tick(server);
             GroupCmds.tick(server);
+            BuildCmds.tick(server);
         } catch (RuntimeException e) {
             Log.warn("QOL tick: " + e);
         }

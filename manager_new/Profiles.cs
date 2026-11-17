@@ -8,6 +8,8 @@ public sealed class ModProfile
     public string Name { get; set; } = "";
     /// <summary>Heap in GB. 0 means automatic, from this computer's memory.</summary>
     public int MemoryGb { get; set; }
+    /// <summary>Backup memory in GB, on top of the heap, for spikes. -1 means automatic, 0 means none.</summary>
+    public int ReserveGb { get; set; } = -1;
     public string JvmArgs { get; set; } = "";
     public List<string> On { get; set; } = new();
     public List<string> Off { get; set; } = new();
