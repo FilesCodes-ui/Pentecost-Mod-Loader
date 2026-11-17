@@ -9,7 +9,7 @@
     <AssemblyName>Pentecost-Installer</AssemblyName>
     <RootNamespace>Pentecost.Installer</RootNamespace>
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <Version>0.4.1</Version>
+    <Version>0.4.2</Version>
     <Product>Pentecost</Product>
     <Description>Pentecost installer</Description>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
