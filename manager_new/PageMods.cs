@@ -277,7 +277,7 @@ public partial class MainWindow
             }, true));
             del.Margin = new Thickness(0, 0, 6, 0);
             actions.Children.Add(del);
-            var sw = new CheckBox { Style = Ui.St("Switch"), IsChecked = m.Enabled, ToolTip = m.Enabled ? "On" : "Off" };
+            var sw = new CheckBox { Style = Ui.St("Switch"), IsChecked = m.Enabled, ToolTip = m.Enabled ? "On" : m.GameOff ? "Off in the game's Mods screen" : "Off" };
             sw.Click += (_, _) =>
             {
                 try { ModScan.SetEnabled(m, sw.IsChecked == true); Remember(m); Render(); }

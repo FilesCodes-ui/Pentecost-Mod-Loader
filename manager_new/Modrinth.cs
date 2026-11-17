@@ -333,7 +333,7 @@ public static class Modrinth
     public static async Task ApplyUpdate(ModEntry m, Action<string> report, CancellationToken ct)
     {
         var u = m.Update ?? throw new IOException("There is no update for this mod.");
-        var wasOff = !m.Enabled;
+        var wasOff = m.File.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase);
         report("Downloading " + u.FileName);
         await Downloads.Fetch(u.Url, Paths.Mods, u.FileName, u.Sha1, ct);
         var fresh = Path.Combine(Paths.Mods, u.FileName);

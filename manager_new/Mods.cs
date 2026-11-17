@@ -10,7 +10,10 @@ public sealed record ModUpdate(string FileName, string Url, string Sha1, string 
 public sealed class ModEntry
 {
     public string File = "", Name = "", Id = "", Version = "", Loader = "Unknown", Authors = "", Summary = "";
+    /// <summary>On means the jar is on and the game's own Mods screen has not turned the mod off.</summary>
     public bool Enabled;
+    /// <summary>The game's Mods screen has this mod switched off. The jar itself may still be on.</summary>
+    public bool GameOff;
     public long Size;
     public DateTime Stamp;
     public string? Sha1;
@@ -52,6 +55,7 @@ public static class ModScan
             try { files = Directory.GetFiles(Paths.Mods); }
             catch { return list; }
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var gameOff = GameChoices.ModsOff();
             foreach (var f in files)
             {
                 var on = f.EndsWith(".jar", StringComparison.OrdinalIgnoreCase);
@@ -68,7 +72,8 @@ public static class ModScan
                     Cache[key] = e;
                 }
                 e.File = f;
-                e.Enabled = on;
+                e.GameOff = e.Id.Length > 0 && gameOff.Contains(GameChoices.Norm(e.Id));
+                e.Enabled = on && !e.GameOff;
                 list.Add(e);
             }
             foreach (var gone in Cache.Keys.Where(k => !seen.Contains(k)).ToList()) Cache.Remove(gone);
@@ -211,12 +216,27 @@ public static class ModScan
         return null;
     }
 
+    /// <summary>Set by the main window, so a switch kept by the running game is not changed from under it.</summary>
+    public static Func<bool>? GameRunning;
+
     public static void SetEnabled(ModEntry m, bool on)
     {
         if (on == m.Enabled) return;
-        var target = on ? m.File[..^9] : m.File + ".disabled";
-        System.IO.File.Move(m.File, target);
-        m.File = target;
+        // The game's Mods screen keeps its own switch for a mod. Turning the mod on here turns that switch on too, so the
+        // two never disagree.
+        if (on && m.GameOff)
+        {
+            if (GameRunning?.Invoke() == true) throw new IOException("The game keeps its own copy of this switch while it runs.");
+            GameChoices.TurnOn(m.Id);
+            m.GameOff = false;
+        }
+        var fileOn = !m.File.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase);
+        if (on != fileOn)
+        {
+            var target = on ? m.File[..^9] : m.File + ".disabled";
+            System.IO.File.Move(m.File, target);
+            m.File = target;
+        }
         m.Enabled = on;
     }
 
@@ -251,5 +271,78 @@ public static class ModScan
             added.Add(name);
         }
         return added;
+    }
+}
+
+/// <summary>
+/// The game's own Mods screen keeps its switches in run\config\pentecost\choices.json. A mod listed there under modsOff does
+/// not load, so the Manager shows it as off.
+/// </summary>
+public static class GameChoices
+{
+    static DateTime stamp;
+    static long size = -1;
+    static HashSet<string> off = new(StringComparer.Ordinal);
+
+    static readonly System.Text.Json.JsonSerializerOptions Pretty = new()
+    {
+        WriteIndented = true,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
+    /// <summary>The game writes ids in lower case with underscores, so "fabric-api" is "fabric_api" there.</summary>
+    public static string Norm(string id) => id.ToLowerInvariant().Replace('-', '_');
+
+    /// <summary>The ids of the mods the game has switched off, normalised.</summary>
+    public static HashSet<string> ModsOff()
+    {
+        try
+        {
+            var info = new FileInfo(Paths.Choices);
+            if (!info.Exists)
+            {
+                stamp = DateTime.MinValue;
+                size = 0;
+                off = new(StringComparer.Ordinal);
+                return off;
+            }
+            if (info.LastWriteTimeUtc == stamp && info.Length == size) return off;
+            var set = new HashSet<string>(StringComparer.Ordinal);
+            if (JsonNode.Parse(System.IO.File.ReadAllText(Paths.Choices)) is JsonObject root && root["modsOff"] is JsonArray list)
+                foreach (var item in list)
+                    if (item?.ToString() is { Length: > 0 } s) set.Add(Norm(s));
+            off = set;
+            stamp = info.LastWriteTimeUtc;
+            size = info.Length;
+        }
+        catch (Exception ex) { AppLog.Write("Cannot read the game's choices: " + ex.Message); }
+        return off;
+    }
+
+    /// <summary>True when the game's file changed since the mods were last read, for example after a switch in the game.</summary>
+    public static bool Changed()
+    {
+        try
+        {
+            var info = new FileInfo(Paths.Choices);
+            return info.Exists ? info.LastWriteTimeUtc != stamp || info.Length != size : size != 0 && size != -1;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Takes a mod off the game's list of switched-off mods. Nothing else in the file changes.</summary>
+    public static void TurnOn(string id)
+    {
+        var path = Paths.Choices;
+        if (!System.IO.File.Exists(path)) return;
+        var root = JsonNode.Parse(System.IO.File.ReadAllText(path)) as JsonObject
+            ?? throw new IOException("The game's choices file is not in the format I expected. It was not changed.");
+        if (root["modsOff"] is not JsonArray list) return;
+        var want = Norm(id);
+        for (var i = list.Count - 1; i >= 0; i--)
+            if (Norm(list[i]?.ToString() ?? "") == want) list.RemoveAt(i);
+        var tmp = path + ".pentecost-tmp";
+        System.IO.File.WriteAllText(tmp, root.ToJsonString(Pretty), new System.Text.UTF8Encoding(false));
+        System.IO.File.Move(tmp, path, true);
     }
 }

@@ -51,6 +51,13 @@ public partial class MainWindow : Window
         Closing += (_, _) => iconTimer.Stop();
         Closing += (_, _) => updateTimer.Stop();
         Closed += (_, _) => InstallOnClose();
+        ModScan.GameRunning = () => game.Running;
+        // A switch turned in the game's Mods screen shows here the moment the player comes back to the Manager.
+        Activated += (_, _) =>
+        {
+            if (testing || inFull || Modal.Visibility == Visibility.Visible || current is not ("Mods" or "Play")) return;
+            if (GameChoices.Changed()) ShowPage(current, false);
+        };
         Closing += (_, _) => Paths.Window = $"{(int)Left},{(int)Top},{(int)Width},{(int)Height},{(WindowState == WindowState.Maximized ? 1 : 0)}";
         Loaded += async (_, _) =>
         {

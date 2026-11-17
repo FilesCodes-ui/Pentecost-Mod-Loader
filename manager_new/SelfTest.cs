@@ -295,6 +295,38 @@ public partial class MainWindow
             if (!Updates.Newer("0.10.1", "0.4.0") || Updates.Newer("0.4.0", "0.4.0")) Say("version order is wrong");
         }
 
+        // A mod the game's Mods screen switched off shows as off, and turning it on here clears only the game's switch for it.
+        {
+            var keep = Paths.Home;
+            var home = Path.Combine(Path.GetTempPath(), "pentecost-gameoff-test-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Paths.Home = home;
+                Directory.CreateDirectory(Paths.Mods);
+                Directory.CreateDirectory(Path.GetDirectoryName(Paths.Choices)!);
+                using (var z = System.IO.Compression.ZipFile.Open(Path.Combine(Paths.Mods, "fake-api-1.0.jar"), System.IO.Compression.ZipArchiveMode.Create))
+                using (var w = new StreamWriter(z.CreateEntry("fabric.mod.json").Open()))
+                    w.Write("{\"schemaVersion\":1,\"id\":\"fake-api\",\"version\":\"1.0\"}");
+                System.IO.File.WriteAllText(Paths.Choices, "{\"modsOff\":[\"fake_api\",\"other\"],\"featuresOff\":{\"x\":[\"y\"]}}");
+                var one = ModScan.Scan().FirstOrDefault();
+                if (one == null || one.Enabled || !one.GameOff) Say("game off: a mod the game turned off does not show as off");
+                else
+                {
+                    ModScan.SetEnabled(one, true);
+                    var text = System.IO.File.ReadAllText(Paths.Choices);
+                    if (text.Contains("fake_api") || !text.Contains("other") || !text.Contains("featuresOff")) Say("game off: turning the mod on changed more than its own switch");
+                    var again = ModScan.Scan().FirstOrDefault();
+                    if (again == null || !again.Enabled || again.GameOff) Say("game off: the mod does not show as on after turning it on");
+                }
+            }
+            catch (Exception ex) { Say("game off test threw " + ex.GetType().Name + ": " + ex.Message); }
+            finally
+            {
+                Paths.Home = keep;
+                try { Directory.Delete(home, true); } catch { }
+            }
+        }
+
         // Set PENTECOST_UPDATE_TEST=1 to download the Manager setup of the live release and check its size and SHA-256.
         if (Environment.GetEnvironmentVariable("PENTECOST_UPDATE_TEST") == "1")
         {

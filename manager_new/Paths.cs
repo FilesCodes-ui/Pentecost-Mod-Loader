@@ -40,6 +40,8 @@ public static class Paths
 
     public static string Mods => Path.Combine(Home, "run", "mods");
     public static string Crashes => Path.Combine(Home, "run", "crash-reports");
+    /// <summary>Where the game's own Mods screen keeps its switches, among them the list of mods turned off.</summary>
+    public static string Choices => Path.Combine(Home, "run", "config", "pentecost", "choices.json");
     public static string Logs => Path.Combine(Home, "run", "logs");
     public static bool Installed => Directory.Exists(Path.Combine(Home, "lib"));
 
