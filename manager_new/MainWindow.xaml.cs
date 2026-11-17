@@ -71,22 +71,15 @@ public partial class MainWindow : Window
 
     // ---------------------------------------------------------------- the taskbar icon turns too
 
-    System.Windows.Media.Imaging.BitmapSource[]? iconFrames;
-    int iconAt;
-    readonly DispatcherTimer iconTimer = new() { Interval = TimeSpan.FromMilliseconds(100) };
+    readonly DateTime iconStart = DateTime.UtcNow;
+    readonly DispatcherTimer iconTimer = new() { Interval = TimeSpan.FromMilliseconds(50) };
 
-    /// <summary>Draws the frames once, then shows the next one about ten times a second.</summary>
+    /// <summary>Draws the mark as it is at this moment, twenty times a second: the same free turn the Manager shows on screen.</summary>
     void StartIconSpin()
     {
         try
         {
-            iconFrames = IconMaker.Frames(32, 24);
-            iconTimer.Tick += (_, _) =>
-            {
-                if (iconFrames == null) return;
-                Icon = iconFrames[iconAt];
-                iconAt = (iconAt + 1) % iconFrames.Length;
-            };
+            iconTimer.Tick += (_, _) => Icon = IconMaker.FrameAt(32, (DateTime.UtcNow - iconStart).TotalSeconds);
             iconTimer.Start();
         }
         catch (Exception ex) { AppLog.Write("icon spin: " + ex.Message); }

@@ -31,7 +31,7 @@ public partial class MainWindow
         // A pixel arrow (or a square while the game runs), drawn in 2 pixel blocks.
         var sign = new Canvas { Width = 12, Height = 18, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 16, 0), SnapsToDevicePixels = true };
         if (!install)
-            for (var i = 0; i < 9; i++)
+            for (var i = running ? 2 : 0; i < (running ? 7 : 9); i++)
             {
                 var wide = running ? 10 : (i <= 4 ? i + 1 : 9 - i) * 2;
                 var cell = new System.Windows.Shapes.Rectangle { Width = wide, Height = 2, Fill = Ui.Br("Text") };

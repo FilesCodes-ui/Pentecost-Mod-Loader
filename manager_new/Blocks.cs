@@ -149,26 +149,10 @@ public static class TriMark
         return buf;
     }
 
-    /// <summary>One frame of a turn that comes back to where it started, so a run of frames joins up.</summary>
-    public static byte[] Loop(int cells, double a)
-    {
-        var buf = new byte[cells * cells];
-        Draw(buf, cells, (a, a * 2, a * 3), 3.1 + 0.5 * Math.Sin(a), 255, 0.44, true);
-        return buf;
-    }
-
-    /// <summary>One fixed view, for the program icon: held at an angle where all three corners stand apart.</summary>
-    public static byte[] Still(int cells)
-    {
-        var buf = new byte[cells * cells];
-        Draw(buf, cells, (0.95, 0.62, 0.30), 3.0, 255, 0.52, true);
-        return buf;
-    }
-
     // Three turns whose speeds share no common beat, so the shape never repeats the same way twice.
     static (double, double, double) Angles(double t) => (t * 0.91, t * 1.37, t * 0.58);
 
-    static void Draw(byte[] buf, int n, (double X, double Y, double Z) turn, double eye, byte level, double reachPart, bool solid = false)
+    static void Draw(byte[] buf, int n, (double X, double Y, double Z) turn, double eye, byte level, double reachPart)
     {
         var (ax, ay, az) = turn;
         var pts = new (double X, double Y, double Z)[3];
@@ -194,27 +178,19 @@ public static class TriMark
             flat[i] = (mid + x * k * reach, mid - y * k * reach, k);
         }
 
-        // The still view sits in the middle of its square, so the icon looks balanced.
-        if (solid)
-        {
-            var cxs = (flat[0].X + flat[1].X + flat[2].X) / 3;
-            var cys = (flat[0].Y + flat[1].Y + flat[2].Y) / 3;
-            for (var i = 0; i < 3; i++) flat[i] = (flat[i].X + mid - cxs, flat[i].Y + mid - cys, flat[i].Depth);
-        }
-
         // The three edges. A corner further away draws fainter, which is what makes it read as solid.
         for (var i = 0; i < 3; i++)
         {
             var a = flat[i];
             var b = flat[(i + 1) % 3];
-            Line(buf, n, a.X, a.Y, b.X, b.Y, solid ? level : Dim(level, (a.Depth + b.Depth) / 2));
+            Line(buf, n, a.X, a.Y, b.X, b.Y, Dim(level, (a.Depth + b.Depth) / 2));
         }
 
         // A dot at each corner, bigger when it is nearer.
         foreach (var (x, y, depth) in flat)
         {
             var r = n >= 26 ? (depth > 0.95 ? 2 : 1) : (depth > 0.95 ? 1 : 0);
-            var bright = solid ? (byte)255 : Dim(level, depth + 0.25);
+            var bright = Dim(level, depth + 0.25);
             for (var dy = -r; dy <= r; dy++)
                 for (var dx = -r; dx <= r; dx++)
                 {
@@ -340,24 +316,26 @@ public static class IconMaker
         File.WriteAllBytes(path, ms.ToArray());
     }
 
-    /// <summary>The mark as a run of frames that joins back onto itself, for the taskbar icon.</summary>
-    public static BitmapSource[] Frames(int size, int count)
+    /// <summary>
+    /// The moment of the turn the program's icon stands on, in seconds: all three corners apart, the two near ones
+    /// bright, the far one fading. It is the same mark the Manager shows on screen, caught mid-turn.
+    /// </summary>
+    const double StillAt = 11.0;
+
+    /// <summary>Whole pixels to a cell, so every cell of the mark is the same size.</summary>
+    static int CellsFor(int size) => size >= 64 ? 32 : size >= 48 ? 24 : size >= 32 ? 16 : size >= 24 ? 12 : 16;
+
+    /// <summary>The mark as it is at this moment of its turn, for the taskbar icon. The same free turn as on screen.</summary>
+    public static BitmapSource FrameAt(int size, double seconds)
     {
-        var made = new BitmapSource[count];
-        var cells = size >= 48 ? 24 : 17;
-        for (var f = 0; f < count; f++)
-        {
-            var a = 2 * Math.PI * f / count;
-            var grid = TriMark.Loop(cells, a);
-            made[f] = Paint(size, cells, grid);
-        }
-        return made;
+        var cells = CellsFor(size);
+        return Paint(size, cells, TriMark.Frame(cells, seconds));
     }
 
     static byte[] Png(int size)
     {
-        var cells = size >= 128 ? 40 : size >= 64 ? 30 : size >= 48 ? 24 : size >= 32 ? 17 : 12;
-        var bmp = Paint(size, cells, TriMark.Still(cells));
+        var cells = CellsFor(size);
+        var bmp = Paint(size, cells, TriMark.Frame(cells, StillAt));
         var enc = new PngBitmapEncoder();
         enc.Frames.Add(BitmapFrame.Create(bmp));
         using var ms = new MemoryStream();
@@ -378,18 +356,18 @@ public static class IconMaker
                 if (!corner) px[y * size + x] = plate;
             }
 
-        var inset = size * (size >= 48 ? 0.08 : 0.04);
+        var inset = 0.0;
         var span = size - 2 * inset;
         for (var cy = 0; cy < cells; cy++)
             for (var cx = 0; cx < cells; cx++)
             {
                 var a = grid[cy * cells + cx];
-                if (a < 40) continue;
+                if (a < 16) continue;
                 var x0 = (int)Math.Floor(inset + cx * span / cells);
                 var y0 = (int)Math.Floor(inset + cy * span / cells);
                 var x1 = Math.Max(x0 + 1, (int)Math.Floor(inset + (cx + 1) * span / cells));
                 var y1 = Math.Max(y0 + 1, (int)Math.Floor(inset + (cy + 1) * span / cells));
-                var v = (byte)Math.Clamp(a + 40, 0, 255);
+                var v = (byte)(0x0B + (0xF2 - 0x0B) * a / 255);
                 var colour = (0xFF << 24) | (v << 16) | (v << 8) | v;
                 for (var y = y0; y < y1 && y < size; y++)
                     for (var x = x0; x < x1 && x < size; x++)
