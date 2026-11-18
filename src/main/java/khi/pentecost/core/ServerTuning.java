@@ -86,6 +86,12 @@ public final class ServerTuning {
      * off, so it can never stop the server's tick.
      */
     public static void serverTick(Object server) {
+        ModImpact.tick();
+        try {
+            khi.pentecost.messenger.Threads.serverTick(server);
+        } catch (RuntimeException | LinkageError e) {
+            khi.pentecost.boot.Log.error("The messenger failed at the start of a server tick: " + e);
+        }
         Tick t = ticker;
         if (t == null) {
             if (installTried) {

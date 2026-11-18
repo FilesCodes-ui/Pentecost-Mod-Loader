@@ -42,6 +42,14 @@ public final class Settings {
     public static final String FAR_MOBS = "server.farMobs";
     /** Chunks unload a few at a time instead of all in one tick. */
     public static final String SPREAD_UNLOADS = "server.spreadUnloads";
+    /** The messenger thread and its workers. A prototype: off unless the player turns it on. */
+    public static final String MESSENGER = "threads.messenger";
+    /** Mob path searches run on the workers while the messenger is on. */
+    public static final String ASYNC_PATHS = "threads.paths";
+    /** Mobs fully behind solid blocks are not drawn. Found on the messenger's workers. */
+    public static final String CULL_ENTITIES = "threads.cullEntities";
+    public static final String MOB_THREADS = "threads.mobs";
+    public static final String VANILLA_MOB_THREADS = "threads.vanillaMobs";
 
     /** The game's own options screens open instead of Pentecost's settings. Off unless the player turns it on. */
     public static final String VANILLA_SETTINGS = "interface.vanillaSettings";
@@ -89,6 +97,11 @@ public final class Settings {
         DEFAULTS.put(NAME_TAGS, "pentecost");
         DEFAULTS.put(TAG_LENGTH, "auto");
         DEFAULTS.put(UPDATE_CHECK, "true");
+        DEFAULTS.put(MESSENGER, "false");
+        DEFAULTS.put(ASYNC_PATHS, "true");
+        DEFAULTS.put(CULL_ENTITIES, "false");
+        DEFAULTS.put(MOB_THREADS, "false");
+        DEFAULTS.put(VANILLA_MOB_THREADS, "false");
     }
 
     private static final Map<String, String> VALUES = new TreeMap<>();

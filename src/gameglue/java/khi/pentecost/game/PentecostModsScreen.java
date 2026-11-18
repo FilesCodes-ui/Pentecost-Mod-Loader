@@ -550,6 +550,19 @@ public final class PentecostModsScreen extends Screen {
         text(g, font.plainSubstrByWidth(loaderOf(m) + "   " + m.version() + "   " + m.id(), w - 52), x + 52, y + 24, FAINT);
         y += 54;
 
+        khi.pentecost.core.ModImpact.Flag slow = khi.pentecost.core.ModImpact.flag(ModImpactScreen.flagFile(),
+                khi.pentecost.core.ModOwners.group(m.id()), m.version());
+        if (slow != null) {
+            String warn = String.format(java.util.Locale.ROOT, "Slows the game. Pentecost measured about %.1f ms per frame%s "
+                    + "for this mod. Turn it off below if you do not need it. Measure again on the Performance page after a change.",
+                    slow.msPerFrame(), slow.msPerTick() >= 1 ? String.format(java.util.Locale.ROOT, " and %.1f ms per tick", slow.msPerTick()) : "");
+            for (FormattedCharSequence line : font.split(Component.literal(warn), Math.min(w, 420))) {
+                g.drawString(font, line, x, y, 0xFFE08080, false);
+                y += 11;
+            }
+            y += 10;
+        }
+
         String about = description(m);
         if (!about.isEmpty()) {
             for (FormattedCharSequence line : font.split(Component.literal(about), Math.min(w, 420))) {

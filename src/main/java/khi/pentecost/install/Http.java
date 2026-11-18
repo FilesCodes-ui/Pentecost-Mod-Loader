@@ -75,6 +75,27 @@ public final class Http {
         return send(url, HttpResponse.BodyHandlers.ofString()).body();
     }
 
+    /** Sends a JSON body and returns the answer. The address must be https and on a trusted domain. */
+    public static String postJson(String url, String json) throws IOException {
+        checkUrl(url);
+        HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                .header("User-Agent", USER_AGENT)
+                .header("Content-Type", "application/json")
+                .timeout(Duration.ofSeconds(60))
+                .POST(HttpRequest.BodyPublishers.ofString(json))
+                .build();
+        try {
+            HttpResponse<String> r = CLIENT.send(req, HttpResponse.BodyHandlers.ofString());
+            if (r.statusCode() / 100 != 2) {
+                throw new IOException("HTTP " + r.statusCode() + " for " + url);
+            }
+            return r.body();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted while fetching " + url, e);
+        }
+    }
+
     /** Downloads url to dest. Skips the download when dest exists and matches sha1 (or sha1 is null). */
     public static Path download(String url, Path dest, String sha1) throws IOException {
         if (sha1 == null) {

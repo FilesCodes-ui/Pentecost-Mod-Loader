@@ -234,22 +234,8 @@ public final class ForgeRedirects {
         if ("minecraft".equals(id) || "forge".equals(id)) {
             return true;
         }
-        for (khi.pentecost.mods.ModInfo m : khi.pentecost.core.PentecostRuntime.mods) {
-            if (m.loader() == khi.pentecost.mods.LoaderKind.LIBRARY) {
-                continue;
-            }
-            if (m.id().equals(id)) {
-                return true;
-            }
-            if (m.raw() != null && m.raw().has("provides") && m.raw().get("provides").isJsonArray()) {
-                for (com.google.gson.JsonElement e : m.raw().getAsJsonArray("provides")) {
-                    if (e.isJsonPrimitive() && e.getAsString().equals(id)) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
+        // Exact id, then provides, then the same mod under a Fabric or Quilt spelling.
+        return khi.pentecost.mods.ModFinder.find(khi.pentecost.core.PentecostRuntime.mods, id, true).isPresent();
     }
 
     /** Landing point of the coremod name lookups: a member name from Forge's game build to the readable name. */

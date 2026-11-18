@@ -219,7 +219,8 @@ public final class PentecostSettingsScreen extends Screen {
                 + "Escape clears it. A ! marks a key two actions share.",
                 this::controlFolders, List.of(), this::controlShortcuts));
         pages.add(new Page("Skin", "Your skin and which layers show. The skin comes from your account.",
-                this::skinFolders, List.of(), List::of));
+                this::skinFolders, List.of(),
+                () -> List.of(new Shortcut("Open wardrobe", () -> minecraft.setScreen(new WardrobeScreen(this))))));
         pages.add(new Page("Resource packs", "Turn packs on or off. Shift-click a pack in use to give it more priority. "
                 + "Changes apply when you press Done.",
                 this::resourcePackFolders, List.of(), this::resourcePackShortcuts));
@@ -231,7 +232,8 @@ public final class PentecostSettingsScreen extends Screen {
                         Row.toggle("Spread chunk saving", "Chunks you leave unload a few at a time, so one tick does not "
                                 + "save dozens of them at once.", "Restart",
                                 () -> Settings.on(Settings.SPREAD_UNLOADS), () -> Settings.toggle(Settings.SPREAD_UNLOADS))))),
-                List.of("Launch cache", "Chunk building threads", "Virtual threads on Java 25"), List::of));
+                List.of("Launch cache", "Chunk building threads", "Virtual threads on Java 25"),
+                () -> List.of(new Shortcut("Mod impact", () -> minecraft.setScreen(new ModImpactScreen(this))))));
         pages.add(new Page("Java", "Memory, garbage collector and extra flags for the next launch. "
                 + "Pentecost reads them each time it starts the game.",
                 this::javaFolders, List.of(), this::javaShortcuts));
@@ -815,6 +817,11 @@ public final class PentecostSettingsScreen extends Screen {
 
     private List<Shortcut> resourcePackShortcuts() {
         return List.of(
+                new Shortcut("Get packs", () -> minecraft.setScreen(new PackStoreScreen(this, khi.pentecost.packs.PackStore.Kind.RESOURCE,
+                        () -> minecraft.getResourcePackDirectory(), () -> {
+                            minecraft.getResourcePackRepository().reload();
+                            packModel = null;
+                        }))),
                 new Shortcut(showModPacks ? "Hide mod packs" : "Show mod packs", () -> showModPacks = !showModPacks),
                 new Shortcut("Pack folder", () -> Util.getPlatform().openFile(minecraft.getResourcePackDirectory().toFile())),
                 new Shortcut("Refresh list", () -> {
@@ -1279,6 +1286,8 @@ public final class PentecostSettingsScreen extends Screen {
             return List.of(new Shortcut("Install Oculus", this::askInstallOculus));
         }
         return List.of(
+                new Shortcut("Get shaders", () -> minecraft.setScreen(new PackStoreScreen(this, khi.pentecost.packs.PackStore.Kind.SHADER,
+                        ExternalOptions::packFolder, () -> built.remove(page)))),
                 new Shortcut("Use Pentecost shaders", () -> {
                     ExternalOptions.usePentecostPack();
                     built.remove(page);
@@ -1628,6 +1637,25 @@ public final class PentecostSettingsScreen extends Screen {
                 new Folder("Server tick", List.of(
                         settingToggle("Spread chunk saving", "Chunks you leave unload a few at a time.", "Restart", Settings.SPREAD_UNLOADS),
                         settingToggle("Far mob throttle", "Mobs far from every player think less often.", "Now", Settings.FAR_MOBS))),
+                new Folder("Threads (prototype)", List.of(
+                        settingToggle("Messenger thread", "A thread that only moves work between threads, and a worker pool. "
+                                + "Anything that fails falls back to the old way and is written to logs/pentecost-messenger.txt. "
+                                + "Press F6 to see what it does.", "Now", Settings.MESSENGER),
+                        settingToggle("Pathfinding on workers", "Mobs search for paths on the workers while the messenger is on. "
+                                + "A mob type that fails goes back to the old way by itself.", "Now", Settings.ASYNC_PATHS),
+                        settingToggle("Hide mobs behind walls", "Workers check which mobs are fully behind solid blocks, and the game "
+                                + "skips drawing them. Players, named and glowing mobs always show. Needs the messenger on.", "Now", Settings.CULL_ENTITIES),
+                        settingToggle("Mods' mobs on mod threads", "Each mod's mobs tick on that mod's own thread, at the same time as "
+                                + "other mods' mobs. Their world changes land on the server thread in order. A mod whose mob fails "
+                                + "goes back to the old way by itself. Needs the messenger on. Test on a copy of your world.", "Now", Settings.MOB_THREADS),
+                        settingToggle("Minecraft's mobs too", "Minecraft's own mobs join the mod threads the same way. Villagers, "
+                                + "traders, piglins, wardens and allays stay on the server thread, since they share village and "
+                                + "memory data. Needs the switch above. Test on a copy of your world.", "Now", Settings.VANILLA_MOB_THREADS),
+                        Row.button("Open messenger report", "The file with every failure: which mod or mob, what it was doing, and the stack trace.",
+                                () -> {
+                                    java.io.File f = khi.pentecost.boot.Dirs.run().resolve("logs").resolve("pentecost-messenger.txt").toFile();
+                                    Util.getPlatform().openFile(f.exists() ? f : f.getParentFile());
+                                }))),
                 new Folder("World Wide Local Server", List.of(
                         Row.button("Open or join a world", "Friends join your world with a short code. No port forwarding. "
                                 + "Open a world first to host, or type a friend's code to join.",

@@ -19,7 +19,9 @@ import java.util.Map;
  * Forge splits them into four overlays and never runs the vanilla Gui.renderPlayerHealth,
  * so Fabric mods that hook that method (AppleSkin) go silent on the Forge layer.
  * When a mod hooks it, Pentecost draws the bars through the vanilla method, in Forge's health slot,
- * and Forge's own armor, food and air bars step aside. Forge's bar spacing for other overlays is kept.
+ * and Forge's own armor, food and air bars step aside. Forge's bar spacing for other overlays is kept: each bar's slot
+ * still moves leftHeight or rightHeight at the moment Forge would, so a mod overlay that reads them just before or
+ * after a bar (AppleSkin reads rightHeight right before food) finds the bar where it really is.
  * When no mod hooks it, Forge draws its bars as always.
  */
 public final class HudOwner {
@@ -82,7 +84,7 @@ public final class HudOwner {
                 renderPlayerHealth = m;
             }
             m.invoke(gui, graphics);
-            space(gui);
+            add(gui, "leftHeight", 10);
             return true;
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
             vanillaBars = false;
@@ -92,34 +94,53 @@ public final class HudOwner {
         }
     }
 
-    /** Forge's armor, food and air slots. True means Pentecost already drew them. */
-    public static boolean skipBar() {
-        return vanillaBars;
+    /**
+     * Forge's armor, food and air slots. True means Pentecost already drew the bar, so the slot only moves the
+     * bar spacing the way Forge's own method would have, in the same order.
+     */
+    public static boolean skip(Object gui, String bar) {
+        if (!vanillaBars) {
+            return false;
+        }
+        try {
+            switch (bar) {
+                case "renderArmor" -> {
+                    if (playerInt(gui, "getArmorValue") > 0) {
+                        add(gui, "leftHeight", 10);
+                    }
+                }
+                case "renderFood" -> add(gui, "rightHeight", 10);
+                case "renderAir" -> {
+                    int air = playerInt(gui, "getAirSupply");
+                    int max = playerInt(gui, "getMaxAirSupply");
+                    if (air >= 0 && max > 0 && air < max) {
+                        add(gui, "rightHeight", 10);
+                    }
+                }
+                default -> {
+                }
+            }
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            // Spacing is a nicety. The bars are drawn either way.
+        }
+        return true;
     }
 
-    /** Moves Forge's bar stacking past the bars Pentecost drew, so other overlays sit where they expect. */
-    private static void space(Object gui) throws ReflectiveOperationException {
-        Class<?> c = gui.getClass();
-        Field left = c.getField("leftHeight");
-        Field right = c.getField("rightHeight");
-        int l = 10;
-        int r = 10;
-        Object mc = Class.forName("net.minecraft.client.Minecraft", false, c.getClassLoader())
+    private static void add(Object gui, String field, int by) throws ReflectiveOperationException {
+        Field f = gui.getClass().getField(field);
+        f.setInt(gui, f.getInt(gui) + by);
+    }
+
+    /** A whole number from the local player, or -1 when there is no player. */
+    private static int playerInt(Object gui, String method) throws ReflectiveOperationException {
+        Object mc = Class.forName("net.minecraft.client.Minecraft", false, gui.getClass().getClassLoader())
                 .getMethod("getInstance").invoke(null);
         Object player = mc.getClass().getField("player").get(mc);
-        if (player != null) {
-            Object armor = player.getClass().getMethod("getArmorValue").invoke(player);
-            if (armor instanceof Integer a && a > 0) {
-                l += 10;
-            }
-            Object air = player.getClass().getMethod("getAirSupply").invoke(player);
-            Object max = player.getClass().getMethod("getMaxAirSupply").invoke(player);
-            if (air instanceof Integer a && max instanceof Integer x && a < x) {
-                r += 10;
-            }
+        if (player == null) {
+            return -1;
         }
-        left.setInt(gui, left.getInt(gui) + l);
-        right.setInt(gui, right.getInt(gui) + r);
+        Object v = player.getClass().getMethod(method).invoke(player);
+        return v instanceof Integer i ? i : -1;
     }
 
     /** Forge's bar methods, and the index of their GuiGraphics argument. */
@@ -162,8 +183,10 @@ public final class HudOwner {
                             mv.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/HudOwner", "health",
                                     "(Ljava/lang/Object;Ljava/lang/Object;)Z", false);
                         } else {
-                            mv.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/HudOwner", "skipBar",
-                                    "()Z", false);
+                            mv.visitVarInsn(Opcodes.ALOAD, 0);
+                            mv.visitLdcInsn(n);
+                            mv.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/HudOwner", "skip",
+                                    "(Ljava/lang/Object;Ljava/lang/String;)Z", false);
                         }
                         Label done = new Label();
                         mv.visitJumpInsn(Opcodes.IFNE, done);

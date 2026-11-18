@@ -256,6 +256,8 @@ public final class PentecostMain {
         loader.addTransformer(khi.pentecost.core.Background.transformer());
         loader.addTransformer(khi.pentecost.core.CostMeter.transformer());
         loader.addTransformer(khi.pentecost.core.ZoomHooks.transformer());
+        loader.addTransformer(khi.pentecost.core.FrameProbe.transformer());
+        loader.addTransformer(khi.pentecost.core.CullHooks.transformer());
         loader.addLateTransformer(khi.pentecost.core.TagHooks.transformer());
         loader.addTransformer(khi.pentecost.core.ChatHooks.transformer());
         loader.addTransformer(khi.pentecost.core.MenuDistance.transformer());
@@ -263,6 +265,9 @@ public final class PentecostMain {
         // These rename a game method and wrap it. They run after Mixin, so every mod hook sees the real body.
         loader.addLateTransformer(khi.pentecost.core.ClientHooks.lateTransformer());
         loader.addLateTransformer(khi.pentecost.core.ServerTuning.transformer());
+        loader.addLateTransformer(khi.pentecost.messenger.PathHooks.transformer());
+        loader.addLateTransformer(khi.pentecost.messenger.MobHooks.transformer());
+        loader.addLateTransformer(khi.pentecost.messenger.MobHooks.callSites());
         if (forgeOn) {
             java.util.Set<String> softMods = new java.util.HashSet<>();
             for (ModInfo m : usable) {

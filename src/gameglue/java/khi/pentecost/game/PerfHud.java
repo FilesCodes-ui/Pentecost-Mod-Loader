@@ -37,6 +37,10 @@ public final class PerfHud {
     private static final double[] HIST = new double[240];
     private static int histAt;
 
+    private static int panelW;
+    private static long smallerSince;
+    private static double lastScale;
+
     private PerfHud() {}
 
     /** Called once per frame, after the game drew its own HUD. */
@@ -99,13 +103,57 @@ public final class PerfHud {
             }
         }
         rows.add(new String[]{"Work per frame", String.format("%.1f ms", workMs)});
+        rows.add(new String[]{"Held item draw", String.format("%.1f ms", khi.pentecost.core.FrameProbe.handMs())});
+        rows.add(new String[]{"Waiting on GPU", String.format("%.1f ms", khi.pentecost.core.FrameProbe.gpuWaitMs())});
         rows.add(new String[]{"Memory", used + " / " + max + " MB"});
         rows.add(new String[]{"Mods", forge + " Forge   " + fabric + " Fabric and Quilt"});
+        if (khi.pentecost.core.ModImpact.running()) {
+            rows.add(new String[]{"Mod impact", String.format("measuring %.0f s", khi.pentecost.core.ModImpact.seconds())});
+        }
         rows.add(null);
         List<String[]> cost = khi.pentecost.core.CostMeter.rows(6);
         if (!cost.isEmpty()) {
             rows.add(new String[]{"Mod handler time", "per tick"});
             rows.addAll(cost);
+            rows.add(null);
+        }
+        khi.pentecost.messenger.Messenger.Stats mstat = khi.pentecost.messenger.Messenger.get().stats();
+        if (mstat.on()) {
+            rows.add(new String[]{"Messenger", (mstat.routerAlive() ? "on" : "STOPPED") + ", " + mstat.workers() + " workers"});
+            rows.add(new String[]{"Jobs moved", mstat.routed() + ""});
+            rows.add(new String[]{"Wait for a thread", String.format("%.0f us", mstat.avgWaitMicros())});
+            for (khi.pentecost.messenger.Messenger.LaneStats l : mstat.lanes()) {
+                if (l.sent() > 0) {
+                    rows.add(new String[]{"  " + l.lane().name().toLowerCase(), l.done() + " done  " + l.waiting() + " waiting"
+                            + (l.failed() > 0 ? "  " + l.failed() + " failed" : "")});
+                }
+            }
+            long pw = khi.pentecost.messenger.PathHooks.onWorkers.sum();
+            if (pw > 0) {
+                long pf = khi.pentecost.messenger.PathHooks.forced.sum();
+                rows.add(new String[]{"Paths on workers", pw + "  (" + (pw == 0 ? 0 : pf * 100 / pw) + "% read early)"});
+                rows.add(new String[]{"Path work moved", String.format("%.0f ms", khi.pentecost.messenger.PathHooks.workerNanos.sum() / 1e6)});
+            }
+            if (khi.pentecost.messenger.PathHooks.sitesOnServer() > 0) {
+                rows.add(new String[]{"Path askers on server", khi.pentecost.messenger.PathHooks.sitesOnServer() + " (read early)"});
+            }
+            if (khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.MOB_THREADS)) {
+                rows.add(new String[]{"Mobs on mod threads", MobThreads.lastMobs + " per tick  (" + MobThreads.threadsUsed
+                        + (MobThreads.threadsUsed == 1 ? " thread, " : " threads, ") + MobThreads.lastChanges + " changes)"});
+                rows.add(new String[]{"Mod thread time", String.format("%.2f ms per tick", MobThreads.lastMs)});
+                if (!MobThreads.SENT_HOME.isEmpty()) {
+                    rows.add(new String[]{"Mods sent home", String.join(", ", MobThreads.SENT_HOME)});
+                }
+            }
+            if (khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.CULL_ENTITIES)) {
+                rows.add(new String[]{"Mobs behind walls", khi.pentecost.core.CullHooks.count() + " not drawn"});
+            }
+            if (mstat.fallbacks() > 0) {
+                rows.add(new String[]{"Fell back", mstat.fallbacks() + " (" + mstat.timeouts() + " too slow)"});
+            }
+            if (!mstat.quarantined().isEmpty()) {
+                rows.add(new String[]{"Quarantined", String.join(", ", mstat.quarantined())});
+            }
             rows.add(null);
         }
         for (Map.Entry<String, Double> mark : Timeline.marks().entrySet()) {
@@ -114,6 +162,10 @@ public final class PerfHud {
 
         Font font = mc.font;
         double scale = mc.getWindow().getGuiScale();
+        if (scale != lastScale) {
+            lastScale = scale;
+            panelW = 0;
+        }
         float ui = scale > 2 ? (float) (2.0 / scale) : 1f;
         int vw = (int) (mc.getWindow().getGuiScaledWidth() / ui);
         int labelW = 0;
@@ -124,7 +176,20 @@ public final class PerfHud {
                 valueW = Math.max(valueW, font.width(r[1]));
             }
         }
-        int w = Math.max(176, labelW + valueW + 40);
+        // The panel grows at once but only shrinks after 3 seconds of fitting in less room, so a number that gains
+        // or loses a digit does not make the whole panel jump.
+        int want = Math.max(176, labelW + valueW + 40);
+        long wallNow = System.currentTimeMillis();
+        if (want >= panelW) {
+            panelW = want;
+            smallerSince = 0;
+        } else if (smallerSince == 0) {
+            smallerSince = wallNow;
+        } else if (wallNow - smallerSince > 3000) {
+            panelW = want;
+            smallerSince = 0;
+        }
+        int w = panelW;
         int bigH = 30;
         int sparkH = 22;
         int h = 15 + bigH + 2 + sparkH + 4 + rows.size() * 10;

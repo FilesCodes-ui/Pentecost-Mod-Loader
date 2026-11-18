@@ -39,6 +39,13 @@ public final class ModsScreens {
             Zoom.frame();
             Stall.frame();
             Account.frame();
+            Wardrobe.frame();
+            khi.pentecost.messenger.Threads.frame();
+            khi.pentecost.core.ModImpact.frame();
+            EntityCulling.frame();
+            if (Minecraft.getInstance().screen instanceof net.minecraft.client.gui.screens.TitleScreen) {
+                khi.pentecost.translator.ShadowRun.maybeStart();
+            }
             Updater.frame();
             WindowIcon.frame();
             testPause();

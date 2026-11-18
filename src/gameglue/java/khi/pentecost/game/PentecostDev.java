@@ -91,8 +91,14 @@ public final class PentecostDev {
         return isDev(UUID.fromString(id));
     }
 
-    /** True only when the signed-in account is the owner's. The Developer tag button is shown only then. */
+    /**
+     * True only when the signed-in account is the owner's, with a real Microsoft session. The Developer tag button
+     * is shown only then. An offline or cracked player using the owner's id does not count.
+     */
     public static boolean ownIsOwner() {
+        if (!Account.signedIn()) {
+            return false;
+        }
         return plain(Minecraft.getInstance().getUser().getProfileId()).equals(OWNER);
     }
 
@@ -104,7 +110,7 @@ public final class PentecostDev {
     public static void toggleOwn() {
         load();
         String id = plain(Minecraft.getInstance().getUser().getProfileId());
-        if (!id.equals(OWNER)) {
+        if (!ownIsOwner()) {
             return;
         }
         if (!IDS.remove(id)) {

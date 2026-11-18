@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'khi.pentecost'
-version = '0.6.0'
+version = '0.7.0'
 
 java {
     toolchain {
@@ -106,6 +106,12 @@ def pentecostExec = { String taskName, List<String> taskArgs ->
         args taskArgs
         workingDir = file('run')
         systemProperty 'pentecost.home', rootDir.path
+        // Laptops with two graphics cards: tells NVIDIA's driver to run the game on the NVIDIA card, not the
+        // integrated one (the same switch Prism Launcher's "Use discrete GPU" sets). Only this process sees it.
+        // PENTECOST_IGPU=1 leaves the choice to Windows.
+        if (System.getProperty('os.name', '').toLowerCase().contains('win') && !System.getenv('PENTECOST_IGPU')) {
+            environment 'SHIM_MCCOMPAT', '0x800000001'
+        }
         // A large young area makes memory cleanups rarer. At 4 GB the game stuttered about every 4 s; at 6 GB with
         // a 3 GB young area, shaders on, it went from about 40 to about 60 fps.
         def pentecostSettings = file('run/config/pentecost/settings.json')

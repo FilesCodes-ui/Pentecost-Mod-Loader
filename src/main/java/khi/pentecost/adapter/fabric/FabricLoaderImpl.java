@@ -157,21 +157,13 @@ public final class FabricLoaderImpl implements FabricLoader {
 
     @Override
     public Optional<ModContainer> getModContainer(String id) {
-        for (ModInfo m : PentecostRuntime.mods) {
-            if (m.id().equals(id)) {
-                return Optional.of(container(m));
-            }
+        Optional<ModContainer> b = builtin(id);
+        if (b.isPresent() && !"minecraft".equals(id)) {
+            return b;
         }
-        for (ModInfo m : PentecostRuntime.mods) {
-            if (m.raw() != null && m.raw().has("provides") && m.raw().get("provides").isJsonArray()) {
-                for (com.google.gson.JsonElement e : m.raw().getAsJsonArray("provides")) {
-                    if (e.isJsonPrimitive() && e.getAsString().equals(id)) {
-                        return Optional.of(container(m));
-                    }
-                }
-            }
-        }
-        return builtin(id);
+        // Exact id, then provides, then the same mod under a Forge or Quilt spelling.
+        Optional<ModInfo> m = khi.pentecost.mods.ModFinder.find(PentecostRuntime.mods, id, false);
+        return m.isPresent() ? Optional.of(container(m.get())) : b;
     }
 
     /**
