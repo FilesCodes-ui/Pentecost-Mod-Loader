@@ -455,6 +455,7 @@ public final class PentecostMain {
                 cmd.addAll(List.of("--userType", session.type()));
             }
         }
+        Splash.closeNow();
         Process p = new ProcessBuilder(cmd).inheritIO().start();
         System.exit(p.waitFor());
         return true;

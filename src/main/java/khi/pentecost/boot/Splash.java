@@ -17,6 +17,7 @@ public final class Splash {
     private static final int H = 360;
 
     private static volatile javax.swing.JWindow window;
+    private static volatile boolean dropped;
     private static volatile javax.swing.Timer timer;
 
     private static final int ROW = 30;
@@ -190,6 +191,9 @@ public final class Splash {
     }
 
     private static void build() {
+        if (dropped) {
+            return;
+        }
         try {
             javax.swing.JWindow w = new javax.swing.JWindow();
             w.setFocusableWindowState(false);
@@ -573,6 +577,31 @@ public final class Splash {
         GLYPHS.put('8', new String[]{"01110", "10001", "10001", "01110", "10001", "10001", "01110"});
         GLYPHS.put('9', new String[]{"01110", "10001", "10001", "01111", "00001", "00010", "01100"});
         GLYPHS.put('%', new String[]{"11001", "11010", "00010", "00100", "01000", "01011", "10011"});
+    }
+
+    public static void closeNow() {
+        dropped = true;
+        javax.swing.JWindow w = window;
+        window = null;
+        if (w == null) {
+            return;
+        }
+        Runnable gone = () -> {
+            javax.swing.Timer t = timer;
+            if (t != null) {
+                t.stop();
+            }
+            w.setVisible(false);
+            w.dispose();
+        };
+        try {
+            if (javax.swing.SwingUtilities.isEventDispatchThread()) {
+                gone.run();
+            } else {
+                javax.swing.SwingUtilities.invokeAndWait(gone);
+            }
+        } catch (Exception ignored) {
+        }
     }
 
     public static void close() {

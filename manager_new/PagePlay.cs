@@ -39,8 +39,8 @@ public partial class MainWindow
             notice = Notice($"Pentecost {latest!.Version} is available", $"You have {cur}. Your worlds, mods and settings stay as they are.",
                 "Update", () => _ = RunInstall(false), "What's new", () => OpenPath(latest.Url));
         else if (javaDone && java == null && mode != LaunchMode.Launcher)
-            notice = Notice("Java 21 was not found", "Pentecost needs Java 21 or newer. Choose its java.exe, or start with the Launcher instead.",
-                "Choose java.exe", ChooseJava);
+            notice = Notice("Java 21 was not found", "Pentecost needs Java 21 or newer. The Manager gets it for you, or you pick your own java.exe.",
+                "Get Java 21", () => _ = GetJava(), "Choose java.exe", ChooseJava);
         if (notice != null)
         {
             notice.Margin = new Thickness(0, 12, 0, 0);
@@ -228,6 +228,24 @@ public partial class MainWindow
             worlds, note, buttons.With(new Thickness(0, 24, 0, 0)));
         box.Width = 470;
         ShowModal(Ui.Card(box, 26));
+    }
+
+    async Task GetJava()
+    {
+        if (testing || installing) return;
+        installing = true;
+        Refresh();
+        var err = await JavaGet.Ensure((text, f) => Dispatcher.BeginInvoke(() =>
+        {
+            if (installLabel != null) installLabel.Text = text;
+            if (installBar != null) { installBar.IsIndeterminate = false; installBar.Value = f; }
+        }), CancellationToken.None);
+        installing = false;
+        installBar = null;
+        installLabel = null;
+        java = await Task.Run(JavaFinder.Find);
+        Refresh();
+        if (err == null) Toast("Java 21 is ready."); else Toast(err, "Bad");
     }
 
     void ChooseJava()
