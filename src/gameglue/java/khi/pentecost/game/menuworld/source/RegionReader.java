@@ -18,7 +18,6 @@ import java.util.regex.Pattern;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.InflaterInputStream;
 
-/** Reads chunks out of Anvil region files (r.X.Z.mca). Read only. Safe to call from a worker thread. */
 public final class RegionReader implements ChunkSource {
     private static final Pattern REGION_FILE = Pattern.compile("r\\.(-?\\d+)\\.(-?\\d+)\\.mca");
 
@@ -28,7 +27,6 @@ public final class RegionReader implements ChunkSource {
         this.regionDir = regionDir;
     }
 
-    /** The chunk's NBT, or null when the chunk is not in the file (or is stored in an external .mcc file). */
     public CompoundTag readChunk(int chunkX, int chunkZ) throws IOException {
         Path file = regionDir.resolve("r." + Math.floorDiv(chunkX, 32) + "." + Math.floorDiv(chunkZ, 32) + ".mca");
         if (!Files.isRegularFile(file)) return null;
@@ -39,7 +37,6 @@ public final class RegionReader implements ChunkSource {
         }
     }
 
-    /** Opens each region file once, which is far faster than {@link #readChunk} for scanning many chunks. */
     @Override
     public void forEach(int minCx, int minCz, int maxCx, int maxCz, Visitor visitor) throws IOException {
         for (int rx = Math.floorDiv(minCx, 32); rx <= Math.floorDiv(maxCx, 32); rx++) {
@@ -61,7 +58,7 @@ public final class RegionReader implements ChunkSource {
                         try {
                             tag = readAt(raf, offset);
                         } catch (IOException | RuntimeException damaged) {
-                            continue; // one damaged chunk must not stop a scan
+                            continue;
                         }
                         if (tag != null) visitor.chunk(cx, cz, tag);
                     }
@@ -70,7 +67,6 @@ public final class RegionReader implements ChunkSource {
         }
     }
 
-    /** The box of chunks that region files exist for, or null. Whole regions, so it can be a little larger than the world. */
     @Override
     public int[] chunkBounds() {
         if (!Files.isDirectory(regionDir)) return null;
@@ -91,7 +87,6 @@ public final class RegionReader implements ChunkSource {
         return minX == Integer.MAX_VALUE ? null : new int[] {minX, minZ, maxX, maxZ};
     }
 
-    /** A region file with no chunk table is a leftover, not a part of the world. */
     private static boolean isEmpty(Path f) {
         try {
             return Files.size(f) < 8192;

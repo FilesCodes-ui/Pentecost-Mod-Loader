@@ -2,17 +2,11 @@ package khi.pentecost.game.menuworld.lod;
 
 import khi.pentecost.game.menuworld.source.Terrain;
 
-/**
- * Builds the coarse terrain beyond the real chunks. The rings below say how big a cell is at each distance from
- * the camera. Building samples the terrain on a worker thread. Drawing the tiles is not built yet.
- */
 public final class LodBuilder {
     private LodBuilder() {}
 
-    /** Real chunks cover this many blocks around the camera. */
     public static final int REAL_RADIUS = 12 * 16;
 
-    /** Cell size in blocks for a given distance from the camera. */
     public static int cellFor(double distance) {
         if (distance < REAL_RADIUS) {
             return 1;
@@ -26,7 +20,6 @@ public final class LodBuilder {
         return 64;
     }
 
-    /** Samples one tile. Each cell takes the middle column's height and colour, and is water if that column is. */
     public static LodTile build(Terrain terrain, int tileX, int tileZ, int cell, int size) {
         short[] height = new short[size * size];
         int[] color = new int[size * size];

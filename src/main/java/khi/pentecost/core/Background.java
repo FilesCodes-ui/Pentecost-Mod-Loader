@@ -10,18 +10,11 @@ import org.objectweb.asm.Type;
 
 import java.lang.reflect.Method;
 
-/**
- * Moves slow network work that mods do on the main thread to a background thread.
- * Today that is the update check of Xaero's Minimap and Xaero's World Map, which took about 2.7 s at startup.
- * The mod jars stay as they are. Only the loaded copy of the class changes.
- * Set PENTECOST_XAERO_CHECK=1 to run the check the old way.
- */
 public final class Background {
     private static final String SUFFIX = "$pentecost";
 
     private Background() {}
 
-    /** Called by the rewritten method. Runs the original method on its own thread. */
     public static void run(Class<?> owner, String method, Object argument) {
         Runnable job = () -> {
             try {

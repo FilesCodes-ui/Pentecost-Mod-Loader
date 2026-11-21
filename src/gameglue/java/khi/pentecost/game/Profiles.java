@@ -21,12 +21,9 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.OptionInstance;
 import java.util.stream.Stream;
 
-/** Saved setups. Each is one .json file holding every Pentecost setting that differs from the default. */
 final class Profiles {
     private Profiles() {}
 
-
-    /** The game's own options a setup remembers, stored as game.name. */
     private static Map<String, OptionInstance<?>> gameOptions() {
         net.minecraft.client.Options o = Minecraft.getInstance().options;
         Map<String, OptionInstance<?>> m = new LinkedHashMap<>();

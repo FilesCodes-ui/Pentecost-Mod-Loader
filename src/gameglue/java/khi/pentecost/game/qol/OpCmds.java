@@ -21,7 +21,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.TreeSet;
 
-/** Operators: who they are, what level they hold, promoting and demoting, and the creative operator tab. */
 final class OpCmds {
     private static final String C = "Ops";
     private static final String[] LEVELS = {
@@ -40,9 +39,6 @@ final class OpCmds {
 
     private OpCmds() {}
 
-    // ---------------------------------------------------------------- helpers
-
-    /** The operator level a source holds, 0 to 4. The console and command blocks hold 4. */
     static int levelOf(CommandSourceStack src) {
         for (int i = 4; i >= 1; i--) {
             if (src.hasPermission(i)) {
@@ -137,8 +133,6 @@ final class OpCmds {
             p.drop(s, false);
         }
     }
-
-    // ---------------------------------------------------------------- commands
 
     static void add() {
         Qol.none(C, "ops", 2, "List every operator with their level", c -> {

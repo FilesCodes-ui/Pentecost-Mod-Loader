@@ -35,26 +35,12 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
 
-/**
- * Finds what each mod changes outside its own content, in words a player understands,
- * and applies the player's choice to turn single changes off.
- *
- * Three kinds are found:
- *   - vanilla files a mod overwrites (menu textures, the font, sounds),
- *   - code hooks a mod puts into the game, grouped by the part of the game they touch,
- *   - vanilla screens a mod swaps for its own. Those are spotted while the game runs.
- */
 public final class Features {
-    /**
-     * One thing a mod changes.
-     * risky: turning it off can break the mod. restart: the choice applies on the next launch.
-     */
     public record Feature(String modId, String key, String label, String detail, boolean risky, boolean restart,
                           List<String> items) {}
 
     private record Group(String key, String label, boolean risky) {}
 
-    /** Vanilla file folders a mod can overwrite. Folder prefix under assets/minecraft/, then the feature. */
     private static final Map<String, Group> ASSETS = new LinkedHashMap<>();
     static {
         ASSETS.put("textures/gui/", new Group("assets:menus", "Menu and button textures", false));
@@ -74,7 +60,6 @@ public final class Features {
 
     private Features() {}
 
-    /** Finds every mod's features, then applies the choices that are off. Returns the mods to load. */
     public static List<ModInfo> apply(List<ModInfo> mods) {
         Map<String, List<Feature>> all = new LinkedHashMap<>();
         Map<String, Set<String>> dropped = new HashMap<>();
@@ -126,7 +111,6 @@ public final class Features {
         return out;
     }
 
-    /** Everything known about one mod: what the scan found, and the screens it was seen replacing. */
     public static List<Feature> forMod(String modId) {
         List<Feature> out = new ArrayList<>(PentecostRuntime.features.getOrDefault(modId, List.of()));
         for (String where : Choices.seenButtons(modId)) {
@@ -153,14 +137,11 @@ public final class Features {
         };
     }
 
-    /** Libraries and Fabric API modules are plumbing. Players do not pick them apart. */
     private static boolean internal(ModInfo m) {
         String id = m.id();
         return m.loader() == LoaderKind.LIBRARY || id.startsWith("fabric-") || id.startsWith("fabric_")
                 || id.equals("mixinextras");
     }
-
-    // ---------------------------------------------------------------- vanilla files
 
     private static List<Feature> assets(ModInfo m) throws IOException {
         Map<String, Integer> counts = new LinkedHashMap<>();
@@ -198,7 +179,6 @@ public final class Features {
         return out;
     }
 
-    /** Writes a copy of the jar without the given files. Cached, so it is built once per choice. */
     private static Path withoutFiles(Path jar, List<String> prefixes) throws IOException {
         List<String> sorted = new ArrayList<>(new HashSet<>(prefixes));
         sorted.sort(null);
@@ -238,8 +218,6 @@ public final class Features {
         Files.move(tmp, out, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         return out;
     }
-
-    // ---------------------------------------------------------------- code hooks
 
     private static Group groupOf(String target) {
         if (target.equals("net.minecraft.client.gui.screens.TitleScreen")) {
@@ -342,11 +320,6 @@ public final class Features {
         return out;
     }
 
-    /**
-     * Returns the class a hook targets, or null when the hook cannot be taken out safely.
-     * A hook that is an interface, or adds one to its target, is something the mod's own code calls.
-     * Taking that out would crash the mod, so those stay in.
-     */
     private static String removableTarget(InputStream in) throws IOException {
         ClassNode node = new ClassNode();
         new ClassReader(in).accept(node, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG);

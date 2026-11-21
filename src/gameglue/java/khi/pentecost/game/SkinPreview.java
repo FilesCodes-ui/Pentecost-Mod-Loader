@@ -15,10 +15,6 @@ import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.resources.ResourceLocation;
 
-/**
- * A skin as a turning 3D figure, drawn with the game's own player model. The model is built here, so no player entity is needed
- * and the figure can show any skin and any cape. Render thread only.
- */
 final class SkinPreview {
     private static EntityModelSet built;
     private static PlayerModel<AbstractClientPlayer> classic;
@@ -36,13 +32,8 @@ final class SkinPreview {
         return slimArms ? slim : classic;
     }
 
-    /** Which outer layers to show. */
     record Layers(boolean hat, boolean jacket, boolean sleeves, boolean pants) {}
 
-    /**
-     * Draws the figure standing at (cx, feetY) in the current pose coordinates, height pixels tall, turned by yaw degrees.
-     * cape may be null. The figure is drawn in front of everything drawn before it.
-     */
     static void draw(GuiGraphics g, float cx, float feetY, float height, float yaw, ResourceLocation skin, boolean slimArms,
                      ResourceLocation cape, Layers layers) {
         Minecraft mc = Minecraft.getInstance();
@@ -77,7 +68,6 @@ final class SkinPreview {
         Lighting.setupFor3DItems();
     }
 
-    /** Standing, with the arms swinging a little so the figure looks alive. The outer layers follow the parts under them. */
     private static void pose(PlayerModel<AbstractClientPlayer> m, Layers layers) {
         float t = (System.currentTimeMillis() % 200_000L) / 50f;
         m.young = false;

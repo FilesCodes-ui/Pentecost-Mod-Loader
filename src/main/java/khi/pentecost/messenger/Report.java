@@ -12,11 +12,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Everything that went wrong in the messenger, written so a person can read it: when, which sender, which route,
- * on which thread, what kind of failure, and the stack trace. A new file each session. After MAX entries only the
- * count goes on, so a mod that fails every tick cannot fill the disk.
- */
 final class Report {
     static final int MAX = 300;
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
@@ -98,7 +93,6 @@ final class Report {
             }
             Files.writeString(file, text, StandardCharsets.UTF_8, StandardOpenOption.APPEND);
         } catch (IOException e) {
-            // The report is a help, never a reason to fail.
         }
     }
 }

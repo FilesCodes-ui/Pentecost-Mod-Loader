@@ -23,13 +23,6 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Finds mod hooks that never run. A mixin can apply without an error and still do nothing,
- * when the loader routes around the game code it hooks (Forge's HUD skips the vanilla status bars).
- * With PENTECOST_REPORT=1, every method a mixin adds gets a one-line marker, and on exit
- * run/logs/pentecost-mixins.log lists, per mod, the hooks that ran and the ones that never did.
- * Off by default: no marker, no cost.
- */
 public final class MixinReport {
     public static final boolean ON = System.getenv("PENTECOST_REPORT") != null;
 
@@ -48,12 +41,10 @@ public final class MixinReport {
 
     private MixinReport() {}
 
-    /** Called at the start of every mixin-added method while the report is on. */
     public static void hit(int id) {
         HIT[id] = true;
     }
 
-    /** Runs after Mixin. Adds the marker to each mixin-added method of this class. */
     public static byte[] instrument(GameClassLoader loader, String className, byte[] bytes) {
         if (!ON || bytes == null) {
             return bytes;
@@ -149,7 +140,6 @@ public final class MixinReport {
             Files.createDirectories(file.getParent());
             Files.writeString(file, out, StandardCharsets.UTF_8);
         } catch (IOException | RuntimeException e) {
-            // The game is closing. Nothing else to do.
         }
     }
 }

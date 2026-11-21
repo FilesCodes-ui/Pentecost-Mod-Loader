@@ -2,7 +2,6 @@ using System.Windows.Controls.Primitives;
 
 namespace Pentecost.Manager;
 
-/// <summary>One page for every mod: which ones need an update, update one, update the ticked ones, or update all.</summary>
 public partial class MainWindow
 {
     void OpenUpdates(List<ModEntry> mods, Func<bool, Task> recheck)
@@ -15,7 +14,8 @@ public partial class MainWindow
         var checking = false;
 
         var summary = Ui.T("", 12, "Faint", trim: true);
-        var list = new StackPanel { MaxWidth = 960, HorizontalAlignment = HorizontalAlignment.Left };
+        var scene = new Lighthouse { Margin = new Thickness(-34, 0, -28, -28) };
+        var list = new StackPanel { MaxWidth = 600, HorizontalAlignment = HorizontalAlignment.Left };
         Button again = null!, all = null!;
         again = Ui.Btn("Check again", "Secondary", async (_, _) => { await Check(true); }, "");
         all = Ui.Btn("Update all", "Primary", async (_, _) => { await Apply(due.Where(d => ticked.Contains(d.M)).Select(d => d.M).ToList()); });
@@ -63,6 +63,12 @@ public partial class MainWindow
             Toast(bad > 0 ? $"{bad} of {todo.Count} updates failed. See the manager log." : todo.Count == 1 ? "Updated " + todo[0].Name : $"Updated {todo.Count} mods.", bad > 0 ? "Warn" : "Ok");
         }
 
+        FrameworkElement Plain(string title, UIElement body, UIElement? right = null)
+        {
+            var head = Ui.Row(Ui.Cap(title), right);
+            return Ui.V(head, Ui.Dotted().With(new Thickness(0, 8, 0, 6)), body).With(new Thickness(0, 0, 0, 18));
+        }
+
         FrameworkElement Line(ModEntry m, string sub, string? status, string statusBrush, UIElement? lead, UIElement? action, double tile = 38)
         {
             var name = Ui.V(Ui.T(m.Name, 13.5, bold: true, trim: true), Ui.T(sub, 11.5, "Faint", trim: true).With(new Thickness(0, 2, 0, 0)));
@@ -88,6 +94,17 @@ public partial class MainWindow
 
         void Draw()
         {
+            var dueSet0 = due.Select(d => d.M).ToHashSet();
+            scene.SetBuoys(mods.OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase).Select(m => (m.BaseName, m.Name,
+                dueSet0.Contains(m)
+                    ? state.GetValueOrDefault(m) switch
+                    {
+                        "Updating" => Lighthouse.Buoy.Updating,
+                        "Updated" => Lighthouse.Buoy.Updated,
+                        "Failed" => Lighthouse.Buoy.Failed,
+                        _ => Lighthouse.Buoy.Due,
+                    }
+                    : m.Looked && m.ProjectId == null ? Lighthouse.Buoy.Unknown : Lighthouse.Buoy.Current)));
             list.Children.Clear();
             var left = due.Count(d => state.GetValueOrDefault(d.M) != "Updated");
             var known = mods.Where(m => m.Looked && m.ProjectId != null).ToList();
@@ -96,7 +113,7 @@ public partial class MainWindow
             if (!checking)
                 summary.Text = mods.Count == 0 ? "You have no mods yet."
                     : notChecked == mods.Count ? "Modrinth could not be reached. Press Check again."
-                    : left == 0 ? "All your mods are current."
+                    : left == 0 ? "All current."
                     : left == 1 ? "1 of your mods has an update." : $"{left} of your mods have updates.";
 
             var n = due.Count(d => ticked.Contains(d.M) && state.GetValueOrDefault(d.M) is not ("Updated" or "Updating"));
@@ -136,11 +153,7 @@ public partial class MainWindow
                     row.Cursor = Cursors.Arrow;
                     rows.Children.Add(row);
                 }
-                list.Children.Add(Ui.Section("Needs an update", rows, pickAll));
-            }
-            else if (!checking && mods.Count > 0 && notChecked < mods.Count)
-            {
-                list.Children.Add(Ui.Section("Nothing to update", Ui.T("Every mod Modrinth knows is on its newest version for Minecraft 1.20.1.", 12.5, "Muted", wrap: true)));
+                list.Children.Add(Plain("Needs an update", rows, pickAll));
             }
 
             if (known.Count > 0 || unknown.Count > 0)
@@ -165,19 +178,35 @@ public partial class MainWindow
                 {
                     var rows = new StackPanel();
                     foreach (var m in cur) rows.Children.Add(Line(m, m.Version.Length > 0 ? m.Version : m.BaseName, state.GetValueOrDefault(m) == "Updated" ? "Updated" : "Latest", "Faint", null, null, 32));
-                    list.Children.Add(Ui.Section("Up to date", rows));
+                    list.Children.Add(Plain("Up to date", rows));
                 }
                 if (showOther && unknown.Count > 0)
                 {
                     var rows = new StackPanel();
                     foreach (var m in unknown) rows.Children.Add(Line(m, (m.Version.Length > 0 ? m.Version + "   " : "") + "no update source", null, "Faint", null, null, 32));
-                    list.Children.Add(Ui.Section("Not on Modrinth", rows));
+                    list.Children.Add(Plain("Not on Modrinth", rows));
                 }
             }
         }
 
         var bar = FullBar("Updates", null, summary, again.With(new Thickness(0, 0, 8, 0)), all);
-        OpenFull(FullLayout(bar, list, null));
+        scene.Picked += key =>
+        {
+            var m = due.Select(d => d.M).FirstOrDefault(x => x.BaseName == key);
+            if (m != null) _ = Apply(new List<ModEntry> { m });
+        };
+        var root = new Grid();
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        Grid.SetRow(scene, 1);
+        Grid.SetRowSpan(scene, 2);
+        root.Children.Add(scene);
+        root.Children.Add(bar);
+        var listScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = list, Padding = new Thickness(0, 44, 14, 28), HorizontalAlignment = HorizontalAlignment.Left };
+        Grid.SetRow(listScroll, 2);
+        root.Children.Add(listScroll);
+        OpenFull(root);
         Collect();
         Draw();
         if (mods.Any(m => !m.Looked)) _ = Check(false);

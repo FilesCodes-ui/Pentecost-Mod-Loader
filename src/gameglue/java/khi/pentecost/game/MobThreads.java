@@ -18,6 +18,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkStatus;
 import net.minecraft.world.level.entity.EntityInLevelCallback;
 import net.minecraft.world.level.gameevent.GameEvent;
@@ -36,25 +37,24 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Consumer;
 
-/**
- * The game side of mob threads (see MobHooks). Decides which mobs go to a mod thread, ticks them there, and runs the
- * world changes they queued once the server thread has them back.
- *
- * A mob goes to a mod thread only when: the switch is on, the messenger is on, it is a Mob from a mod (not Minecraft),
- * it rides nothing and carries nothing, and its mod never failed this session.
- *
- * Mobs are split by area, not by mod: groups of mobs too far apart to touch each other (see Islands) run on
- * different threads at the same time, so even one mod's mobs use every thread. A mob may change only itself and the
- * mobs in its own group right away. Anything else waits for the server thread.
- */
 public final class MobThreads implements MobHooks.Impl {
     public static final MobThreads INSTANCE = new MobThreads();
     public static final LongAdder MOVED = new LongAdder();
     public static final LongAdder CHANGES = new LongAdder();
-    /** Mods whose mobs failed on a mod thread. They tick on the server thread until the game restarts. */
+    public static final java.util.concurrent.atomic.AtomicLong CHUNK_MISSES = new java.util.concurrent.atomic.AtomicLong();
+    public static final LongAdder CHUNK_HITS = new LongAdder();
+    public static final LongAdder CHUNK_ERRORS = new LongAdder();
+    private static volatile String chunkError;
+    private static long diagAt;
+    private static long diagMoved;
+    private static long diagStuck;
+    private static long diagPathing;
+    private static int badWindows;
+    private static final Map<String, long[]> TYPES = new HashMap<>();
+    private static final List<String> SAMPLES = new ArrayList<>();
+    public static volatile boolean selfOff;
     public static final Set<String> SENT_HOME = ConcurrentHashMap.newKeySet();
     public static volatile int threadsUsed;
-    /** The last tick: mobs ticked on mod threads, world changes they queued, and time the server waited for them. */
     public static volatile int lastMobs;
     public static volatile int lastChanges;
     public static volatile double lastMs;
@@ -62,7 +62,6 @@ public final class MobThreads implements MobHooks.Impl {
     private record Pending(ServerLevel level, Consumer<Object> tick, Mob mob, String mod) {}
 
     private final List<Pending> pending = new ArrayList<>();
-    /** The mobs the current mod thread is ticking now. Only these may be changed right away. */
     private static final ThreadLocal<Set<Entity>> MINE = ThreadLocal.withInitial(() -> java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>()));
     private static volatile Method visible;
 
@@ -79,7 +78,7 @@ public final class MobThreads implements MobHooks.Impl {
     @Override
     public boolean take(Object level, Consumer<Object> tick, Object entity) {
         ModThreads mt = ModThreads.shared;
-        if (mt == null || !(level instanceof ServerLevel sl) || !(entity instanceof Mob mob)
+        if (selfOff || mt == null || !(level instanceof ServerLevel sl) || !(entity instanceof Mob mob)
                 || !Settings.on(Settings.MOB_THREADS) || !Messenger.get().on()) {
             return false;
         }
@@ -97,10 +96,6 @@ public final class MobThreads implements MobHooks.Impl {
         return true;
     }
 
-    /**
-     * Minecraft mobs that change data shared across the whole world while they think: village points (beds, job
-     * blocks), raids, and trades. Two threads changing that data at once could break it, so these stay home.
-     */
     private static boolean sharesWorldData(Mob mob) {
         return mob instanceof net.minecraft.world.entity.npc.AbstractVillager
                 || mob instanceof net.minecraft.world.entity.monster.piglin.AbstractPiglin
@@ -134,6 +129,9 @@ public final class MobThreads implements MobHooks.Impl {
         for (int i = 0; i < all.size(); i++) {
             work.computeIfAbsent(thread[i], k -> new ArrayList<>()).add(all.get(i));
         }
+        if (level instanceof net.minecraft.world.level.Level lv) {
+            SharedSets.makeSafe(lv);
+        }
         mt.setHome(Thread.currentThread());
         Map<Integer, Runnable> batches = new HashMap<>();
         int count = 0;
@@ -160,6 +158,13 @@ public final class MobThreads implements MobHooks.Impl {
             });
         }
         threadsUsed = batches.size();
+        double[] before = new double[all.size() * 3];
+        for (int i = 0; i < all.size(); i++) {
+            Mob m = all.get(i).mob();
+            before[i * 3] = m.getX();
+            before[i * 3 + 1] = m.getY();
+            before[i * 3 + 2] = m.getZ();
+        }
         ServerChunkCache chunks = level instanceof ServerLevel sl ? sl.getChunkSource() : null;
         long started = System.nanoTime();
         int changed = 0;
@@ -170,7 +175,6 @@ public final class MobThreads implements MobHooks.Impl {
             MobHooks.phase = false;
         }
         MOVED.add(count);
-        // The queued world changes, thread by thread, in the order each thread made them.
         for (int t : work.keySet()) {
             ModThreads.Worker w = mt.workerAt(t);
             if (w == null) {
@@ -187,6 +191,86 @@ public final class MobThreads implements MobHooks.Impl {
             }
             CHANGES.add(changes.size());
             changed += changes.size();
+        }
+        for (int i = 0; i < all.size(); i++) {
+            Mob m = all.get(i).mob();
+            boolean moved = m.getX() != before[i * 3] || m.getY() != before[i * 3 + 1] || m.getZ() != before[i * 3 + 2];
+            boolean pathing = m.getNavigation().isInProgress();
+            if (moved) {
+                diagMoved++;
+            }
+            if (pathing) {
+                diagPathing++;
+                if (!moved) {
+                    diagStuck++;
+                }
+            }
+            String type = BuiltInRegistries.ENTITY_TYPE.getKey(m.getType()).toString();
+            long[] t = TYPES.computeIfAbsent(type, k -> new long[5]);
+            t[0]++;
+            if (moved) {
+                t[1]++;
+            }
+            if (pathing) {
+                t[2]++;
+            }
+            if (m.getTarget() != null) {
+                t[3]++;
+                if (!moved && !pathing) {
+                    t[4]++;
+                }
+            }
+            if (!moved && !pathing && SAMPLES.size() < 6 && m.getTarget() != null) {
+                StringBuilder sb = new StringBuilder(type).append(" id ").append(m.getId())
+                        .append(" onGround=").append(m.onGround()).append(" inWater=").append(m.isInWater())
+                        .append(" noAi=").append(m.isNoAi()).append(" noActionTime=").append(m.getNoActionTime())
+                        .append(" delta=").append(m.getDeltaMovement())
+                        .append(" nav=").append(m.getNavigation().getClass().getSimpleName())
+                        .append(" path=").append(m.getNavigation().getPath())
+                        .append(" target=").append(m.getTarget() == null ? "none" : m.getTarget().getType().toShortString())
+                        .append(" goals=[");
+                try {
+                    java.lang.reflect.Field gf = Mob.class.getDeclaredField("goalSelector"); gf.setAccessible(true); ((net.minecraft.world.entity.ai.goal.GoalSelector) gf.get(m)).getRunningGoals().forEach(g -> sb.append(g.getGoal().getClass().getSimpleName()).append(' '));
+                } catch (ReflectiveOperationException | RuntimeException ignored) {
+                }
+                sb.append("] tickCount=").append(m.tickCount);
+                SAMPLES.add(sb.toString());
+            }
+        }
+        long nowMs = System.currentTimeMillis();
+        if (nowMs - diagAt > 10_000) {
+            if (diagAt != 0) {
+                khi.pentecost.boot.Log.info("Mob threads check: " + diagMoved + " mob ticks moved, " + diagPathing
+                        + " had a path, " + diagStuck + " had a path but did not move. Chunk reads: "
+                        + CHUNK_HITS.sum() + " fast, " + CHUNK_MISSES.get() + " missed, " + CHUNK_ERRORS.sum()
+                        + " failed" + (chunkError == null ? "" : " (" + chunkError + ")"));
+            }
+            if (diagAt != 0 && TYPES.values().stream().anyMatch(v -> v[4] > 20)) {
+                StringBuilder tb = new StringBuilder("Mob threads by type (ticks, moved, had a path, had a target, target but no path and still):");
+                TYPES.entrySet().stream().sorted((a, b) -> Long.compare(b.getValue()[0], a.getValue()[0])).limit(8)
+                        .forEach(e -> tb.append("\n    ").append(e.getKey()).append(": ").append(e.getValue()[0]).append(", ")
+                                .append(e.getValue()[1]).append(", ").append(e.getValue()[2]).append(", ")
+                                .append(e.getValue()[3]).append(", ").append(e.getValue()[4]));
+                khi.pentecost.boot.Log.info(tb.toString());
+            }
+            TYPES.clear();
+            if (!SAMPLES.isEmpty()) {
+                khi.pentecost.boot.Log.info("Mob threads still mobs:\n    " + String.join("\n    ", SAMPLES));
+                SAMPLES.clear();
+            }
+            boolean bad = diagPathing >= 100 && diagStuck * 10 >= diagPathing * 8;
+            badWindows = bad ? badWindows + 1 : 0;
+            if (badWindows >= 2 && !selfOff) {
+                selfOff = true;
+                String why = "Mob threads turned themselves off: for 20 seconds most mobs with a path did not move ("
+                        + diagStuck + " of " + diagPathing + "). Mobs tick on the server thread until restart.";
+                khi.pentecost.boot.Log.warn(why);
+                Messenger.get().note(why);
+            }
+            diagAt = nowMs;
+            diagMoved = 0;
+            diagStuck = 0;
+            diagPathing = 0;
         }
         lastMobs = count;
         lastChanges = changed;
@@ -244,8 +328,14 @@ public final class MobThreads implements MobHooks.Impl {
     }
 
     @Override
-    public Object chunkNow(Object cache, int x, int z, Object status) {
-        if (status != ChunkStatus.FULL || !(cache instanceof ServerChunkCache c)) {
+    public Object loadedNow(Object cache, int x, int z) {
+        Object c = chunkNow(cache, x, z, ChunkStatus.FULL, false);
+        return c instanceof net.minecraft.world.level.chunk.LevelChunk ? c : null;
+    }
+
+    @Override
+    public Object chunkNow(Object cache, int x, int z, Object statusObject, boolean load) {
+        if (!(cache instanceof ServerChunkCache c) || !(statusObject instanceof ChunkStatus status)) {
             return null;
         }
         try {
@@ -256,8 +346,40 @@ public final class MobThreads implements MobHooks.Impl {
                 visible = m;
             }
             ChunkHolder h = (ChunkHolder) m.invoke(c.chunkMap, ChunkPos.asLong(x, z));
-            return h == null ? null : h.getFullChunk();
+            ChunkAccess found = null;
+            if (h != null) {
+                if (status == ChunkStatus.FULL) {
+                    found = h.getFullChunk();
+                    if (found == null && h.getLastAvailableStatus() == ChunkStatus.FULL) {
+                        found = h.getLastAvailable();
+                    }
+                } else {
+                    ChunkStatus have = h.getLastAvailableStatus();
+                    if (have != null && have.isOrAfter(status)) {
+                        found = h.getLastAvailable();
+                    }
+                }
+            }
+            if (found != null) {
+                CHUNK_HITS.increment();
+                return found;
+            }
+            if (load) {
+                khi.pentecost.messenger.MobHooks.chunkWantedAt = System.nanoTime();
+                return null;
+            }
+            long n = CHUNK_MISSES.incrementAndGet();
+            if (n <= 5) {
+                Messenger.get().note("Mod thread chunk read missed at " + x + ", " + z + " (" + status + ", holder "
+                        + (h == null ? "none" : h.getLastAvailableStatus()) + "). Asked the server thread instead.");
+            }
+            return null;
         } catch (ReflectiveOperationException | RuntimeException e) {
+            CHUNK_ERRORS.increment();
+            if (chunkError == null) {
+                chunkError = e.toString();
+                Messenger.get().note("Mod thread chunk read failed: " + e);
+            }
             return null;
         }
     }

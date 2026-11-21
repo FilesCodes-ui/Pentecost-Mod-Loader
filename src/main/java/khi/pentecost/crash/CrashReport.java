@@ -13,10 +13,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
-/**
- * Writes the crash report for a crash while Pentecost starts up. Crashes in the running game go through
- * Minecraft's own report, which {@link CrashDetails#decorate} adds the same summary and details to.
- */
 public final class CrashReport {
     private CrashReport() {}
 
@@ -58,7 +54,6 @@ public final class CrashReport {
             try {
                 id = loader == null ? null : loader.modOf(f.getClassName());
             } catch (RuntimeException e) {
-                // no mod name for this frame
             }
             sb.append("  ").append(f).append(id == null ? "" : "   <-- mod " + id).append('\n');
         }

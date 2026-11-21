@@ -9,12 +9,6 @@ import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Forge locks the game's registries outside its own registration step.
- * Fabric keeps them open, and Fabric mods rely on that: they register from their start code,
- * and some register later still. When a registration arrives at a locked registry,
- * Pentecost reopens that registry so the registration goes through, as it would on Fabric.
- */
 public final class LateRegistry {
     private static final Set<String> REPORTED = ConcurrentHashMap.newKeySet();
     private static final Set<Object> REOPENED = Collections.synchronizedSet(
@@ -22,7 +16,6 @@ public final class LateRegistry {
 
     private LateRegistry() {}
 
-    /** Called at the top of Forge's registry wrapper writes, before it checks its locks. */
     public static void open(Object wrapper) {
         try {
             Field locked = field(wrapper.getClass(), "locked");
@@ -52,11 +45,6 @@ public final class LateRegistry {
         }
     }
 
-    /**
-     * Called at the top of Forge's registry wrapper freeze.
-     * A mod that failed halfway through making a block leaves a half-made entry behind.
-     * Forge refuses to freeze with that entry in place, so Pentecost drops it first.
-     */
     public static void beforeFreeze(Object wrapper) {
         try {
             Field f = field(wrapper.getClass(), "unregisteredIntrusiveHolders");
@@ -87,10 +75,6 @@ public final class LateRegistry {
         }
     }
 
-    /**
-     * Forge's lookup of an entry's registry handle, made tolerant for entries not registered yet.
-     * Items and blocks are born with their handle, so that one is used. Anything else fails as before.
-     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public static net.minecraft.core.Holder.Reference<?> delegateOrOwnHolder(Object registry, Object value) {
         net.minecraftforge.registries.IForgeRegistry r = (net.minecraftforge.registries.IForgeRegistry) registry;
@@ -107,12 +91,6 @@ public final class LateRegistry {
         return r.getDelegateOrThrow(value);
     }
 
-    /**
-     * Fabric mods give their mobs default stats (health, speed and so on) through Fabric API.
-     * The bridge hands those to Forge in Forge's attribute step, which runs before Fabric mods start
-     * on the Forge layer. Without them a mob cannot spawn. Called once Fabric mods have started:
-     * the stats go straight into Forge's table.
-     */
     @SuppressWarnings("unchecked")
     public static int addFabricAttributes() {
         try {
@@ -139,13 +117,6 @@ public final class LateRegistry {
         }
     }
 
-    /**
-     * The Fabric API bridge (Forgified Fabric API) keeps what Fabric mods register through it
-     * (command argument types, for one) and hands it to Forge in Forge's registration step.
-     * On the Forge layer Fabric mods start after that step, so Pentecost runs the step again,
-     * for the bridge's own modules only, once Fabric mods have started.
-     * Returns how many registries were handed over.
-     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public static int replayBridgeRegistration() {
         java.util.List<net.minecraftforge.eventbus.api.IEventBus> buses = new java.util.ArrayList<>();
@@ -207,7 +178,6 @@ public final class LateRegistry {
                 FIELDS.put(key, f);
                 return f;
             } catch (NoSuchFieldException ignored) {
-                // look in the parent class
             }
         }
         throw new NoSuchFieldException(name);

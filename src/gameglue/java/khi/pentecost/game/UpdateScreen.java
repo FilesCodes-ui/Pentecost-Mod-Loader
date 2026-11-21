@@ -8,10 +8,6 @@ import net.minecraft.network.chat.Component;
 
 import java.util.Locale;
 
-/**
- * Shown while Pentecost downloads an update and then closes so the installer can replace its files.
- * It is Pentecost's loading picture: the logo, a thin line that fills with the download, and the size done so far.
- */
 final class UpdateScreen extends Screen {
     private final Screen back;
     private int closeIn = -1;
@@ -41,7 +37,6 @@ final class UpdateScreen extends Screen {
         }
     }
 
-    /** "Downloading   12.3 of 54.1 MB", or just "Downloading" when the size is not known. */
     private static String downloading() {
         ReleaseInfo r = Updater.release();
         if (r == null || r.size() <= 0) {
@@ -57,7 +52,6 @@ final class UpdateScreen extends Screen {
         if (ready) {
             PentecostLevelLoadingScreen.draw(g, minecraft, "UPDATING", "Handing over to the installer", -1f, null);
         } else {
-            // The line draws its own percent after the status, so the status holds only the sizes.
             PentecostLevelLoadingScreen.draw(g, minecraft, "UPDATING", downloading(), Updater.progress(), null);
         }
         float ui = Ui.scale(minecraft);

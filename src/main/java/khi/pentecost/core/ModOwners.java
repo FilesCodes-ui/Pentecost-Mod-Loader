@@ -18,11 +18,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-/**
- * Which mod owns a piece of running code. A class belongs to the mod whose jar holds its package. Code in a game class
- * that Mixin merged in from a mod carries Mixin's MixinMerged mark, which names the mixin class, which names the mod.
- * Fabric API's many modules count as one mod, "fabric_api". Built once per measurement.
- */
 public final class ModOwners implements ModImpact.Owners {
     private static final String MERGED = "org.spongepowered.asm.mixin.transformer.meta.MixinMerged";
 
@@ -57,14 +52,12 @@ public final class ModOwners implements ModImpact.Owners {
                     }
                 }
             } catch (java.io.IOException | RuntimeException ignored) {
-                // A jar that cannot be read owns nothing.
             }
         }
         o.byPackage.put("khi/pentecost", "pentecost");
         return o;
     }
 
-    /** Fabric API ships as dozens of modules. One line for all of them reads better. */
     public static String group(String id) {
         String l = id.toLowerCase(Locale.ROOT);
         return l.startsWith("fabric_") || l.startsWith("fabric-") || l.equals("fabric") ? "fabric_api" : id;
@@ -101,7 +94,6 @@ public final class ModOwners implements ModImpact.Owners {
         return mod;
     }
 
-    /** Hidden and lambda classes carry a suffix after the class name. Cut it off. */
     static String internal(String className) {
         String n = className;
         int hidden = n.indexOf('/');
@@ -136,12 +128,10 @@ public final class ModOwners implements ModImpact.Owners {
                 }
             }
         } catch (ReflectiveOperationException | LinkageError | RuntimeException ignored) {
-            // A class Pentecost cannot look into is charged to the game.
         }
         return out;
     }
 
-    /** For tests and the screen: the owner of a class name alone. */
     public String ownerOfClass(String className) {
         return ownerOfInternal(internal(className));
     }

@@ -11,12 +11,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Who carries the [dev] tag: only the owner's account, never anyone else. The owner can switch their own tag
- * on and off. Nothing else grants it: not the dev file, not the offline "Dev" player, not another client's message.
- */
 public final class PentecostDev {
-    /** The owner's Minecraft account id (Gabriel, The_Files), without dashes. */
     private static final String OWNER = "808323d1022140ccb69bf8bcd0d16112";
     private static final Set<String> IDS = ConcurrentHashMap.newKeySet();
     private static boolean loaded;
@@ -60,25 +55,32 @@ public final class PentecostDev {
     }
 
     public static boolean isDev(UUID id) {
-        if (id == null || !Settings_on()) {
+        if (id == null || !Settings_on() || !isOwnerId(id)) {
             return false;
         }
-        String p = plain(id);
-        if (!p.equals(OWNER)) {
-            return false;
+        if (id.equals(Minecraft.getInstance().getUser().getProfileId())) {
+            return ownShowsTag();
         }
-        // On the owner's own game the tag follows the owner's switch. On everyone else's game it is always shown:
-        // Mojang has already checked the account id by the time the game knows it, so nobody else can carry it.
-        if (ownIsOwner()) {
-            load();
-            return IDS.contains(p);
-        }
-        return true;
+        return PentecostPlayers.provenDev(id);
     }
 
-    /** Another Pentecost client said this player is a dev. */
+    static boolean isOwnerId(UUID id) {
+        return id != null && plain(id).equals(OWNER);
+    }
+
+    static boolean ownShowsTag() {
+        if (!ownIsOwner()) {
+            return false;
+        }
+        load();
+        return IDS.contains(OWNER);
+    }
+
+    public static boolean unlocked() {
+        return ownIsOwner();
+    }
+
     public static void announced(UUID id) {
-        // Ignored on purpose: a message from another client proves nothing, so it can never grant the tag.
     }
 
     private static boolean Settings_on() {
@@ -91,15 +93,11 @@ public final class PentecostDev {
         return isDev(UUID.fromString(id));
     }
 
-    /**
-     * True only when the signed-in account is the owner's, with a real Microsoft session. The Developer tag button
-     * is shown only then. An offline or cracked player using the owner's id does not count.
-     */
     public static boolean ownIsOwner() {
         if (!Account.signedIn()) {
             return false;
         }
-        return plain(Minecraft.getInstance().getUser().getProfileId()).equals(OWNER);
+        return plain(Minecraft.getInstance().getUser().getProfileId()).equals(OWNER) && khi.pentecost.auth.DevKey.held();
     }
 
     public static boolean ownIsListed() {
@@ -120,6 +118,5 @@ public final class PentecostDev {
     }
 
     public static void accountChanged() {
-        // nothing is cached per account yet
     }
 }

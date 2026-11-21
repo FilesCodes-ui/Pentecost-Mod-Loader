@@ -44,7 +44,6 @@ import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
 
-/** More fun: talk games, polls and trivia, gestures, rain of things, dancing, earthquakes and harmless pranks. */
 final class Fun2Cmds {
     private static final String C = "Fun";
     private static final Random RANDOM = new Random();
@@ -130,15 +129,12 @@ final class Fun2Cmds {
     private static final SuggestionProvider<CommandSourceStack> SOUNDS = (c, b) -> SharedSuggestionProvider.suggest(
             BuiltInRegistries.SOUND_EVENT.keySet().stream().map(r -> r.getNamespace().equals("minecraft") ? r.getPath() : r.toString()), b);
 
-    // poll and trivia state, kept in memory
     private static String pollQuestion;
     private static final Map<UUID, Boolean> VOTES = new HashMap<>();
     private static String triviaAnswer;
     private static String triviaQuestion;
 
     private Fun2Cmds() {}
-
-    // ---------------------------------------------------------------- helpers
 
     private static String name(ServerPlayer p) {
         return p.getGameProfile().getName();
@@ -175,7 +171,6 @@ final class Fun2Cmds {
         }
     }
 
-    /** Runs something every few ticks, a set number of times. */
     private static void repeat(UUID owner, String label, long every, int times, Runnable r) {
         int[] left = {times};
         int[] id = {0};
@@ -211,10 +206,7 @@ final class Fun2Cmds {
         }
     }
 
-    // ---------------------------------------------------------------- commands
-
     static void add() {
-        // ---- talk
         Qol.none(C, "joke", 0, "Tell a joke to everyone", c -> {
             ChatCmds.broadcast(c.getSource().getServer(), ChatFormatting.YELLOW, pick(JOKES));
             return 1;
@@ -285,7 +277,6 @@ final class Fun2Cmds {
             return 1;
         });
 
-        // ---- games
         Qol.none(C, "slotmachine", 0, "Pull the lever on a slot machine", c -> {
             String a = pick(REELS);
             String b = pick(REELS);
@@ -423,7 +414,6 @@ final class Fun2Cmds {
             return 1;
         });
 
-        // ---- gestures
         gesture("wave", "waves at", ParticleTypes.HAPPY_VILLAGER, "Wave at a player");
         gesture("highfive", "high fives", ParticleTypes.CRIT, "High five a player");
         gesture("salute", "salutes", ParticleTypes.END_ROD, "Salute a player");
@@ -439,7 +429,6 @@ final class Fun2Cmds {
             return 1;
         });
 
-        // ---- things from the sky
         Qol.custom(C, "itemrain", 2, "<item> [count]", "Rain an item down on yourself",
                 Qol.lit("itemrain", 2).then(Commands.argument("word", StringArgumentType.word()).suggests(ITEMS)
                         .executes(Qol.guard(c -> itemRain(c.getSource(), StringArgumentType.getString(c, "word"), 20)))
@@ -523,7 +512,6 @@ final class Fun2Cmds {
             return Qol.ok(c, "Boing.");
         });
 
-        // ---- harmless pranks and toys
         Qol.player(C, "pumpkin", 2, "Put a carved pumpkin on a head, or take it off again", (c, t) -> {
             ItemStack head = t.getItemBySlot(EquipmentSlot.HEAD);
             if (head.is(Items.CARVED_PUMPKIN)) {

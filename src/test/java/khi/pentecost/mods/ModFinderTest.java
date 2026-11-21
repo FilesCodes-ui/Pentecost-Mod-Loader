@@ -65,7 +65,6 @@ class ModFinderTest {
 
     @Test
     void wordTieGivesNoAnswer() {
-        // "xaero" is in both Xaero mods: no guess.
         assertEquals(null, find("xaero", true));
     }
 

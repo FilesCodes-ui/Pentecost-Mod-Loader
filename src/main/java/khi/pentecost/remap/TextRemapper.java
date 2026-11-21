@@ -3,12 +3,7 @@ package khi.pentecost.remap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Converts intermediary and SRG names inside plain text: Mixin target strings,
- * refmap files, and access widener files. Bytecode conversion does not reach these.
- */
 public final class TextRemapper {
-    /** A class path that contains an intermediary class name, such as net/minecraft/class_310 or a/b/Outer$class_12. */
     private static final Pattern CLASS = Pattern.compile("(?:[A-Za-z_]\\w*[/.])*[\\w$]*?class_\\d+(?:\\$\\w+)*");
     private static final Pattern MEMBER = Pattern.compile("\\b(?:method_\\d+|field_\\d+|comp_\\d+|m_\\d+_|f_\\d+_)\\b");
     private static final String DESCRIPTOR_PREFIX = "BCDFIJSZLV";
@@ -56,10 +51,6 @@ public final class TextRemapper {
         return out;
     }
 
-    /**
-     * Converts one matched class token. The token may carry descriptor letters in front,
-     * as in "ILnet/minecraft/class_1", so leading letters are peeled off until the table knows the rest.
-     */
     private String classToken(String token) {
         boolean dots = token.indexOf('.') >= 0 && token.indexOf('/') < 0;
         String key = dots ? token.replace('.', '/') : token;
@@ -77,7 +68,6 @@ public final class TextRemapper {
         return token;
     }
 
-    /** Maps an intermediary class name. An unknown inner class falls back to its mapped outer class. */
     public String mapClass(String internal) {
         String key = internal;
         String tail = "";

@@ -4,10 +4,6 @@ import khi.pentecost.boot.Log;
 
 import java.util.concurrent.atomic.LongAdder;
 
-/**
- * Counts what loading classes costs, split by stage. Times add up across threads, so they can pass the wall time.
- * One line goes to the console log at each Timeline mark, so the cost shows per launch phase.
- */
 public final class ClassStats {
     static final LongAdder CLASSES = new LongAdder();
     static final LongAdder HITS = new LongAdder();
@@ -26,7 +22,6 @@ public final class ClassStats {
         return String.format(java.util.Locale.ROOT, "%.2f", a.sum() / 1e9);
     }
 
-    /** Logs the totals so far. Called at each Timeline mark. */
     public static void report(String at) {
         Log.info("Class stats at '" + at + "': " + CLASSES.sum() + " classes, " + HITS.sum()
                 + " from the cache, " + SKIPPED.sum() + " kept out of it. Seconds summed over threads: read "

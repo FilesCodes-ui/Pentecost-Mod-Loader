@@ -13,7 +13,6 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 
-/** Downloads the most downloaded mods for one loader from Modrinth, for the test suite. */
 public final class ModFetcher {
     private static final String API = "https://api.modrinth.com/v2";
 

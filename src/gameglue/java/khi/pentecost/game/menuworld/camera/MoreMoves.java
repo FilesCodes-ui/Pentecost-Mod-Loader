@@ -7,10 +7,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
-/**
- * More camera moves. Each is composed roughly; {@link PathFit} later plans the real height of the path over the
- * land, so these only describe the idea of the shot: where it starts, where it goes, what it looks at.
- */
 final class MoreMoves {
     private MoreMoves() {}
 
@@ -33,7 +29,6 @@ final class MoreMoves {
 
     private enum Heading { WATER, VALLEY, RIDGE }
 
-    /** Flies along the best direction found around the vantage: over water, down a valley, or along a ridge. */
     private static Shot glide(Vantage v, Terrain t, Random r, String id, MoveType type, Heading kind, double clearance,
                               double len, double lateralLook, double secMin, double secMax, double fov0, double fov1,
                               double bank, double handheld) {
@@ -101,7 +96,6 @@ final class MoreMoves {
                 16, 24, 70, 74, 0.7, 0.5);
     }
 
-    /** A wide spiral that climbs while it looks at the subject. */
     static Shot spiral(Vantage v, Terrain t, Random r, String id) {
         Vec c = v.focus();
         double radius = between(r, 95, 160);
@@ -121,7 +115,6 @@ final class MoreMoves {
                 between(r, 28, 40), Ease.SMOOTHER, 62, 70, 0, 0.4, 0.4, 0, false);
     }
 
-    /** High above the subject, slowly circling and looking down. */
     static Shot birdsEye(Vantage v, Terrain t, Random r, String id) {
         Vec c = v.focus();
         double radius = between(r, 34, 52);
@@ -139,7 +132,6 @@ final class MoreMoves {
                 68, 68, 0, 0.25, 0, 0, false);
     }
 
-    /** Low on the ground, looking at it, then tilting up to the peak or the sky. */
     static Shot tiltUp(Vantage v, Terrain t, Random r, String id) {
         Vec f = forward(v);
         Vec a = v.eye().withY(ground(t, v.eye()) + 5);
@@ -150,9 +142,8 @@ final class MoreMoves {
                 Ease.SMOOTHER, 68, 60, 0, 0.3, 0, 5, false);
     }
 
-    /** Faces the low sun and drifts toward it, tilting up as it climbs or sinks. Made for sunrise and sunset. */
     static Shot sunset(Vantage v, Terrain t, Random r, String id, double tod) {
-        double sx = (tod >= 6000 && tod < 18000) ? -1 : 1; // the sun rises in the east (+X) and sets in the west
+        double sx = (tod >= 6000 && tod < 18000) ? -1 : 1;
         Vec dir = new Vec(sx, 0, between(r, -0.35, 0.35)).normalized();
         double clear = between(r, 5, 9);
         Vec a = v.eye().withY(ground(t, v.eye()) + clear);
@@ -164,7 +155,6 @@ final class MoreMoves {
                 Ease.SMOOTHER, 66, 58, 0, 0.35, 0, 5, false);
     }
 
-    /** An orbit with the horizon tilted. */
     static Shot dutch(Vantage v, Terrain t, Random r, String id) {
         Shot s = Templates.orbit(v, t, r, id);
         double tilt = between(r, 7, 11) * (r.nextBoolean() ? 1 : -1);
@@ -172,7 +162,6 @@ final class MoreMoves {
                 s.handheld(), 0.2, 0, false);
     }
 
-    /** A long lens from far away: mountains and builds look stacked and close. */
     static Shot telephoto(Vantage v, Terrain t, Random r, String id) {
         Vec f = forward(v);
         Vec focus = v.focus();
@@ -186,7 +175,6 @@ final class MoreMoves {
                 between(r, 24, 34), Ease.SMOOTHER, 26, 22, 0, 0.1, 0, 0, false);
     }
 
-    /** Passes the subject from one side to the other, the aim swinging round as it goes. */
     static Shot flyby(Vantage v, Terrain t, Random r, String id) {
         Vec f = forward(v);
         Vec sd = sideways(f);

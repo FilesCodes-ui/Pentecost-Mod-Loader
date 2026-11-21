@@ -8,55 +8,38 @@ import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
-/**
- * Hooks for the chat. The game glue sets the two fields below (see khi.pentecost.game.ChatStyle):
- * - the processor sees every line on its way into the chat window and can rewrite it (links, coordinates, mentions);
- * - the painter draws the chat in Pentecost's look: backgrounds, motion, tabs, and which lines the window shows.
- * If a field is empty or its code fails, the game does what it always did.
- */
 public final class ChatHooks {
     public interface Processor {
-        /** Gets the line the game was about to add, returns the line to add instead. */
         Object process(Object component);
     }
 
     public interface Painter {
-        /** Draws this rectangle instead of the game. Returns false to let the game draw it as usual. */
         boolean fill(Object graphics, int x1, int y1, int x2, int y2, int color);
 
-        /** Start of the chat window's drawing, every frame. Whatever is changed here is undone in end. */
         default void begin(Object graphics) {}
 
-        /** End of the chat window's drawing, every frame. */
         default void end(Object graphics) {}
 
-        /** End of the chat input screen's drawing, with the pointer position. */
         default void screen(Object graphics, int mouseX, int mouseY) {}
 
-        /** A click on the chat input screen. Returns true when it was used. */
         default boolean click(double x, double y, int button) {
             return false;
         }
 
-        /** True when the chat window shows this line (a GuiMessage). Used to filter by tab. */
         default boolean show(Object message) {
             return true;
         }
 
-        /** The height the chat window draws its lines up from. The game's is the window's height. */
         default int chatHeight(int height) {
             return height;
         }
 
-        /** The chat input screen is about to build itself. Its height may be changed here, so it sits higher. */
         default void screenInit(Object screen) {}
 
-        /** Draws a rectangle of the command suggestions instead of the game. Returns false to let the game draw it. */
         default boolean suggestFill(Object graphics, int x1, int y1, int x2, int y2, int color) {
             return false;
         }
 
-        /** Draws a line of the command suggestions. Returns the x it ended at, or Integer.MIN_VALUE for the game to draw it. */
         default int suggestText(Object graphics, Object font, String text, int x, int y, int color) {
             return Integer.MIN_VALUE;
         }
@@ -69,7 +52,6 @@ public final class ChatHooks {
 
     private ChatHooks() {}
 
-    /** Called by the game for every chat line. */
     public static Object process(Object component) {
         Processor p = processor;
         if (p == null) {
@@ -83,7 +65,6 @@ public final class ChatHooks {
         }
     }
 
-    /** Called by the game where the chat window and the chat input draw a filled rectangle. */
     public static void fill(Object graphics, int x1, int y1, int x2, int y2, int color) {
         Painter p = painter;
         if (p != null) {
@@ -92,7 +73,6 @@ public final class ChatHooks {
                     return;
                 }
             } catch (RuntimeException | LinkageError e) {
-                // fall through to the game's own drawing
             }
         }
         try {
@@ -111,7 +91,6 @@ public final class ChatHooks {
                 m.invoke(graphics, x1, y1, x2, y2, color);
             }
         } catch (ReflectiveOperationException | RuntimeException e) {
-            // nothing to draw with
         }
     }
 
@@ -121,7 +100,6 @@ public final class ChatHooks {
             try {
                 p.begin(graphics);
             } catch (RuntimeException | LinkageError e) {
-                // the chat draws as the game does
             }
         }
     }
@@ -132,7 +110,6 @@ public final class ChatHooks {
             try {
                 p.end(graphics);
             } catch (RuntimeException | LinkageError e) {
-                // the chat draws as the game does
             }
         }
     }
@@ -143,7 +120,6 @@ public final class ChatHooks {
             try {
                 p.screen(graphics, mouseX, mouseY);
             } catch (RuntimeException | LinkageError e) {
-                // the chat input draws as the game does
             }
         }
     }
@@ -172,7 +148,6 @@ public final class ChatHooks {
         }
     }
 
-    /** Called by the game right after the chat window asks for the window's height. */
     public static int chatHeight(int height) {
         Painter p = painter;
         if (p == null) {
@@ -185,19 +160,16 @@ public final class ChatHooks {
         }
     }
 
-    /** Called by the game at the start of the chat input screen's init. */
     public static void screenInit(Object screen) {
         Painter p = painter;
         if (p != null) {
             try {
                 p.screenInit(screen);
             } catch (RuntimeException | LinkageError e) {
-                // the screen builds as the game does
             }
         }
     }
 
-    /** Called by the game where the command suggestions draw a filled rectangle. */
     public static void suggestFill(Object graphics, int x1, int y1, int x2, int y2, int color) {
         Painter p = painter;
         if (p != null) {
@@ -206,7 +178,6 @@ public final class ChatHooks {
                     return;
                 }
             } catch (RuntimeException | LinkageError e) {
-                // fall through to the game's own drawing
             }
         }
         try {
@@ -225,13 +196,11 @@ public final class ChatHooks {
                 m.invoke(graphics, x1, y1, x2, y2, color);
             }
         } catch (ReflectiveOperationException | RuntimeException e) {
-            // nothing to draw with
         }
     }
 
     private static java.lang.reflect.Method plainText;
 
-    /** Called by the game where the command suggestions draw a line of text. */
     public static int suggestText(Object graphics, Object font, String text, int x, int y, int color) {
         Painter p = painter;
         if (p != null) {
@@ -241,7 +210,6 @@ public final class ChatHooks {
                     return r;
                 }
             } catch (RuntimeException | LinkageError e) {
-                // fall through to the game's own drawing
             }
         }
         try {
@@ -260,7 +228,6 @@ public final class ChatHooks {
                 return (Integer) m.invoke(graphics, font, text, x, y, color);
             }
         } catch (ReflectiveOperationException | RuntimeException e) {
-            // nothing to draw with
         }
         return x;
     }
@@ -281,7 +248,6 @@ public final class ChatHooks {
             ClassReader reader = new ClassReader(bytes);
             ClassWriter writer = new ClassWriter(0);
             final boolean[] changed = new boolean[1];
-            // Applies to every method of the class, and sits behind the specific changes below.
             final ClassVisitor rewrite = new ClassVisitor(Opcodes.ASM9, writer) {
                 @Override
                 public MethodVisitor visitMethod(int access, String n, String d, String s, String[] e) {
@@ -294,7 +260,6 @@ public final class ChatHooks {
                         public void visitMethodInsn(int op, String owner, String mname, String desc, boolean itf) {
                             if (component && op == Opcodes.INVOKEVIRTUAL && owner.equals("com/mojang/blaze3d/platform/Window")
                                     && mname.equals("getGuiScaledHeight") && desc.equals("()I")) {
-                                // The chat window works from a height that can be lifted, so it clears the hotbar.
                                 super.visitMethodInsn(op, owner, mname, desc, itf);
                                 super.visitMethodInsn(Opcodes.INVOKESTATIC, HOOKS, "chatHeight", "(I)I", false);
                                 changed[0] = true;
@@ -302,8 +267,6 @@ public final class ChatHooks {
                             }
                             if (component && op == Opcodes.INVOKEVIRTUAL && owner.equals(GRAPHICS) && mname.equals("guiHeight")
                                     && desc.equals("()I")) {
-                                // In 1.20.1 the chat window draws its lines up from the graphics height, not the window's, so this is
-                                // the call that lifts the lines above the tabs and the hotbar when the chat input opens.
                                 super.visitMethodInsn(op, owner, mname, desc, itf);
                                 super.visitMethodInsn(Opcodes.INVOKESTATIC, HOOKS, "chatHeight", "(I)I", false);
                                 changed[0] = true;

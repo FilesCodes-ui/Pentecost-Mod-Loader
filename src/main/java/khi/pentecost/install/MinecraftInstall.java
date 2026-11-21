@@ -18,7 +18,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-/** Fetches the vanilla client, its libraries, its official mappings, and its assets from Mojang. */
 public final class MinecraftInstall {
     public record GameFiles(String version, Path clientJar, Path clientMappings, List<Path> libraries,
                             Path assetsDir, String assetIndex, String mainClass) {}
@@ -95,7 +94,6 @@ public final class MinecraftInstall {
         return Http.download(entry.get("url").getAsString(), dest, entry.get("sha1").getAsString());
     }
 
-    /** Applies Mojang's library rules for the current operating system. */
     static boolean allowed(JsonObject lib) {
         if (!lib.has("rules")) {
             return true;
@@ -135,7 +133,6 @@ public final class MinecraftInstall {
         return System.getProperty("os.arch").contains("64");
     }
 
-    /** Looks for an assets folder from another launcher, so 400 MB of files are not downloaded twice. */
     private static Path findExistingAssets(String indexId) {
         List<Path> candidates = new ArrayList<>();
         candidates.add(Dirs.cache().resolve("assets"));

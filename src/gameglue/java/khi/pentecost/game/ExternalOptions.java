@@ -21,24 +21,14 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 
-/**
- * Settings that live in other mods, shown inside Pentecost's settings.
- * Video: Embeddium's (or Sodium's) option pages, the very same option objects, applied through
- * Embeddium's own apply step. Mods that add pages to Embeddium show up too.
- * Shaders: Oculus's (or Iris's) shader switch and pack list, through its public calls.
- * Nothing here links to those mods directly, so Pentecost runs fine without them.
- */
 final class ExternalOptions {
     static final String EMBEDDIUM_SCREEN = "me.jellysquid.mods.sodium.client.gui.SodiumOptionsGUI";
-    /** Oculus and Iris share this screen. The shader key opens it. Pentecost shows its Shaders page instead. */
     static final String SHADER_SCREEN = "net.irisshaders.iris.gui.screen.ShaderPackScreen";
 
-    /** One Embeddium option, reduced to what Pentecost's rows need. */
     record VideoOption(String name, String tooltip, String about, String kind, boolean restart, Object option, Object control) {}
 
     record VideoPage(String name, List<VideoOption> options) {}
 
-    /** Set while Pentecost opens Embeddium's own screen on request, so routing lets it through. */
     static boolean bypass;
 
     private ExternalOptions() {}
@@ -51,13 +41,10 @@ final class ExternalOptions {
         }
     }
 
-    // ---------------------------------------------------------------- video
-
     static boolean hasEmbeddium() {
         return find(EMBEDDIUM_SCREEN) != null;
     }
 
-    /** Embeddium's options screen, built but not shown. Holds the pages and the apply step. */
     static Object embeddiumScreen(Screen parent) {
         Class<?> c = find(EMBEDDIUM_SCREEN);
         if (c == null) {
@@ -131,7 +118,6 @@ final class ExternalOptions {
         }
     }
 
-    /** Sets a value without applying it yet (sliders while dragging). */
     static void setOnly(VideoOption v, Object value) {
         try {
             for (Method m : v.option().getClass().getMethods()) {
@@ -146,7 +132,6 @@ final class ExternalOptions {
         }
     }
 
-    /** Runs Embeddium's apply step for every changed option. */
     static void apply(Object gui) {
         if (gui == null) {
             return;
@@ -160,7 +145,6 @@ final class ExternalOptions {
         }
     }
 
-    /** Sets a value and applies it at once through Embeddium's own apply step. */
     static void set(Object gui, VideoOption v, Object value) {
         try {
             for (Method m : v.option().getClass().getMethods()) {
@@ -184,7 +168,6 @@ final class ExternalOptions {
         return f.get(target);
     }
 
-    /** Text for a choice's current value. */
     static String choiceText(VideoOption v) {
         try {
             Object[] values = (Object[]) field(v.control(), "allowedValues");
@@ -196,7 +179,6 @@ final class ExternalOptions {
                 }
             }
         } catch (ReflectiveOperationException | RuntimeException e) {
-            // Fall through to the plain value.
         }
         return String.valueOf(value(v));
     }
@@ -217,7 +199,6 @@ final class ExternalOptions {
         }
     }
 
-    /** min, max, interval of a slider. */
     static int[] sliderRange(VideoOption v) {
         try {
             return new int[]{(int) field(v.control(), "min"), (int) field(v.control(), "max"), (int) field(v.control(), "interval")};
@@ -237,7 +218,6 @@ final class ExternalOptions {
         }
     }
 
-    /** Opens Embeddium's own screen, past Pentecost's routing. */
     static void openEmbeddium(Screen parent) {
         Object gui = embeddiumScreen(parent);
         if (gui instanceof Screen s) {
@@ -250,7 +230,6 @@ final class ExternalOptions {
         }
     }
 
-    /** The screen the shader pack screen would return to. */
     static Screen shaderParentOf(Screen shaderScreen) {
         try {
             return (Screen) field(shaderScreen, "parent");
@@ -259,7 +238,6 @@ final class ExternalOptions {
         }
     }
 
-    /** The screen Embeddium's options would return to. */
     static Screen parentOf(Screen embeddium) {
         try {
             return (Screen) field(embeddium, "prevScreen");
@@ -267,8 +245,6 @@ final class ExternalOptions {
             return null;
         }
     }
-
-    // ---------------------------------------------------------------- shaders
 
     private static final String IRIS = "net.irisshaders.iris.Iris";
 
@@ -306,14 +282,8 @@ final class ExternalOptions {
         }
     }
 
-    /** The shader pack that ships with Pentecost: its folder name in the shaderpacks folder and in Pentecost's own folder. */
     static final String BUNDLED_PACK = "Pentecost";
 
-    /**
-     * Copies Pentecost's own shader pack (shaderpack/Pentecost in the Pentecost folder) into the shaderpacks folder.
-     * Only files that are missing or different are written, so a repeat call costs a few reads.
-     * Returns false when there is no pack to copy or the copy failed.
-     */
     static boolean installBundledPack() {
         Path dir = packFolder();
         Path src = Dirs.home().resolve("shaderpack").resolve(BUNDLED_PACK);
@@ -338,7 +308,6 @@ final class ExternalOptions {
         }
     }
 
-    /** Installs Pentecost's shader pack if needed, then switches to it. */
     static void usePentecostPack() {
         if (installBundledPack()) {
             usePack(BUNDLED_PACK);
@@ -370,7 +339,6 @@ final class ExternalOptions {
         }
     }
 
-    /** Picks a pack, turns shaders on, saves Oculus's settings and reloads shaders. */
     static void usePack(String name) {
         try {
             Class<?> iris = find(IRIS);
@@ -384,21 +352,14 @@ final class ExternalOptions {
         }
     }
 
-    /** Oculus's own screen, for the chosen pack's settings. */
-    // ---------------------------------------------------------------- shader pack options
-
-    /** One entry of a shader pack's option menu. kind: bool, string, link, profile. */
     record ShaderEntry(String kind, String id, String label, String about, List<String> values) {}
 
-    /** One screen of a shader pack's option menu: the main screen or a group it links to. */
     record ShaderScreen(String id, String title, List<ShaderEntry> entries) {}
 
-    /** Option name to its menu element, for the values the pack runs with now. */
     private static final Map<String, Object> ELEMENTS = new HashMap<>();
     private static Map<String, String> words = Map.of();
     private static Object profileSet;
 
-    /** The current pack's option menu, as Pentecost rows. Empty when no pack is in use. */
     static List<ShaderScreen> shaderMenu() {
         List<ShaderScreen> out = new ArrayList<>();
         ELEMENTS.clear();
@@ -493,7 +454,6 @@ final class ExternalOptions {
         return w == null ? fallback : clean(w);
     }
 
-    /** Shader packs color their text with section signs. Pentecost's screens are black and white. */
     private static String clean(String s) {
         return s.replaceAll("\u00a7.", "").trim();
     }
@@ -502,7 +462,6 @@ final class ExternalOptions {
         return (Map<String, String>) find(IRIS).getMethod("getShaderPackOptionQueue").invoke(null);
     }
 
-    /** The value an option will have after Apply: a change waiting in line, or the value in use. */
     static String shaderValue(String id, boolean bool) {
         try {
             String queued = queue().get(id);
@@ -529,12 +488,10 @@ final class ExternalOptions {
         }
     }
 
-    /** How the pack names a value of an option, or the value itself. */
     static String shaderValueLabel(String id, String value) {
         return word("value." + id + "." + value, value);
     }
 
-    /** Puts a profile's values in line. They take effect on Apply. */
     static void useShaderProfile(String name) {
         try {
             if (profileSet == null) {
@@ -564,7 +521,6 @@ final class ExternalOptions {
         }
     }
 
-    /** Reloads the pack with the changes in line. Oculus saves them to the pack's settings file. */
     static void applyShaderChanges() {
         try {
             find(IRIS).getMethod("reload").invoke(null);
@@ -581,7 +537,6 @@ final class ExternalOptions {
         }
     }
 
-    /** Every option back to the pack's own default, applied at once. */
     static void resetShaderOptions() {
         try {
             Class<?> iris = find(IRIS);

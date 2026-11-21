@@ -2,10 +2,6 @@ package khi.pentecost.game.menuworld;
 
 import java.time.LocalTime;
 
-/**
- * The menu world's time of day, in game ticks: 0 is sunrise, 6000 noon, 12000 sunset, 18000 midnight.
- * It runs on its own clock, so it needs no server, and can follow the player's real clock instead.
- */
 public final class MenuClock {
     public static final double DAY = 24000.0;
 
@@ -13,7 +9,6 @@ public final class MenuClock {
     private double ticksPerSecond;
     private boolean realClock;
 
-    /** secondsPerDay: how long a whole day lasts in real time. Vanilla is 1200. */
     public MenuClock(double startTicks, double secondsPerDay) {
         this.ticks = ((startTicks % DAY) + DAY) % DAY;
         this.ticksPerSecond = DAY / Math.max(10, secondsPerDay);
@@ -37,7 +32,6 @@ public final class MenuClock {
         return ticks;
     }
 
-    /** True near sunrise and sunset, when low sun makes the best light. */
     public boolean golden() {
         return ticks < 2000 || ticks >= 22000 || (ticks >= 11000 && ticks < 13500);
     }

@@ -7,11 +7,6 @@ import net.minecraft.client.gui.screens.ConnectScreen;
 import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.client.multiplayer.resolver.ServerAddress;
 
-/**
- * A helper for homes where friends cannot connect directly. playit.gg gives the host a public address that
- * leads to the host's game. Pentecost does not run or install anything: this page opens the right sites,
- * lists the steps in plain words, and lets a friend join by the address the host sends.
- */
 final class PlayitScreen extends PanelScreen {
     private static final String SITE = "https://playit.gg";
     private static final String DOWNLOAD = "https://playit.gg/download";

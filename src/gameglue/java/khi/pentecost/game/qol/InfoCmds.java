@@ -12,7 +12,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Facts about the server, the world and the people in it. */
 final class InfoCmds {
     private static final String C = "Info";
 

@@ -4,11 +4,6 @@ using System.Windows.Media;
 
 namespace Pentecost.Manager;
 
-/// <summary>
-/// A vector-monitor view of Pentecost's pixel boat: the boat's outline extruded into a block, drawn as white lines that
-/// fade with distance, turning slowly above a perspective floor grid that drifts toward you. The mouse leans it.
-/// Everything is drawn with plain lines (no 3D engine), so it stays crisp and cheap.
-/// </summary>
 public class Wire3D : FrameworkElement
 {
     readonly record struct V(double X, double Y, double Z);
@@ -18,7 +13,6 @@ public class Wire3D : FrameworkElement
     double time, yawBias, yawTarget, pitchBias, pitchTarget;
     TimeSpan last;
     bool running;
-    // set per frame by OnRender
     double focal, midX, midY;
     const double Dist = 30;
 
@@ -76,7 +70,7 @@ public class Wire3D : FrameworkElement
     {
         var now = ((RenderingEventArgs)e).RenderingTime;
         double dt = last == TimeSpan.Zero ? 0.03 : (now - last).TotalSeconds;
-        if (dt < 0.028) return; // about 35 frames a second is plenty for slow lines
+        if (dt < 0.028) return;
         last = now;
         time += Math.Min(dt, 0.1);
         yawBias += (yawTarget - yawBias) * 0.1;
@@ -106,20 +100,18 @@ public class Wire3D : FrameworkElement
         return (midX + x1 * k, midY - y2 * k, z2);
     }
 
-    /// <summary>Nearer lines are brighter. Depth runs about -9 (near) to 9 (far) for the boat.</summary>
     static int Level(double z, int dim = 0) => Math.Clamp((int)((1 - (z + 9) / 18) * 15) - dim, 0, 15);
 
     protected override void OnRender(DrawingContext dc)
     {
         double w = ActualWidth, h = ActualHeight;
-        dc.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, w, h)); // so the mouse is seen over empty parts too
+        dc.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, w, h));
         if (w < 40 || h < 40) return;
         focal = Math.Min(h * 1.7, w * 1.1);
         midX = w / 2;
         midY = h / 2 - h * 0.05;
         double pitch = -0.22 + 0.04 * Math.Sin(time * 0.7) + pitchBias;
 
-        // The floor: a grid that drifts toward the viewer. It only follows the pitch, so it does not turn with the boat.
         const double floorY = -7.2;
         double drift = (time * 1.6) % 2.0;
         for (int i = -7; i <= 7; i++)
@@ -129,7 +121,6 @@ public class Wire3D : FrameworkElement
             FadeLine(dc, new V(-14, floorY, z), new V(14, floorY, z), pitch);
         }
 
-        // The boat.
         double yaw = time * 0.42 + yawBias;
         foreach (var (a, b, rib) in boat)
         {
@@ -140,7 +131,6 @@ public class Wire3D : FrameworkElement
         }
     }
 
-    /// <summary>A floor line drawn in pieces, each as bright as it is close to the middle of the grid.</summary>
     void FadeLine(DrawingContext dc, V a, V b, double pitch)
     {
         const int parts = 8;

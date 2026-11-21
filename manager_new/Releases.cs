@@ -7,12 +7,11 @@ using System.Text.RegularExpressions;
 namespace Pentecost.Manager;
 
 public sealed record ReleaseInfo(string Tag, string Url, string? InstallerUrl, string? InstallerName, long InstallerSize, string? InstallerSha256, string Notes,
-    string? ManagerVersion = null, string? ManagerUrl = null, long ManagerSize = 0, string? ManagerSha256 = null)
+    string? ManagerVersion = null, string? ManagerUrl = null, long ManagerSize = 0, string? ManagerSha256 = null, bool Pre = false, DateTime? Date = null)
 {
     public string Version => Tag.TrimStart('v', 'V');
 }
 
-/// <summary>Looks for a Pentecost release on GitHub.</summary>
 public static class Updates
 {
     const string Repo = "FilesCodes-ui/Pentecost-Mod-Loader";
@@ -24,10 +23,23 @@ public static class Updates
         return Parse(text);
     }
 
-    /// <summary>Reads one release from the GitHub API: the Pentecost installer, and the newest Manager setup among its files.</summary>
-    public static ReleaseInfo? Parse(string text)
+    public static async Task<List<ReleaseInfo>> All(CancellationToken ct = default)
     {
-        if (JsonNode.Parse(text) is not JsonObject o) return null;
+        var text = await Modrinth.Client.GetStringAsync($"https://api.github.com/repos/{Repo}/releases?per_page=30", ct);
+        var list = new List<ReleaseInfo>();
+        if (JsonNode.Parse(text) is JsonArray a)
+            foreach (var o in a.OfType<JsonObject>())
+            {
+                if (o["draft"]?.GetValue<bool>() == true) continue;
+                if (Parse(o) is { } r) list.Add(r);
+            }
+        return list;
+    }
+
+    public static ReleaseInfo? Parse(string text) => JsonNode.Parse(text) is JsonObject o ? Parse(o) : null;
+
+    public static ReleaseInfo? Parse(JsonObject o)
+    {
         var tag = o["tag_name"]?.ToString();
         var url = o["html_url"]?.ToString();
         if (tag == null || url == null) return null;
@@ -61,7 +73,7 @@ public static class Updates
         }
         var notes = (o["body"]?.ToString() ?? "").Trim();
         if (notes.Length > 600) notes = notes[..600] + "...";
-        return new ReleaseInfo(tag, url, aUrl, aName, aSize, aSha, notes, mVer, mUrl, mSize, mSha);
+        return new ReleaseInfo(tag, url, aUrl, aName, aSize, aSha, notes, mVer, mUrl, mSize, mSha, o["prerelease"]?.GetValue<bool>() == true, DateTime.TryParse(o["published_at"]?.ToString(), out var when) ? when : null);
     }
 
     public static bool Newer(string a, string b)
@@ -76,22 +88,16 @@ public static class Updates
         return false;
     }
 
-    /// <summary>True when the release carries a Manager setup newer than the Manager that is running.</summary>
     public static bool ManagerNewer(ReleaseInfo? r) => r?.ManagerVersion != null && Newer(r.ManagerVersion, SelfInstall.Version);
 
     public static bool IsOfficialAsset(string? url) => url != null && url.StartsWith(DownloadPrefix, StringComparison.Ordinal);
 }
 
-/// <summary>
-/// Installs or updates Pentecost by running the release's own installer without a window.
-/// The installer is the tested path (it writes the launcher profile and keeps worlds, mods and settings), so the manager reuses it.
-/// </summary>
 public static class InstallService
 {
     static string InstallerLog => Path.Combine(Path.GetTempPath(), "pentecost-installer.log");
 
-    /// <summary>Returns null when it worked, otherwise a message for the player.</summary>
-    public static async Task<string?> Run(ReleaseInfo r, bool worlds, Action<string, double> progress, CancellationToken ct)
+    public static async Task<string?> Run(ReleaseInfo r, bool worlds, Action<string, double> progress, CancellationToken ct, bool videoMods = true)
     {
         if (r.InstallerUrl == null || r.InstallerName == null) return "That release has no installer file.";
         if (!Updates.IsOfficialAsset(r.InstallerUrl)) return "The installer link is not from the Pentecost release page, so it was not used.";
@@ -147,7 +153,7 @@ public static class InstallService
         psi.ArgumentList.Add("--minecraft-dir");
         psi.ArgumentList.Add(Paths.McDir);
         if (!worlds) psi.ArgumentList.Add("--no-worlds");
-        psi.ArgumentList.Add("--video-mods");
+        if (videoMods) psi.ArgumentList.Add("--video-mods");
         try
         {
             using var proc = Process.Start(psi) ?? throw new IOException("The installer did not start.");
@@ -189,9 +195,8 @@ public static class InstallService
     }
 }
 
-public sealed record CrashInfo(string File, DateTime Time, string Title, string Cause, string Summary, ModEntry? Mod);
+public sealed record CrashInfo(string File, DateTime Time, string Title, string Cause, string Summary, ModEntry? Mod, string Broke = "", string Blamed = "", string BlamedFile = "");
 
-/// <summary>Reads recent crash reports and guesses a mod from the names the report mentions.</summary>
 public static class CrashScan
 {
     static readonly HashSet<string> Ignore = new(StringComparer.OrdinalIgnoreCase)
@@ -216,14 +221,19 @@ public static class CrashScan
                     var c = Regex.Matches(text, "\\b" + Regex.Escape(m.Id) + "\\b", RegexOptions.IgnoreCase).Count;
                     if (c > bestCount) { best = m; bestCount = c; }
                 }
-                list.Add(new CrashInfo(f.FullName, f.LastWriteTime, title.Length > 0 ? title : "Crash report", cause, Summary(text), best));
+                var broke = Regex.Match(text, "(?m)^WHAT BROKE\\s*\\r?\\n\\s+(.+?)\\r?$").Groups[1].Value.Trim();
+                var blamedLine = Regex.Match(text, "(?m)^MOST LIKELY CAUSE\\s*\\r?\\n\\s+(.+?)\\r?$").Groups[1].Value.Trim();
+                var blamedFile = Regex.Match(text, "(?m)^MOST LIKELY CAUSE\\s*\\r?\\n.*\\r?\\n\\s+File: (.+?)\\r?$").Groups[1].Value.Trim();
+                var blamedId = Regex.Match(blamedLine, "id ([\\w.-]+)\\)").Groups[1].Value;
+                var blamedName = Regex.Replace(blamedLine, "\\s*\\(.*$", "").Trim();
+                if (blamedId.Length > 0) best = mods.FirstOrDefault(m => m.Id.Equals(blamedId, StringComparison.OrdinalIgnoreCase));
+                list.Add(new CrashInfo(f.FullName, f.LastWriteTime, title.Length > 0 ? title : "Crash report", cause, Summary(text), best, broke, blamedName, blamedFile));
             }
             catch (Exception ex) { AppLog.Write("crash scan: " + ex.Message); }
         }
         return list;
     }
 
-    /// <summary>Pentecost's own summary sits between the report's header and its "Time:" line. Empty when there is none.</summary>
     static string Summary(string text)
     {
         var lines = text.Split('\n');

@@ -19,11 +19,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/**
- * Mod impact, in Pentecost's look: what each mod costs per frame and per tick, measured while the player plays.
- * Start measuring, close the screen, play for a minute in a normal spot, come back and stop. The numbers stay until
- * the next measurement. Mods that cost a lot get a warning on the Mods screen.
- */
 final class ModImpactScreen extends Screen {
     private record Hit(int x, int y, int w, int h, Runnable action) {}
 
@@ -97,7 +92,7 @@ final class ModImpactScreen extends Screen {
 
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-        g.fill(0, 0, width, height, minecraft.level == null ? 0xFF0A0A0B : 0xD80A0A0B);
+        g.fill(0, 0, width, height, Ui.back(minecraft));
         Ui.dither(g, width, height);
         float ui = Ui.scale(minecraft);
         int vw = (int) (width / ui);

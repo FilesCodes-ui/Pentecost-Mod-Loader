@@ -24,34 +24,23 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Player name tags in Pentecost's look: the name in plain white letters with a hairline under it, no box. The line
- * is short at rest and grows to the width of the name when you look at the player or stand close. A dev also gets a
- * small tag above the name, "DEV" between two hairlines, which grows into "PENTECOST DEV" the same way.
- * Settings > Interface > Name tags picks the style and whether the length is short, long or follows your gaze.
- * In the player list and in chat a dev gets "[dev]" in front of the name and a boat after it.
- */
 final class NameTags implements TagHooks.Drawer, TagHooks.Marker {
     private static final String PREFIX = "[dev] ";
     private static final String BOAT = " \u26F5";
     private static final String SHORT = "DEV";
     private static final String LONG = "PENTECOST DEV";
     private static final int INK = 0xF2F2F2;
-    /** The game's own tag is 0.025. Smaller keeps the tag quiet. */
     private static final float TAG_SCALE = 0.015F;
 
-    /** One boat, as rows of pixels. M mast, S sail, H hull, W water. A second frame flaps the sail and moves the waves. */
     private static final String[][] BOAT_FRAMES = {
             {"     M     ", "     MS    ", "     MSS   ", "     MSSS  ", "     MSSSS ", "     M     ",
                     " HHHHHHHHH ", "  HHHHHHH  ", "WWW WWW WWW"},
             {"     M     ", "     MS    ", "     MSS   ", "     MSS   ", "     MSSS  ", "     M     ",
                     " HHHHHHHHH ", "  HHHHHHH  ", "W WWW WWW W"}};
 
-    /** How far each player's tag is open, 0 short to 1 long, eased so it never jumps. */
     private static final class State {
         float expand;
         long last;
-        /** 0 to 1, how far the tag has faded and risen in since the player came into view. */
         float appear;
         long lastSeen;
     }
@@ -103,6 +92,9 @@ final class NameTags implements TagHooks.Drawer, TagHooks.Marker {
     @Override
     public boolean showOwn(Object entity) {
         Minecraft mc = Minecraft.getInstance();
+        if (OrbitCamera.cleanShot()) {
+            return false;
+        }
         return entity == mc.player && mc.player != null && !mc.options.getCameraType().isFirstPerson()
                 && PentecostDev.isDev(mc.player.getUUID());
     }
@@ -114,12 +106,13 @@ final class NameTags implements TagHooks.Drawer, TagHooks.Marker {
 
     @Override
     public void nameTag(Object renderer, Object entityObject, Object poseObject, Object bufferObject, int light) {
-        if (!(entityObject instanceof AbstractClientPlayer player)) {
+        if (!(entityObject instanceof AbstractClientPlayer player) || OrbitCamera.cleanShot()) {
             return;
         }
         boolean mine = replaces(player);
         boolean dev = PentecostDev.isDev(player.getUUID());
-        if (!mine && !dev) {
+        boolean pentecost = !dev && PentecostPlayers.has(player.getUUID());
+        if (!mine && !dev && !pentecost) {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
@@ -130,7 +123,6 @@ final class NameTags implements TagHooks.Drawer, TagHooks.Marker {
         float dist = (float) Math.sqrt(dist2);
         float expand = openness(mc, player, dist);
         float appear = appear(player);
-        // Full strength up close, fading to a third far away. A tag that has just come into view fades in.
         float alpha = Math.max(0.35F, Math.min(1.0F, 1.0F - (dist - 20.0F) / 40.0F)) * appear;
 
         PoseStack pose = (PoseStack) poseObject;
@@ -142,7 +134,7 @@ final class NameTags implements TagHooks.Drawer, TagHooks.Marker {
         double t = (System.nanoTime() / 1e9) % 3600.0;
 
         pose.pushPose();
-        pose.translate(0.0F, player.getNameTagOffsetY() - 0.12F * (1.0F - appear), 0.0F); // rises into place
+        pose.translate(0.0F, player.getNameTagOffsetY() - 0.12F * (1.0F - appear), 0.0F);
         pose.mulPose(mc.getEntityRenderDispatcher().cameraOrientation());
         pose.scale(-TAG_SCALE, -TAG_SCALE, TAG_SCALE);
         Matrix4f m = pose.last().pose();
@@ -154,7 +146,6 @@ final class NameTags implements TagHooks.Drawer, TagHooks.Marker {
             if (visible) {
                 font.drawInBatch(name, x, 0.0F, ink(alpha), false, m, buffer, Font.DisplayMode.NORMAL, 0, light);
             }
-            // The hairline: short at rest, as wide as the name when open, with a brighter spot that drifts along it.
             float half = lerp(Math.max(5.0F, nameWidth * 0.2F), nameWidth / 2.0F + 3.0F, expand);
             quad(lines, m, -half, 9.5F, half * 2.0F, 1.0F, ink(alpha * 0.5F), light);
             float spot = 8.0F;
@@ -164,8 +155,6 @@ final class NameTags implements TagHooks.Drawer, TagHooks.Marker {
         }
 
         if (dev) {
-            // The tag grows letter by letter: DEV stays, and the rest of PENTECOST DEV is written in from the left, the
-            // newest letter still fading in. Shrinking takes the letters away in the same order.
             int total = LONG.length(), keep = SHORT.length();
             float grown = expand * (total - keep);
             int n = keep + (int) Math.ceil(grown - 1.0e-3F);
@@ -187,11 +176,12 @@ final class NameTags implements TagHooks.Drawer, TagHooks.Marker {
                         Font.DisplayMode.NORMAL, 0, light);
             }
             drawBoat(pose, buffer, nameWidth / 2.0F + 5.0F, light);
+        } else if (pentecost) {
+            drawBoat(pose, buffer, nameWidth / 2.0F + 5.0F, light);
         }
         pose.popPose();
     }
 
-    /** 0 to 1, how far this player's tag is open. Eases toward the target, so a change of gaze or setting never snaps. */
     private float openness(Minecraft mc, AbstractClientPlayer player, float dist) {
         String mode = Settings.get(Settings.TAG_LENGTH);
         float target;
@@ -218,7 +208,6 @@ final class NameTags implements TagHooks.Drawer, TagHooks.Marker {
         return s.expand;
     }
 
-    /** 0 to 1, how far a player's tag has faded in. It starts over when the player has been out of view for a moment. */
     private float appear(AbstractClientPlayer player) {
         State s = states.computeIfAbsent(player.getUUID(), k -> new State());
         long now = System.nanoTime();

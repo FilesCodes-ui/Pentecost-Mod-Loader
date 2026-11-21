@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -5,7 +6,7 @@ using System.Text.Json.Nodes;
 namespace Pentecost.Manager;
 
 public sealed record Hit(string ProjectId, string Slug, string Title, string Author, string Desc, string? IconUrl,
-    long Downloads, long Follows, string[] Loaders, string[] Categories, string Type);
+    long Downloads, long Follows, string[] Loaders, string[] Categories, string Type, string[] Gallery, DateTime? Updated);
 public sealed record SearchPage(List<Hit> Hits, int Total);
 public sealed record Missing(string ProjectId, string Title, string NeededBy, string? IconUrl);
 public sealed record Category(string Name, string Type);
@@ -14,7 +15,6 @@ public sealed record VersionInfo(string Id, string Name, string Number, string C
 public sealed record ProjectInfo(string Id, string Slug, string Title, string Desc, string Body, string? IconUrl, string Type,
     long Downloads, long Follows, string[] Categories, string[] Gallery);
 
-/// <summary>Modrinth search, install and update. Files are fetched through <see cref="Downloads"/>, which holds the download rules.</summary>
 public static class Modrinth
 {
     const string Api = "https://api.modrinth.com/v2";
@@ -30,23 +30,25 @@ public static class Modrinth
 
     public static HttpClient Client => Http;
 
+    static string[] Shots(JsonObject h)
+    {
+        var all = Strings(h["gallery"]).ToList();
+        if (h["featured_gallery"]?.ToString() is { Length: > 0 } f) { all.Remove(f); all.Insert(0, f); }
+        return all.ToArray();
+    }
+
     static readonly Dictionary<string, string> Thumbs = new();
 
-    /// <summary>The small copy of a gallery picture, for the page.</summary>
     public static string Thumb(string raw) { lock (Thumbs) return Thumbs.TryGetValue(raw, out var t) ? t : raw; }
 
-    /// <summary>An image link is used only when it points at Modrinth's own CDN.</summary>
     public static Uri? SafeImage(string? url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var u) && u.Scheme == "https" && IsModrinthHost(u.Host) ? u : null;
 
-    /// <summary>modrinth.com or one of its own subdomains. A name that only ends the same way, like evilmodrinth.com, is not Modrinth.</summary>
     public static bool IsModrinthHost(string host) =>
         host.Equals("modrinth.com", StringComparison.OrdinalIgnoreCase) || host.EndsWith(".modrinth.com", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>A SHA-512 worth checking, or null when the file did not list a proper one.</summary>
     public static string? Strong(string? hash) => hash is { Length: 128 } ? hash : null;
 
-    /// <summary>Where a kind of project is kept inside the game folder.</summary>
     public static string DirFor(string type) => type switch
     {
         "shader" => Path.Combine(Paths.Home, "run", "shaderpacks"),
@@ -67,8 +69,6 @@ public static class Modrinth
 
     static string[] Strings(JsonNode? n) => (n as JsonArray)?.Select(x => x?.ToString() ?? "").Where(x => x.Length > 0).ToArray() ?? Array.Empty<string>();
     static long Long(JsonNode? n) { try { return n?.GetValue<long>() ?? 0; } catch { return 0; } }
-
-    // ---------------------------------------------------------------- search
 
     static readonly string[] ModLoaders = { "forge", "fabric", "quilt", "neoforge" };
 
@@ -92,14 +92,14 @@ public static class Modrinth
             var shown = Strings(h["display_categories"]).Where(c => !ModLoaders.Contains(c)).ToArray();
             hits.Add(new Hit(h["project_id"]?.ToString() ?? "", h["slug"]?.ToString() ?? "", h["title"]?.ToString() ?? "",
                 h["author"]?.ToString() ?? "", h["description"]?.ToString() ?? "", h["icon_url"]?.ToString(),
-                Long(h["downloads"]), Long(h["follows"]), ModLoaders.Where(cats.Contains).ToArray(), shown, type));
+                Long(h["downloads"]), Long(h["follows"]), ModLoaders.Where(cats.Contains).ToArray(), shown, type,
+                Shots(h), DateTime.TryParse(h["date_modified"]?.ToString(), CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var mod) ? mod.ToLocalTime() : null));
         }
         return new SearchPage(hits, (int)Long(root["total_hits"]));
     }
 
     static List<Category>? categoryCache;
 
-    /// <summary>Every category Modrinth knows, with the kind of project it belongs to.</summary>
     public static async Task<List<Category>> Categories(CancellationToken ct)
     {
         if (categoryCache != null) return categoryCache;
@@ -110,12 +110,9 @@ public static class Modrinth
         return categoryCache = list.Where(c => c.Name.Length > 0).ToList();
     }
 
-    // ---------------------------------------------------------------- one project
-
     public static async Task<ProjectInfo> Project(string id, CancellationToken ct)
     {
         var o = await Get($"{Api}/project/{Uri.EscapeDataString(id)}", ct) as JsonObject ?? throw new IOException("Modrinth gave an answer I do not understand");
-        // Modrinth keeps a 350 pixel copy and the original. The page uses the copy and the viewer uses the original.
         var gallery = new List<string>();
         foreach (var g in (o["gallery"] as JsonArray)?.OfType<JsonObject>().OrderByDescending(g => g["featured"]?.GetValue<bool>() == true) ?? Enumerable.Empty<JsonObject>())
         {
@@ -131,7 +128,6 @@ public static class Modrinth
             Long(o["downloads"]), Long(o["followers"]), Strings(o["categories"]), gallery.ToArray());
     }
 
-    /// <summary>Versions of a project for Minecraft 1.20.1, newest first.</summary>
     public static async Task<List<VersionInfo>> Versions(string id, string? loader, CancellationToken ct)
     {
         var url = $"{Api}/project/{Uri.EscapeDataString(id)}/version?game_versions={Game}";
@@ -156,8 +152,6 @@ public static class Modrinth
         return list;
     }
 
-    // ---------------------------------------------------------------- lookup of installed mods
-
     static string[] LoadersFor(ModEntry m) => m.Loader switch
     {
         "Fabric" => new[] { "fabric" },
@@ -166,10 +160,6 @@ public static class Modrinth
         _ => new[] { "forge", "fabric" },
     };
 
-    /// <summary>
-    /// Matches installed jars to Modrinth projects by hash. Sets each mod's project, icon, description and update, and
-    /// returns required mods that are not installed. Jars Modrinth does not know are left alone.
-    /// </summary>
     public static async Task<List<Missing>> Lookup(List<ModEntry> mods, CancellationToken ct)
     {
         var missing = new List<Missing>();
@@ -191,14 +181,12 @@ public static class Modrinth
                     foreach (var d in (vo["dependencies"] as JsonArray)?.OfType<JsonObject>() ?? Enumerable.Empty<JsonObject>())
                         if (d["dependency_type"]?.ToString() == "required" && d["project_id"]?.ToString() is { Length: > 0 } pid && !m.Requires.Contains(pid))
                             m.Requires.Add(pid);
-                    // The exact file, so a pack export can point at it.
                     var mine = (vo["files"] as JsonArray)?.OfType<JsonObject>()
                         .FirstOrDefault(f => string.Equals(f["hashes"]?["sha1"]?.ToString(), hash, StringComparison.OrdinalIgnoreCase));
                     m.FileUrl = mine?["url"]?.ToString();
                     m.Sha512 = mine?["hashes"]?["sha512"]?.ToString();
                 }
 
-            // Updates: one call for each loader group.
             foreach (var group in byHash.Values.Where(m => m.ProjectId != null).GroupBy(m => string.Join(",", LoadersFor(m))))
             {
                 var gh = new JsonArray(group.Select(m => (JsonNode)JsonValue.Create(m.Sha1!)!).ToArray());
@@ -230,8 +218,6 @@ public static class Modrinth
             foreach (var m in todo) m.Looked = true;
         }
 
-        // Icons and names for every known project, plus the projects that are needed but missing.
-        // Requirements are kept on each mod, so this answer is the same every time the page opens.
         var have = mods.Where(m => m.ProjectId != null).Select(m => m.ProjectId!).ToHashSet();
         var needed = mods.Where(m => m.ProjectId != null && m.Enabled)
             .SelectMany(m => m.Requires.Select(p => (Dep: p, By: m.ProjectId!))).Where(x => !have.Contains(x.Dep)).ToList();
@@ -242,10 +228,18 @@ public static class Modrinth
             m.IconUrl = info[m.ProjectId!].Icon;
             m.Desc = info[m.ProjectId!].Desc;
         }
+        var present = new HashSet<string>();
+        foreach (var m in mods)
+        {
+            if (m.Id.Length > 0) present.Add(Squash(m.Id));
+            foreach (var b in m.Bundled) present.Add(Squash(b));
+        }
         foreach (var g in needed.GroupBy(n => n.Dep))
         {
             if (!info.TryGetValue(g.Key, out var p)) continue;
-            // Pentecost already supplies the Fabric API and loader pieces.
+            string slug;
+            lock (SlugOf) slug = SlugOf.TryGetValue(g.Key, out var sl) ? sl : "";
+            if (Present(present, slug, p.Title)) continue;
             if (p.Title.Contains("Fabric API", StringComparison.OrdinalIgnoreCase) || p.Title.Equals("Fabric Loader", StringComparison.OrdinalIgnoreCase)) continue;
             var by = string.Join(", ", g.Select(x => info.TryGetValue(x.By, out var b) ? b.Title : "a mod").Distinct().Take(3));
             missing.Add(new Missing(g.Key, p.Title, by, p.Icon));
@@ -253,7 +247,30 @@ public static class Modrinth
         return missing;
     }
 
-    static async Task<Dictionary<string, (string Title, string? Icon, string Desc)>> Projects(List<string> ids, CancellationToken ct)
+    static readonly Dictionary<string, string> SlugOf = new();
+
+    static string Squash(string s) => new string(s.ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
+
+    static string Trim(string s)
+    {
+        foreach (var tail in new[] { "library", "api", "lib", "core" })
+            if (s.Length > tail.Length + 3 && s.EndsWith(tail)) return s[..^tail.Length];
+        return s;
+    }
+
+    static bool Present(HashSet<string> have, params string[] names)
+    {
+        foreach (var raw in names)
+        {
+            var q = Squash(raw);
+            if (q.Length == 0) continue;
+            if (have.Contains(q) || have.Contains(Trim(q))) return true;
+            if (have.Any(h => Trim(h) == Trim(q))) return true;
+        }
+        return false;
+    }
+
+    public static async Task<Dictionary<string, (string Title, string? Icon, string Desc)>> Projects(List<string> ids, CancellationToken ct)
     {
         var result = new Dictionary<string, (string, string?, string)>();
         for (var i = 0; i < ids.Count; i += 100)
@@ -264,16 +281,16 @@ public static class Modrinth
             {
                 if (await Get($"{Api}/projects?ids={Uri.EscapeDataString(arr.ToJsonString())}", ct) is JsonArray list)
                     foreach (var p in list.OfType<JsonObject>())
+                    {
                         result[p["id"]?.ToString() ?? ""] = (p["title"]?.ToString() ?? "", p["icon_url"]?.ToString(), p["description"]?.ToString() ?? "");
+                        lock (SlugOf) SlugOf[p["id"]?.ToString() ?? ""] = p["slug"]?.ToString() ?? "";
+                    }
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) { AppLog.Write("projects: " + ex.Message); }
         }
         return result;
     }
 
-    // ---------------------------------------------------------------- install and update
-
-    /// <summary>Installs a mod and its required dependencies. Returns the file names that were newly added.</summary>
     public static async Task<List<string>> Install(string project, string loader, Action<string> report, CancellationToken ct)
     {
         var added = new List<string>();
@@ -282,7 +299,6 @@ public static class Modrinth
         return added;
     }
 
-    /// <summary>Installs the newest shader pack or resource pack of a project.</summary>
     public static async Task<List<string>> InstallOther(string project, string type, CancellationToken ct)
     {
         var versions = await Versions(project, null, ct);
@@ -291,7 +307,6 @@ public static class Modrinth
         return await InstallVersion(v, type, ct);
     }
 
-    /// <summary>Installs one chosen version. For a mod, another version of the same mod goes to the Recycle Bin.</summary>
     public static async Task<List<string>> InstallVersion(VersionInfo v, string type, CancellationToken ct)
     {
         var added = new List<string>();
@@ -324,7 +339,6 @@ public static class Modrinth
     {
         if (!seen.Add(project) || depth > 3) return;
         report("Looking up " + project);
-        // Pentecost runs both loaders, so a mod that only exists for the other one is still fine.
         var version = await Best(project, loader, ct) ?? await Best(project, loader == "forge" ? "fabric" : "forge", ct)
             ?? throw new IOException("There is no version for Minecraft 1.20.1");
         if (!AlreadyThere(version.FileName))
@@ -337,7 +351,6 @@ public static class Modrinth
             await One(id, loader, seen, depth + 1, added, report, ct);
     }
 
-    /// <summary>Downloads the new version of a mod, then moves the old jar to the Recycle Bin.</summary>
     public static async Task ApplyUpdate(ModEntry m, Action<string> report, CancellationToken ct)
     {
         var u = m.Update ?? throw new IOException("There is no update for this mod.");

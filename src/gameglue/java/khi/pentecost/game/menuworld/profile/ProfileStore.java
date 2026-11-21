@@ -9,7 +9,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 
-/** Reads and writes the profile. A missing or unreadable file gives the defaults and never throws. */
 public final class ProfileStore {
     private ProfileStore() {}
 
@@ -19,7 +18,6 @@ public final class ProfileStore {
         return pentecostConfig.resolve("menu_world").resolve("profile.json");
     }
 
-    /** An independent copy. The background worker reads a copy, so a settings change never races with it. */
     public static MenuProfile copy(MenuProfile p) {
         return sanitize(GSON.fromJson(GSON.toJson(p), MenuProfile.class));
     }
@@ -31,12 +29,10 @@ public final class ProfileStore {
                 if (p != null) return sanitize(p);
             }
         } catch (Exception e) {
-            // A broken file must not stop the game from starting. Fall through to the defaults.
         }
         return new MenuProfile();
     }
 
-    /** Writes to a temporary file first, so a crash mid-save cannot leave half a profile. */
     public static void save(Path file, MenuProfile profile) throws IOException {
         Files.createDirectories(file.getParent());
         Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
@@ -44,7 +40,6 @@ public final class ProfileStore {
         Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
     }
 
-    /** Fixes values a hand-edited file could get wrong. */
     static MenuProfile sanitize(MenuProfile p) {
         if (p.sourceKind == null) p.sourceKind = MenuProfile.SourceKind.SEED;
         if (p.centerMode == null) p.centerMode = MenuProfile.CenterMode.SPAWN;
@@ -73,11 +68,10 @@ public final class ProfileStore {
         p.cutChance = Math.max(0, Math.min(1, p.cutChance));
         p.points.removeIf(q -> q == null || q.id == null || q.id.isEmpty());
         if (p.version < 2) {
-            // Version 1 guessed builds from block counts alone, which also hit underground structures. Drop those guesses.
             p.points.removeIf(q -> q.kind == Poi.Kind.BUILD && !q.edited && q.playerMinutes <= 0);
             p.version = 2;
         }
-        p.version = Math.max(p.version, 3); // 3 only added settings, which have defaults
+        p.version = Math.max(p.version, 3);
         for (Poi q : p.points) {
             if (q.kind == null) q.kind = Poi.Kind.CUSTOM;
             if (q.name == null) q.name = q.id;

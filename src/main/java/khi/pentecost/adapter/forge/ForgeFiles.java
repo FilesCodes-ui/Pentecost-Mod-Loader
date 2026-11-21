@@ -24,25 +24,15 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
 
-/**
- * Forge's own files, as the official Forge installer leaves them in cache/forge-install.
- * Pentecost runs Forge's real game patches and API classes on top of its own core,
- * the same way the real Fabric API jar runs. Forge's code is LGPL and is downloaded, never bundled.
- */
 public final class ForgeFiles {
     public static final String VERSION = "1.20.1-47.4.10";
 
     private final Path libraries = Dirs.cache().resolve("forge-install").resolve("libraries");
 
-    /**
-     * True when Forge's patched game jar is there and opens as a zip. A jar that exists but is cut off
-     * (a Forge setup that was interrupted) does not count, so Pentecost sets Forge up again instead of crashing.
-     */
     public boolean installed() {
         return intact(patchedClient()) && brokenFiles().isEmpty();
     }
 
-    /** Forge jars that exist but do not open as a zip. */
     public List<Path> brokenFiles() {
         List<Path> out = new ArrayList<>();
         for (Path p : List.of(patchedClient(), universalJar())) {
@@ -57,7 +47,6 @@ public final class ForgeFiles {
         return libraries.resolve("net/minecraftforge/forge/" + VERSION + "/forge-" + VERSION + "-universal.jar");
     }
 
-    /** True when the file is there and opens as a zip with at least one entry. */
     public static boolean intact(Path jar) {
         if (!Files.isRegularFile(jar)) {
             return false;
@@ -73,7 +62,6 @@ public final class ForgeFiles {
         return libraries.resolve("net/minecraftforge/forge/" + VERSION + "/forge-" + VERSION + "-client.jar");
     }
 
-    /** Forge's API classes and its loader-side libraries, in their original names. */
     public List<Path> rawLibraries() throws IOException {
         List<Path> out = new ArrayList<>();
         for (String group : List.of("net/minecraftforge", "cpw/mods")) {
@@ -90,7 +78,6 @@ public final class ForgeFiles {
         return out;
     }
 
-    /** Every jar Forge needs at run time, except the jars Pentecost converts or replaces. */
     public List<Path> runtimeLibraries() throws IOException {
         List<Path> out = new ArrayList<>();
         try (Stream<Path> s = Files.walk(libraries)) {
@@ -109,7 +96,6 @@ public final class ForgeFiles {
         return out;
     }
 
-    /** Forge's API jar, converted from SRG names to readable names. */
     public Path universal(RemapService remap) throws IOException {
         Path in = libraries.resolve("net/minecraftforge/forge/" + VERSION + "/forge-" + VERSION + "-universal.jar");
         Path out = Dirs.cache().resolve("remapped").resolve("forge-" + VERSION + "-universal-named.jar");
@@ -119,10 +105,6 @@ public final class ForgeFiles {
         return out;
     }
 
-    /**
-     * The game with Forge's patches: Forge's patched classes, converted to readable names,
-     * laid over the readable vanilla jar.
-     */
     public GameFiles game(GameFiles named, RemapService remap) throws IOException {
         Path out = Dirs.cache().resolve("remapped").resolve("client-" + VERSION + "-forge-named.jar");
         if (!Files.isRegularFile(out)) {
@@ -136,7 +118,6 @@ public final class ForgeFiles {
                 named.assetsDir(), named.assetIndex(), named.mainClass());
     }
 
-    /** Writes every entry of top, then every entry of base that top lacks. */
     private static void overlay(Path base, Path top, Path out) throws IOException {
         Path tmp = out.resolveSibling(out.getFileName() + ".part");
         Set<String> seen = new HashSet<>();

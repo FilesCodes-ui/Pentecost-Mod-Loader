@@ -20,23 +20,13 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Entry point.
- *   install                      download Minecraft 1.20.1
- *   check  [--mods D]            read, convert, and start mods without opening the game
- *   launch [--mods D]            start the game (default)
- *   fetch  --loader L --count N  download the top N mods for a loader from Modrinth
- *   verify [--mods D]            convert mods, check every game call, list missing loader classes
- */
 public final class PentecostMain {
     public static final String MINECRAFT = "1.20.1";
-    /** The build's version. Read from a resource the build writes, so it cannot drift from the jar's real version. */
     public static final String VERSION = readVersion();
 
     private static List<ModInfo> mods = List.of();
     private static GameClassLoader loader;
     private static boolean forge;
-    /** A Minecraft session handed in by a launcher (Modrinth App wrapper, the official launcher). Never logged. */
     private static LaunchSession session = LaunchSession.NONE;
     private static final java.util.Set<String> COMMANDS = java.util.Set.of("install", "check", "launch", "fetch", "verify", "setup");
 
@@ -49,12 +39,12 @@ public final class PentecostMain {
                 if (!v.isEmpty()) return v;
             }
         } catch (java.io.IOException e) {
-            // falls through to the development marker
         }
         return "0.0.0-dev";
     }
 
     public static void main(String[] args) {
+        StartupGuard.args(args);
         String command = "launch";
         List<Path> modDirs = new ArrayList<>();
         boolean selftest = false;
@@ -68,7 +58,6 @@ public final class PentecostMain {
                 case "--loader" -> fetchLoader = args[++i];
                 case "--count" -> count = Integer.parseInt(args[++i]);
                 case "--username", "--uuid", "--accessToken", "--userType" -> i++;
-                // Other game arguments a launcher passes. Pentecost builds its own, so these are read and dropped.
                 case "--version", "--gameDir", "--assetsDir", "--assetIndex", "--clientId", "--xuid", "--versionType",
                         "--width", "--height" -> i++;
                 default -> {
@@ -95,7 +84,10 @@ public final class PentecostMain {
                     khi.pentecost.install.ForgeSetup.ensure();
                 }
                 case "check" -> exit = check(modDirs, selftest);
-                case "launch" -> launch(modDirs);
+                case "launch" -> {
+                    Splash.open();
+                    launch(modDirs);
+                }
                 case "fetch" -> ModFetcher.fetchTop(MINECRAFT, fetchLoader, count);
                 case "verify" -> verify(modDirs);
                 default -> {
@@ -110,7 +102,6 @@ public final class PentecostMain {
         System.exit(exit);
     }
 
-    /** Installs the game and converts it and the mods to readable names. */
     private static GameFiles prepare(List<Path> modDirs, boolean assets) throws Exception {
         GameFiles vanilla = MinecraftInstall.install(MINECRAFT, assets);
         khi.pentecost.core.Timeline.step("game install checked");
@@ -126,6 +117,24 @@ public final class PentecostMain {
         }
         khi.pentecost.core.Timeline.step("mods scanned and bridged");
         khi.pentecost.control.Choices.load();
+        for (int round = 0; round < 3 && !modDirs.isEmpty(); round++) {
+            boolean added;
+            try {
+                added = khi.pentecost.install.MissingDeps.askAndAdd(found, modDirs.get(0), MINECRAFT);
+            } catch (Exception e) {
+                Log.warn("Missing mods: could not check or add them: " + e);
+                break;
+            }
+            if (!added) break;
+            found = new ArrayList<>();
+            for (Path dir : modDirs) {
+                found.addAll(ModDiscovery.scan(dir));
+            }
+            if (forge && new khi.pentecost.adapter.forge.ForgeFiles().installed()) {
+                found = khi.pentecost.adapter.forge.FabricBridge.apply(found, MINECRAFT);
+            }
+            khi.pentecost.core.Timeline.step("added mods scanned");
+        }
         PentecostRuntime.allMods = List.copyOf(found);
         List<ModInfo> on = new ArrayList<>();
         for (ModInfo m : found) {
@@ -143,13 +152,11 @@ public final class PentecostMain {
         return game;
     }
 
-    /** A jar's library name without Pentecost's cache prefix and without its version. */
     private static String artifact(Path jar) {
         String n = jar.getFileName().toString().replaceFirst("^[0-9a-f]{12}-", "").replaceFirst("\\.jar$", "");
         return n.replaceFirst("-[0-9][^-]*(-[A-Za-z0-9.+]+)*$", "").toLowerCase(java.util.Locale.ROOT);
     }
 
-    /** Builds the class loader with access wideners, the mod start hook, and Mixin. */
     private static ModRunner boot(GameFiles game) throws Exception {
         khi.pentecost.adapter.forge.ForgeFiles forgeFiles = new khi.pentecost.adapter.forge.ForgeFiles();
         boolean forgeOn = forge && forgeFiles.installed() && System.getProperty("pentecost.forgeglue") != null;
@@ -229,6 +236,7 @@ public final class PentecostMain {
                     .getConstructor(ClassLoader.class).newInstance(loader));
             khi.pentecost.core.Timeline.step("launch plugins loaded");
         }
+        widener.addBuiltIn();
         if (!widener.isEmpty()) {
             loader.addTransformer(widener);
         }
@@ -245,6 +253,7 @@ public final class PentecostMain {
         loader.addTransformer(Hooks.hudTransformer());
         loader.addTransformer(Hooks.forgeHudTransformer());
         loader.addTransformer(khi.pentecost.core.HudOwner.forgeTransformer());
+        loader.addTransformer(khi.pentecost.core.HudOwner.guiTransformer());
         loader.addTransformer(Hooks.styleTransformer());
         loader.addTransformer(Hooks.registryTransformer());
         loader.addTransformer(Hooks.windowTransformer());
@@ -256,18 +265,40 @@ public final class PentecostMain {
         loader.addTransformer(khi.pentecost.core.Background.transformer());
         loader.addTransformer(khi.pentecost.core.CostMeter.transformer());
         loader.addTransformer(khi.pentecost.core.ZoomHooks.transformer());
+        loader.addTransformer(khi.pentecost.core.OrbitHooks.transformer());
+        loader.addTransformer(khi.pentecost.core.CapeHooks.transformer());
         loader.addTransformer(khi.pentecost.core.FrameProbe.transformer());
         loader.addTransformer(khi.pentecost.core.CullHooks.transformer());
         loader.addLateTransformer(khi.pentecost.core.TagHooks.transformer());
         loader.addTransformer(khi.pentecost.core.ChatHooks.transformer());
         loader.addTransformer(khi.pentecost.core.MenuDistance.transformer());
         loader.addTransformer(khi.pentecost.core.ClientHooks.transformer());
-        // These rename a game method and wrap it. They run after Mixin, so every mod hook sees the real body.
         loader.addLateTransformer(khi.pentecost.core.ClientHooks.lateTransformer());
         loader.addLateTransformer(khi.pentecost.core.ServerTuning.transformer());
         loader.addLateTransformer(khi.pentecost.messenger.PathHooks.transformer());
         loader.addLateTransformer(khi.pentecost.messenger.MobHooks.transformer());
         loader.addLateTransformer(khi.pentecost.messenger.MobHooks.callSites());
+        loader.addLateTransformer(khi.pentecost.messenger.BlockHooks.transformer());
+        loader.addLateTransformer(khi.pentecost.core.BadgeHooks.transformer());
+        loader.addLateTransformer(khi.pentecost.core.MenuGuard.transformer());
+        loader.addLateTransformer(khi.pentecost.core.PartProbe.transformer());
+        loader.addLateTransformer(khi.pentecost.core.PortalShadow.transformer());
+        loader.addLateTransformer(khi.pentecost.core.ParallelGen.transformer());
+        loader.addLateTransformer(khi.pentecost.core.FluidDefer.transformer());
+        loader.addLateTransformer(khi.pentecost.core.OggSeekGuard.transformer());
+        khi.pentecost.core.Runaways.load();
+        loader.addLateTransformer(khi.pentecost.core.Runaways.transformer());
+        loader.addLateTransformer(khi.pentecost.core.LodBridge.transformer());
+        if (khi.pentecost.control.Settings.on("render.glFilter")) {
+            loader.addLateTransformer(khi.pentecost.core.GlFilter.transformer());
+        }
+        loader.addLateTransformer(khi.pentecost.core.GeckoMolangGuard.transformer());
+        if (khi.pentecost.control.Settings.on("patch.instanceofGate")) {
+            loader.addLateTransformer(khi.pentecost.core.InstanceofGate.transformer());
+        }
+        khi.pentecost.core.Runaways.start();
+        loader.addLateTransformer(khi.pentecost.messenger.HomeOnly.transformer());
+        loader.addTransformer(khi.pentecost.messenger.TickSplit.transformer());
         if (forgeOn) {
             java.util.Set<String> softMods = new java.util.HashSet<>();
             for (ModInfo m : usable) {
@@ -300,7 +331,6 @@ public final class PentecostMain {
         GameFiles game = prepare(modDirs, false);
         ModRunner runner = boot(game);
 
-        // Proves the converted game resolves through the Pentecost class loader under readable names.
         Class<?> main = Class.forName(game.mainClass(), false, loader);
         Class<?> minecraft = Class.forName("net.minecraft.client.Minecraft", false, loader);
         boolean ours = main.getClassLoader() == loader && minecraft.getClassLoader() == loader;
@@ -359,11 +389,6 @@ public final class PentecostMain {
         }
     }
 
-    /**
-     * The JVM flags to restart with when the memory settings differ from the running JVM, or null when nothing changes.
-     * Only settings the player chose are applied, so a launcher profile's own flags stay unless the player changed them
-     * in the game. Flags in config/pentecost/jvm-flags.txt come last, so they win.
-     */
     private static List<String> memoryRestart() {
         try {
             if (System.getenv("PENTECOST_JVM") != null || System.getenv("PENTECOST_NOMEMPLAN") != null) {
@@ -391,10 +416,6 @@ public final class PentecostMain {
         }
     }
 
-    /**
-     * Starts this same launch again in a new JVM and exits with its code. The new JVM gets Forge's securejarhandler on its
-     * classpath when needLoader is set, and the given JVM flags when jvmArgs is not null. Returns false when it could not.
-     */
     private static boolean relaunch(List<Path> modDirs, List<String> jvmArgs, boolean needLoader) throws Exception {
         String extra = null;
         if (needLoader) {
@@ -443,12 +464,9 @@ public final class PentecostMain {
         khi.pentecost.core.WallProfiler.startIfAsked(Thread.currentThread());
         boolean viaForgeGlue = forge && System.getProperty("pentecost.forgeglue") != null;
         if (viaForgeGlue) {
-            // A copy of Pentecost without Gradle installs Forge itself on the first run.
             khi.pentecost.install.ForgeSetup.ensure();
         }
         if (System.getProperty("pentecost.relaunched") == null) {
-            // The JVM needs Forge's securejarhandler on its own classpath, so after a fresh install it starts once more
-            // with it added. It also starts once more when the player's memory settings differ from this JVM's flags.
             boolean needLoader = viaForgeGlue && !onClasspath("cpw.mods.jarhandling.SecureJar");
             List<String> memoryArgs = memoryRestart();
             if ((needLoader || memoryArgs != null) && relaunch(modDirs, memoryArgs, needLoader)) {

@@ -13,17 +13,6 @@ import java.lang.reflect.Method;
 import java.util.Set;
 import java.util.concurrent.atomic.LongAdder;
 
-/**
- * Mob path searches on the worker threads.
- *
- * Pentecost changes three methods of the game's PathNavigation and adds one:
- * createPath hands the search to {@link #findPath}, which may answer with a path that is still being searched.
- * moveTo takes such a path without reading it. tick waits while the path is still being searched, so the mob stands
- * still for about one tick. pentecost$settled finishes what moveTo skipped, once the answer is in.
- * Anything that reads a waiting path before its answer arrives makes the search run right there, the old way,
- * so the game never sees a half made path.
- * The search itself lives in the game glue (khi.pentecost.game.AsyncPaths), installed on first use.
- */
 public final class PathHooks {
     public interface Impl {
         Object findPath(Object finder, Object region, Object mob, Set<?> targets, float range, int accuracy, float multiplier, Object navigation);
@@ -38,7 +27,6 @@ public final class PathHooks {
     public static final LongAdder onServer = new LongAdder();
     public static final LongAdder workerNanos = new LongAdder();
 
-    /** Per place in the game's code that asks for a path: how often it asked, and how often it read the answer early. */
     private record Site(LongAdder tries, LongAdder forced) {}
 
     private static final java.util.Map<String, Site> SITES = new java.util.concurrent.ConcurrentHashMap<>();
@@ -48,11 +36,6 @@ public final class PathHooks {
     static final double EARLY_SHARE = 0.5;
     static final int PROBE_EVERY = 64;
 
-    /**
-     * Whether a path asked for from this place should go to a worker. A place that read its answer before the worker
-     * finished in most of its first LEARN_AFTER tries searches the old way from then on, since the work would be done
-     * twice. One try in PROBE_EVERY still goes to a worker, so a place that changes is learned again.
-     */
     public static boolean siteAsync(String site) {
         Site s = SITES.get(site);
         if (s == null || s.tries().sum() < LEARN_AFTER) {
@@ -83,12 +66,10 @@ public final class PathHooks {
         }
     }
 
-    /** How many places in the game's code now search the old way because they read paths early. */
     public static int sitesOnServer() {
         return ON_SERVER.size();
     }
 
-    /** For tests. */
     static void forgetSites() {
         SITES.clear();
         ON_SERVER.clear();
@@ -96,7 +77,6 @@ public final class PathHooks {
 
     private PathHooks() {}
 
-    /** Called by createPath in place of PathFinder.findPath. */
     public static Object findPath(Object finder, Object region, Object mob, Set<?> targets, float range, int accuracy,
                                   float multiplier, Object navigation) {
         Impl i = impl;
@@ -116,7 +96,6 @@ public final class PathHooks {
         return direct(finder, region, mob, targets, range, accuracy, multiplier);
     }
 
-    /** The game's own search, by reflection. Only used when the glue could not be installed. */
     private static Object direct(Object finder, Object region, Object mob, Set<?> targets, float range, int accuracy, float multiplier) {
         try {
             Method m = direct;
@@ -134,12 +113,9 @@ public final class PathHooks {
         }
     }
 
-    /** True while a path is still being searched on a worker. */
     public static boolean pending(Object path) {
         return path instanceof PendingPath p && p.pending();
     }
-
-    // ------------------------------------------------------------------ the patch
 
     private static final String NAV = "net/minecraft/world/entity/ai/navigation/PathNavigation";
     private static final String PATH = "net/minecraft/world/level/pathfinder/Path";
@@ -247,7 +223,6 @@ public final class PathHooks {
 
                 @Override
                 public void visitEnd() {
-                    // What moveTo skipped for a waiting path, run once its answer is in.
                     MethodVisitor m = super.visitMethod(Opcodes.ACC_PUBLIC, "pentecost$settled", "()V", null, null);
                     m.visitCode();
                     m.visitVarInsn(Opcodes.ALOAD, 0);
@@ -267,7 +242,6 @@ public final class PathHooks {
                 }
             }, 0);
             if (done[0] != 7) {
-                // The game's code is not the shape Pentecost knows. Leave it alone rather than half change it.
                 Log.error("Async pathfinding: PathNavigation did not match (" + done[0] + "). Paths are searched the old way.");
                 return bytes;
             }

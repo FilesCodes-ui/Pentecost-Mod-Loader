@@ -36,7 +36,6 @@ import java.util.Random;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Games, pranks, mobs, particles and sounds. */
 final class FunCmds {
     private static final String C = "Fun";
     private static final Random RANDOM = new Random();
@@ -105,7 +104,6 @@ final class FunCmds {
     }
 
     static void add() {
-        // ---- games
         Qol.integer(C, "dice", 0, "[sides]", "Roll a die for everyone to see (default 6 sides)", 2, 1000, true, (c, n) -> {
             int sides = n == null ? 6 : n;
             ChatCmds.broadcast(c.getSource().getServer(), ChatFormatting.AQUA,
@@ -180,7 +178,6 @@ final class FunCmds {
             return 1;
         });
 
-        // ---- friendly and not so friendly gestures
         Qol.playerReq(C, "hug", 0, "Give a player a hug", (c, t) -> {
             burst(t, ParticleTypes.HEART, 12);
             ChatCmds.broadcast(c.getSource().getServer(), ChatFormatting.LIGHT_PURPLE, name(Qol.me(c)) + " hugs " + name(t) + ".");
@@ -246,7 +243,6 @@ final class FunCmds {
             return Qol.ok(c, "Fuse lit.");
         });
 
-        // ---- looks and sounds
         fx("hearts", "Hearts around a player", ParticleTypes.HEART, 20);
         fx("poof", "A puff of cloud around a player", ParticleTypes.CLOUD, 25);
         fx("sparkle", "Sparkles around a player", ParticleTypes.END_ROD, 25);
@@ -271,7 +267,6 @@ final class FunCmds {
             return 1;
         });
 
-        // ---- creatures
         Qol.custom(C, "spawnmob", 2, "<creature> [count]", "Spawn creatures where you look",
                 Qol.lit("spawnmob", 2).then(Commands.argument("word", StringArgumentType.word()).suggests(ENTITIES)
                         .executes(Qol.guard(c -> spawn(c.getSource(), StringArgumentType.getString(c, "word"), 1)))
@@ -294,7 +289,6 @@ final class FunCmds {
             return Qol.ok(c, "Yee-haw.");
         });
 
-        // ---- effects that stay until switched off
         PlayerCmds.effect("slowfall", "Fall gently until you switch it off", MobEffects.SLOW_FALLING);
         PlayerCmds.effect("absorb", "Extra golden hearts", MobEffects.ABSORPTION);
         PlayerCmds.effect("luck", "Better loot luck", MobEffects.LUCK);

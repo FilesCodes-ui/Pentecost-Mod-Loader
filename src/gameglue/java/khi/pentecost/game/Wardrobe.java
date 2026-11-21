@@ -22,13 +22,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 
-/**
- * Puts saved skins on the real account and keeps the wardrobe's data. The screen asks, this class does the work
- * on its own thread and leaves a message behind. Rules on servers and worlds are checked every frame by {@link #frame()}.
- *
- * Mojang limits how often a skin can change, so every change waits at least {@link #COOLDOWN_MS} after the last one.
- * The skin worn before a change is kept in the wardrobe history, so one press goes back.
- */
 final class Wardrobe {
     record Player(String name, String id) {}
 
@@ -50,7 +43,6 @@ final class Wardrobe {
     private static volatile long lastApplyAt;
     private static volatile String added = "";
 
-    /** What the account wears now as far as Pentecost knows, so history does not depend on Mojang's caches. */
     private static byte[] current;
     private static boolean currentSlim;
     private static String currentFor = "";
@@ -61,7 +53,6 @@ final class Wardrobe {
 
     private Wardrobe() {}
 
-    /** The wardrobe's data, or null when its folder cannot be used. */
     static synchronized WardrobeStore store() {
         if (store == null && !storeFailed) {
             try {
@@ -87,7 +78,6 @@ final class Wardrobe {
         return working;
     }
 
-    /** Seconds until the next change to the account is allowed, 0 when it is allowed now. */
     static int waitSeconds() {
         long ms = lastApplyAt + COOLDOWN_MS - System.currentTimeMillis();
         return ms <= 0 ? 0 : (int) (ms / 1000) + 1;
@@ -97,7 +87,6 @@ final class Wardrobe {
         return Account.signedIn() && !working && waitSeconds() == 0;
     }
 
-    /** The id of the skin that was added last, once. The screen selects it. */
     static String takeAdded() {
         String a = added;
         added = "";
@@ -123,8 +112,6 @@ final class Wardrobe {
             });
         }
     }
-
-    // ------------------------------------------------------------------ changing the account
 
     private static boolean start(String what, boolean auto, Change change) {
         if (!Account.signedIn()) {
@@ -161,7 +148,6 @@ final class Wardrobe {
         return true;
     }
 
-    /** capeId: null leaves the cape as it is, empty takes it off, an id wears that cape. */
     private static boolean wearBytes(byte[] png, boolean slim, String capeId, String label, String outfitId, boolean auto) {
         return start("wear " + label, auto, token -> {
             WardrobeStore st = store();
@@ -210,7 +196,6 @@ final class Wardrobe {
         return " with a cape";
     }
 
-    /** The skin the account wears now. Loads it from Mojang once. */
     private static byte[] currentSkin() throws IOException {
         String who = Account.uuid();
         synchronized (Wardrobe.class) {
@@ -231,7 +216,6 @@ final class Wardrobe {
         return png;
     }
 
-    /** Puts the skin worn now in the history, unless it is the one about to be put on. */
     private static void keepCurrent(WardrobeStore st, String newSha) {
         if (st == null) {
             return;
@@ -257,7 +241,6 @@ final class Wardrobe {
         }
     }
 
-    /** Wears a saved skin. capeId as in wearBytes. */
     static boolean wear(WardrobeStore.Skin s, String capeId) {
         WardrobeStore st = store();
         if (st == null) {
@@ -286,7 +269,6 @@ final class Wardrobe {
         }
     }
 
-    /** Puts a skin from the history back on. */
     static boolean wearPast(WardrobeStore.Past p) {
         WardrobeStore st = store();
         if (st == null) {
@@ -300,7 +282,6 @@ final class Wardrobe {
         }
     }
 
-    /** A random saved skin other than the one worn most recently. */
     static boolean wearRandom() {
         WardrobeStore st = store();
         if (st == null || st.skins().isEmpty()) {
@@ -318,7 +299,6 @@ final class Wardrobe {
         return wear(all.get(new java.util.Random().nextInt(all.size())), null);
     }
 
-    /** One skin for each calendar day, the same all day. */
     static boolean wearOfTheDay() {
         WardrobeStore st = store();
         if (st == null || st.skins().isEmpty()) {
@@ -331,7 +311,73 @@ final class Wardrobe {
         return wear(all.get((int) Math.floorMod(day * 2654435761L, (long) all.size())), null);
     }
 
-    // ------------------------------------------------------------------ adding skins
+    record Peek(String name, byte[] png, boolean slim, String texture) {}
+
+    private static volatile boolean loadingCurrent;
+
+    static byte[] currentBytes() {
+        synchronized (Wardrobe.class) {
+            if (current != null && Account.uuid().equals(currentFor)) {
+                return current;
+            }
+        }
+        if (!loadingCurrent && Account.signedIn() && Account.info() != null) {
+            loadingCurrent = true;
+            Thread t = new Thread(() -> {
+                try {
+                    currentSkin();
+                } catch (IOException | RuntimeException e) {
+                    Log.warn("Wardrobe could not load your skin: " + e);
+                } finally {
+                    loadingCurrent = false;
+                }
+            }, "pentecost-wardrobe-current");
+            t.setDaemon(true);
+            t.start();
+        }
+        return null;
+    }
+
+    static synchronized boolean currentIsSlim() {
+        return currentSlim;
+    }
+
+    static void lookup(String text, java.util.function.Consumer<Peek> done) {
+        String n = text == null ? "" : text.strip();
+        if (!SkinApi.isName(n)) {
+            say("That is not a Minecraft name. Use 3 to 16 letters, digits or underscores.");
+            return;
+        }
+        say("Looking up " + n + "...");
+        background("look up " + n, () -> {
+            SkinApi.Textures t = SkinApi.texturesOf(SkinApi.idOf(n));
+            if (t == null || t.skinUrl() == null || t.skinUrl().isBlank()) {
+                throw new IOException(n + " has no custom skin");
+            }
+            byte[] png = SkinApi.download(t.skinUrl());
+            say("Found " + n + ". Save it, or wear it now.");
+            String url = t.skinUrl();
+            String hash = url.substring(url.lastIndexOf('/') + 1);
+            Minecraft.getInstance().execute(() -> done.accept(new Peek(n, png, t.slim(), hash)));
+        });
+    }
+
+    static void keepPeek(Peek p, boolean wearToo, String capeId) {
+        background("save " + p.name(), () -> {
+            keep(p.png(), p.name(), p.name(), p.slim());
+            if (wearToo) {
+                Minecraft.getInstance().execute(() -> wearBytes(p.png(), p.slim(), capeId, p.name(), "", false));
+            }
+        });
+    }
+
+    static boolean wearCape(String capeId) {
+        return start("change your cape", false, token -> {
+            String note = applyCape(token, capeId);
+            say(note.startsWith(".") ? note.substring(2) : capeId.isEmpty() ? "Cape hidden." : "Cape changed.");
+            Account.refreshInfo();
+        });
+    }
 
     private static void background(String what, Job job) {
         Thread t = new Thread(() -> {
@@ -400,7 +446,6 @@ final class Wardrobe {
         });
     }
 
-    /** A skin file, or a wardrobe zip. The text may be a path with quotes, as Windows copies it. */
     static void addFile(String text) {
         String t = text == null ? "" : text.strip();
         if (t.length() >= 2 && t.startsWith("\"") && t.endsWith("\"")) {
@@ -442,7 +487,6 @@ final class Wardrobe {
         });
     }
 
-    /** Fix for an old 64 by 32 skin: converts it to the current layout. */
     static void fix(WardrobeStore.Skin s) {
         background("fix " + s.name, () -> {
             WardrobeStore st = store();
@@ -467,7 +511,6 @@ final class Wardrobe {
         });
     }
 
-    /** Everyone in the world or server now, for saving their skins. Game thread only. */
     static List<Player> playersHere() {
         ClientPacketListener conn = Minecraft.getInstance().getConnection();
         if (conn == null) {
@@ -484,9 +527,6 @@ final class Wardrobe {
         return out;
     }
 
-    // ------------------------------------------------------------------ rules for servers and worlds
-
-    /** "server:address name", "world:name", or empty when not in a game. */
     static String place() {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null) {
@@ -502,7 +542,6 @@ final class Wardrobe {
         return "";
     }
 
-    /** Called every frame. When the player joins a place that has a rule, wears the rule's outfit once. */
     static void frame() {
         String place = place();
         if (!place.equals(lastPlace)) {

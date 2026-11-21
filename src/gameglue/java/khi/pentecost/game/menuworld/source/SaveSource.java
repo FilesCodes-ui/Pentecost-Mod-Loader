@@ -13,22 +13,12 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-/**
- * Looks at a Minecraft save folder so it can be shown behind the menu. Read only: nothing in the save is ever
- * written, moved or locked. Only the overworld is used (the save's own region folder).
- */
 public final class SaveSource {
     private SaveSource() {}
 
-    /** Oldest chunk format this reader understands (1.18) and the newest (1.20.1). Chunks are read as they are saved. */
     static final int OLDEST_DATA_VERSION = 2825;
     static final int NEWEST_DATA_VERSION = 3465;
 
-    /**
-     * @param problem   null when usable, otherwise one short plain sentence for the settings screen
-     * @param spawn     {x, y, z} of the world spawn, or null
-     * @param lastPos   {x, y, z} where the player last was, or null (not saved for servers' worlds)
-     */
     public record Info(Path folder, String name, boolean usable, String problem, int dataVersion, int[] spawn,
                        double[] lastPos, long lastPlayed) {}
 
@@ -76,7 +66,6 @@ public final class SaveSource {
         return new Info(folder, name, false, problem, 0, null, null, 0);
     }
 
-    /** Every folder in {@code savesDir} that looks like a world, newest played first. Unusable ones are included with a reason. */
     public static List<Info> list(Path savesDir) {
         List<Info> out = new ArrayList<>();
         if (!Files.isDirectory(savesDir)) return out;
@@ -85,13 +74,11 @@ public final class SaveSource {
                 if (Files.isRegularFile(d.resolve("level.dat")) || Files.isDirectory(d.resolve("region"))) out.add(inspect(d));
             }
         } catch (IOException e) {
-            // an unreadable saves folder is the same as an empty one
         }
         out.sort(Comparator.comparingLong(Info::lastPlayed).reversed().thenComparing(i -> i.name().toLowerCase()));
         return out;
     }
 
-    /** The chunk box to scan for a save. Everything it has when {@code whole}, otherwise a square around the centre. */
     public static int[] scanBox(Path folder, boolean whole, int centerBlockX, int centerBlockZ, int radiusChunks) {
         int cx = Math.floorDiv(centerBlockX, 16), cz = Math.floorDiv(centerBlockZ, 16);
         int[] around = {cx - radiusChunks, cz - radiusChunks, cx + radiusChunks - 1, cz + radiusChunks - 1};

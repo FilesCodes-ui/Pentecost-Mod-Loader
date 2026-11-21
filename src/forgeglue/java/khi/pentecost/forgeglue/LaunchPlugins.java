@@ -15,16 +15,9 @@ import java.util.List;
 import java.util.ServiceLoader;
 import java.util.Set;
 
-/**
- * Forge ships small class rewriters as launcher plug-ins: event classes, extensible enums,
- * capability tokens, and object holders. Forge's launcher runs them on every class as it loads.
- * Pentecost's class loader runs the same plug-ins through this class.
- */
 public final class LaunchPlugins implements ClassTransformer {
-    /** The side stripper is skipped: the client has every class, and it would parse the whole game. */
     private static final Set<String> SKIPPED = Set.of("runtimedistcleaner", "mixin", "accesstransformer", "eventbus");
 
-    /** The event bus's own class preparer, called directly. Its plug-in wrapper needs Forge's launcher. */
     private net.minecraftforge.eventbus.IEventBusEngine events;
 
     private final ClassLoader loader;
@@ -44,8 +37,6 @@ public final class LaunchPlugins implements ClassTransformer {
                 p = plugins;
                 if (p == null) {
                     p = new ArrayList<>();
-                    // Some listed plug-ins belong to other hosts and cannot load here. Skip those one by one.
-                    // Plug-in classes load through this same loader, so the transformer stands aside meanwhile.
                     busy.set(true);
                     try {
                         java.util.Iterator<ILaunchPluginService> it =
@@ -60,7 +51,6 @@ public final class LaunchPlugins implements ClassTransformer {
                                     p.add(s);
                                 }
                             } catch (Throwable notForUs) {
-                                // Not a plug-in Pentecost runs.
                             }
                         }
                     } finally {
@@ -80,7 +70,6 @@ public final class LaunchPlugins implements ClassTransformer {
 
     @Override
     public byte[] transform(String name, byte[] bytes) {
-        // Classes the plug-ins themselves are made of load untouched.
         if (busy.get() || name.startsWith("khi.pentecost.") || name.startsWith("cpw.mods.") || name.startsWith("org.objectweb.")
                 || name.startsWith("net.minecraftforge.eventbus.") || name.startsWith("org.apache.")
                 || name.startsWith("org.slf4j.") || name.startsWith("net.minecraftforge.accesstransformer.")) {
@@ -112,7 +101,6 @@ public final class LaunchPlugins implements ClassTransformer {
                     node = new ClassNode();
                     new ClassReader(bytes).accept(node, 0);
                 }
-                // The event preparer adds straight-line members only, so it asks for no frame rebuild here.
                 if (events.processClass(node, type) != 0) {
                     flags |= ILaunchPluginService.ComputeFlags.SIMPLE_REWRITE;
                 }
@@ -147,7 +135,6 @@ public final class LaunchPlugins implements ClassTransformer {
         }
     }
 
-    /** Finds common parent classes by reading class files, so no class loads while another is being built. */
     private final class SafeWriter extends ClassWriter {
         SafeWriter(int flags) {
             super(flags);

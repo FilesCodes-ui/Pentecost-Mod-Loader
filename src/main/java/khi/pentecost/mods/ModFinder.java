@@ -9,19 +9,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Step 3 of mod threads: how a mod from one loader finds a mod from another.
- *
- * Fabric and Forge mods often name the same mod differently: "cloth-config" and "cloth_config",
- * "jei-fabric" and "jei", "create" and "create_fabric". A Fabric mod asking for a Forge mod by its Fabric name
- * used to get "not loaded" and turn its support off. The finder tries, in order, and stops at the first sure answer:
- * 1. the exact id,
- * 2. an id another mod says it provides,
- * 3. the same id once spelling is evened out (case, - and _, loader words like fabric or forge removed),
- * 4. the same display name, evened out the same way.
- * Steps 3 and 4 only answer when exactly one mod matches, so a guess can never pick between two mods.
- * Every match made by 3 or 4 is written to the log once, so a wrong one is easy to spot.
- */
 public final class ModFinder {
     private static final Optional<ModInfo> MISSING = Optional.empty();
     private static final Map<String, Optional<ModInfo>> CACHE = new ConcurrentHashMap<>();
@@ -29,7 +16,6 @@ public final class ModFinder {
 
     private ModFinder() {}
 
-    /** Finds the mod a lookup means, across loaders. Libraries are skipped when skipLibraries is set. */
     public static Optional<ModInfo> find(List<ModInfo> mods, String id, boolean skipLibraries) {
         if (id == null || id.isEmpty()) {
             return MISSING;
@@ -66,7 +52,7 @@ public final class ModFinder {
             }
         }
         String want = even(id);
-        // Words too common to stand for one mod: "fabric-api" evens to "api" and must never match a mod called API.
+
         if (want.length() < 3 || java.util.Set.of("api", "lib", "core", "config", "common", "base", "util", "utils").contains(want)) {
             return MISSING;
         }
@@ -88,10 +74,6 @@ public final class ModFinder {
         return MISSING;
     }
 
-    /**
-     * 5. Parts of the name, as whole words: the mod whose id or name holds every word asked for. When only one mod
-     * does, it is the answer. When several do, only one with exactly those words counts. Never a guess.
-     */
     static ModInfo byWords(List<ModInfo> pool, String id) {
         List<String> want = words(id);
         if (want.isEmpty() || (want.size() == 1 && COMMON.contains(want.get(0)))) {
@@ -124,7 +106,7 @@ public final class ModFinder {
                 tie = true;
             }
         }
-        // With several mods holding the words, only an exact word match is sure. "xaero" fits both Xaero mods: no answer.
+
         if (tie || (matches > 1 && bestExtra > 0)) {
             return null;
         }
@@ -134,7 +116,6 @@ public final class ModFinder {
     private static final java.util.Set<String> COMMON = java.util.Set.of("api", "lib", "core", "config", "common", "base",
             "util", "utils");
 
-    /** The words of an id or name: lower case, split at anything not a letter or digit, loader words removed. */
     static List<String> words(String s) {
         List<String> out = new ArrayList<>();
         for (String w : s.toLowerCase(Locale.ROOT).split("[^a-z0-9]+")) {
@@ -170,7 +151,6 @@ public final class ModFinder {
         return one;
     }
 
-    /** An id or name with spelling evened out: lower case, letters and digits only, loader words removed. */
     static String even(String s) {
         String t = s.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim();
         StringBuilder b = new StringBuilder();

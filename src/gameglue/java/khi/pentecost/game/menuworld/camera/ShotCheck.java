@@ -9,20 +9,13 @@ import java.util.List;
 import java.util.Random;
 import java.util.Set;
 
-/**
- * The director's eye for a finished shot: it flies the shot on paper and rates what the camera would see. A shot
- * that stares into a hillside, leaves the loaded land, or sits on top of its subject is thrown out, and the best of
- * several candidates is played. Also composes the picture: the subject is placed off centre, on a third.
- */
 public final class ShotCheck {
     private ShotCheck() {}
 
-    /** @param reject true when the shot must not be played if any other candidate exists */
     public record Rating(double score, boolean reject, String why) {}
 
     private static final int SAMPLES = 24;
 
-    /** {@code eyeBox} is {minX, minZ, maxX, maxZ} in blocks, or null for anywhere. */
     public static Rating rate(Shot s, Terrain t, int[] eyeBox) {
         if (s.guided()) {
             return new Rating(1, false, "");
@@ -82,7 +75,6 @@ public final class ShotCheck {
     private static final Set<MoveType> FRAMED = EnumSet.of(MoveType.ORBIT, MoveType.DOLLY, MoveType.PUSH_IN, MoveType.REVEAL,
             MoveType.ESTABLISH, MoveType.SPIRAL, MoveType.DUTCH, MoveType.TELEPHOTO, MoveType.CRANE);
 
-    /** Moves the aim a little to one side, so the subject sits on a third of the picture instead of the middle. */
     public static Shot frame(Shot s, Random r) {
         if (s.guided() || !FRAMED.contains(s.type())) {
             return s;

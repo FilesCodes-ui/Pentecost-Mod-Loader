@@ -1,7 +1,3 @@
-// Builds the zip to hand to a friend: gradle installerZip  ->  build/dist/Pentecost-<version>-Installer.zip
-// The zip holds compiled jars only. No source, no run\ (saves, sign-in tokens), no cache\ (files derived from Minecraft), no mods\.
-// Minecraft, Forge and their libraries are never inside it: they download from Mojang's and Forge's own servers on first run.
-
 def pentecostLibs = layout.buildDirectory.dir('dist/payload-lib')
 
 def jarFor = { String taskName, String baseName, def output ->
@@ -23,7 +19,6 @@ if (sourceSets.findByName('forgeglue') != null) {
     distJarTasks << 'distJarForgeglue'
 }
 
-// Licences of the libraries that ship in lib\ (upstream licences; check them again when a library is updated).
 def knownLicences = [
         'asm'            : 'BSD-3-Clause (OW2 ASM)',
         'sponge-mixin'   : 'MIT (SpongePowered Mixin, Fabric fork)',
@@ -78,8 +73,6 @@ tasks.register('installerZip', Zip) {
             from('assets/pentecost_still_256.png')
             into('shaderpack') { from('shaderpack') }
             into('lib') {
-                // Only this version's jars. An older build's jars stay in dist/jars, and shipping them made the installer
-                // report the old version, so an update to it would never have counted as done.
                 from(layout.buildDirectory.dir('dist/jars')) { include "pentecost-${project.version}.jar" }
                 from(configurations.runtimeClasspath)
                 into('glue') {

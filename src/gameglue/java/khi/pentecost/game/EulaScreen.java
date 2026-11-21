@@ -12,14 +12,6 @@ import net.minecraft.sounds.SoundEvents;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Shown once, before the first time the player opens the server list, Realms or Open to LAN, joins a server, uses a
- * room code or opens a world to friends. {@link ModsScreens#route} shows it in place of any of the game's own online
- * screens, so it does not matter which button leads there.
- * It says that Pentecost is not an official Minecraft product, points at the Minecraft EULA and the Usage Guidelines,
- * and asks the player to agree. The answer is saved with the other Pentecost settings and shared with the
- * agreement the menu world asks for, so the player is asked once, not once per feature.
- */
 public final class EulaScreen extends Screen {
     private static final String EULA_URL = "https://aka.ms/MinecraftEULA";
     private static final String GUIDELINES_URL = "https://www.minecraft.net/en-us/usage-guidelines";
@@ -36,24 +28,20 @@ public final class EulaScreen extends Screen {
         this.then = then;
     }
 
-    /** True when the player has already agreed. */
     public static boolean agreed() {
         return MenuHost.profile().eulaAccepted;
     }
 
-    /** The game's own screens that lead to online play. Nothing may start online before the player has agreed. */
     public static boolean leadsOnline(String screenClass) {
         return screenClass.equals("net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen")
                 || screenClass.equals("com.mojang.realmsclient.RealmsMainScreen")
                 || screenClass.equals("net.minecraft.client.gui.screens.ShareToLanScreen");
     }
 
-    /** The agreement in place of a screen that leads online. Agreeing opens that screen; Back goes to from. */
     public static Screen gate(Screen from, Screen wanted) {
         return new EulaScreen(from, () -> Minecraft.getInstance().setScreen(wanted));
     }
 
-    /** Shows the agreement. When the player agrees, the screen goes back to from and then runs. Back runs nothing. */
     public static void ask(Minecraft mc, Screen from, Runnable then) {
         mc.setScreen(new EulaScreen(from, then));
     }
@@ -78,7 +66,7 @@ public final class EulaScreen extends Screen {
 
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-        g.fill(0, 0, width, height, minecraft.level == null ? 0xFF0A0A0B : 0xD80A0A0B);
+        g.fill(0, 0, width, height, Ui.back(minecraft));
         Ui.dither(g, width, height);
         float ui = Ui.scale(minecraft);
         int vw = (int) (width / ui);

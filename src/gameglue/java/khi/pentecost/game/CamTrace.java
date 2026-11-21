@@ -5,11 +5,6 @@ import khi.pentecost.boot.Log;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Finds camera jumps. Every frame a camera reports where it is; if the move does not follow from the move before it
- * (a snap, a teleport, a stall) one line goes to the log, with what the camera was doing. Search the log for
- * "camtrace". It costs almost nothing and stops after 120 lines per camera, so it can stay on.
- */
 public final class CamTrace {
     private static final class S {
         double x, y, z, vx, vy, vz, yaw, pitch, fov, yawRate, pitchRate, fovRate;
@@ -57,7 +52,6 @@ public final class CamTrace {
         s.has = true;
     }
 
-    /** Forget the last frame, for when a camera is deliberately cut (a new shot after a fade, a new menu). */
     public static void reset(String tag) {
         STATE.remove(tag);
     }

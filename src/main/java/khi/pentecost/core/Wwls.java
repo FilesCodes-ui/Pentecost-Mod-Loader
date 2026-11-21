@@ -26,24 +26,7 @@ import java.util.function.BooleanSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * World Wide Local Server, the part that needs no game classes.
- *
- * The host asks the router to open a port (UPnP), learns the public address, and files it under a room code
- * at the rendezvous service. A friend asks the service for the code and connects straight to the host.
- * No game traffic passes through the service.
- *
- * Safety rules this class keeps:
- *  - Rendezvous traffic never leaves https (redirects are followed only https to https).
- *  - The host proves it owns a room with a random secret. The service stores only a hash of it.
- *  - A friend only connects to a public IPv4 address with a normal port, never to what the service happens to say.
- *  - The router port is opened for a limited time, renewed while the world runs, and closed when the world stops,
- *    when sharing stops, or when the game exits.
- *  - Only a device on the local network that answers the router search is trusted as the router, and its
- *    description and control addresses must be on that same device.
- */
 public final class Wwls {
-    /** The introduction service: a Google Apps Script web app, source in tools/wwls-rendezvous.gs. */
     public static final String[] BACKENDS = {
             "https://script.google.com/macros/s/AKfycbws6mIR7xUfTCJU_3KAf3K2x0dGIuLd35rW05ygDTFM39CGnjHBKe2h1_5hwVGG77sZkQ/exec",
             "https://script.google.com/macros/s/AKfycbz1MpsGspZgNXKrX-RJpU3eQtDzpOqQD2VgENIUO2juUuR7zdQ7tBQH3LgbG0s0QPa7/exec",
@@ -51,11 +34,8 @@ public final class Wwls {
             "https://script.google.com/macros/s/AKfycbwxMvVbzWWH2GEhlijpeq9yO8-5wQJbkxoECAy1xyy2IB9Po5nTV9BwotlXuCDcNii4/exec",
             "https://script.google.com/macros/s/AKfycbzHUnIpbA_QN6GtRHW7GSF9l9HueDxpb-FVFNrE-htp9Z3kktFAdeaLHEYgNDBJ1MS1/exec",
             "https://script.google.com/macros/s/AKfycbxxwwzT95dqlnB8gJTo-dZFqhNzVxD2J7Y5vW1zMB-3zYqe8mLfZ0jcy6Vu0Mr8lOFm/exec",
-            // Add more deployments of the same script here, ideally each from a different Google account.
-            // At most 32. A room code's first character says which one holds the room.
     };
 
-    /** Room codes are this long. 32 symbols each, about 50 bits. */
     public static final int CODE_LENGTH = 10;
 
     private static final int ROOM_SECONDS = 900;
@@ -66,17 +46,13 @@ public final class Wwls {
     private static final Pattern ADDRESS = Pattern.compile("^([0-9.]{7,15}):([0-9]{1,5})$");
     private static final Pattern V4 = Pattern.compile("^([0-9]{1,3})\\.([0-9]{1,3})\\.([0-9]{1,3})\\.([0-9]{1,3})$");
 
-    /** Internet traffic. Redirects are followed only when they stay on https. */
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL).connectTimeout(Duration.ofSeconds(6)).build();
-    /** Traffic to the router. It never follows a redirect, so a device cannot send the game somewhere else. */
     private static final HttpClient LAN = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NEVER).connectTimeout(Duration.ofSeconds(3)).build();
 
-    /** A port the router opened for the game. lease is the seconds it was opened for, 0 when the router only allows permanent ones. */
     public record Mapping(String control, String service, int port, String publicIp, String localIp, int lease) {}
 
-    /** Thrown with a sentence meant for the player. */
     public static final class WwlsException extends Exception {
         public WwlsException(String message) {
             super(message);
@@ -85,20 +61,15 @@ public final class Wwls {
 
     private Wwls() {}
 
-    // ---------------------------------------------------------------- codes and addresses
-
-    /** The script that holds rooms whose code starts with this character. Fixed by the code, so a friend needs no guessing. */
     static String backendFor(String code) {
         return BACKENDS[shardOf(code, BACKENDS.length)];
     }
 
-    /** Which of n scripts a code belongs to, from its first character. Anything unknown goes to the first. */
     static int shardOf(String code, int n) {
         int i = code == null || code.isEmpty() ? -1 : ALPHABET.indexOf(code.charAt(0));
         return i < 0 ? 0 : i % n;
     }
 
-    /** A new code that belongs to script number shard out of n. */
     static String newCode(int shard, int n) {
         int choices = (ALPHABET.length() - shard + n - 1) / n;
         StringBuilder sb = new StringBuilder();
@@ -117,7 +88,6 @@ public final class Wwls {
         return sb.toString();
     }
 
-    /** A random secret that proves a host owns its room. Never shown, never stored on disk. */
     private static String newSecret() {
         byte[] b = new byte[32];
         RANDOM.nextBytes(b);
@@ -128,7 +98,6 @@ public final class Wwls {
         return raw == null ? "" : raw.toUpperCase().replaceAll("[^A-Z0-9]", "");
     }
 
-    /** True for an IPv4 address that is on the public internet, not a private, loopback, shared or reserved one. */
     static boolean publicV4(String ip) {
         Matcher m = V4.matcher(ip);
         if (!m.matches()) {
@@ -153,7 +122,6 @@ public final class Wwls {
         return true;
     }
 
-    /** The only kind of address the game will connect to for a room: public IPv4, port 1024 to 65535. */
     public static boolean validAddress(String addr) {
         if (addr == null) {
             return false;
@@ -166,9 +134,6 @@ public final class Wwls {
         return port >= 1024 && port <= 65535;
     }
 
-    // ---------------------------------------------------------------- http
-
-    /** Reads at most max bytes, so a device or a server cannot make the game read forever. */
     private static String fetch(HttpClient client, String url, int max) throws IOException, InterruptedException {
         HttpRequest req = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(10)).GET().build();
         HttpResponse<InputStream> r = client.send(req, HttpResponse.BodyHandlers.ofInputStream());
@@ -181,7 +146,6 @@ public final class Wwls {
         return URLEncoder.encode(s, StandardCharsets.UTF_8);
     }
 
-    /** The address the internet sees, or null when it cannot be found. */
     public static String publicIp() {
         for (String url : new String[]{"https://api.ipify.org", "https://checkip.amazonaws.com"}) {
             try {
@@ -190,7 +154,6 @@ public final class Wwls {
                     return ip;
                 }
             } catch (IOException | RuntimeException e) {
-                // try the next one
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return null;
@@ -198,8 +161,6 @@ public final class Wwls {
         }
         return null;
     }
-
-    // ---------------------------------------------------------------- rendezvous
 
     private static JsonObject call(String action, String code, String key, String addr) throws WwlsException {
         StringBuilder url = new StringBuilder(backendFor(code)).append("?a=").append(action).append("&code=").append(enc(code));
@@ -243,11 +204,9 @@ public final class Wwls {
         try {
             call("close", code, key, null);
         } catch (WwlsException e) {
-            // the code expires by itself in a few minutes
         }
     }
 
-    /** Looks up a room. Only returns an address the game is willing to connect to. */
     public static String find(String code) throws WwlsException {
         JsonObject o = call("find", code, null, null);
         String addr = o.has("addr") && o.get("addr").isJsonPrimitive() ? o.get("addr").getAsString() : "";
@@ -257,14 +216,9 @@ public final class Wwls {
         return addr;
     }
 
-    // ---------------------------------------------------------------- hosting
-
-    /**
-     * A world open to friends. It keeps its room and its router port alive while the world runs and closes
-     * both when the world stops, when close() is called, or when the game exits.
-     */
     public static final class Session {
         private final String code;
+        private final String personal;
         private final String key;
         private final String address;
         private final Mapping mapping;
@@ -275,8 +229,9 @@ public final class Wwls {
         private final java.util.List<Runnable> closers = new java.util.concurrent.CopyOnWriteArrayList<>();
         private long lastRenew = System.nanoTime();
 
-        private Session(String code, String key, String address, Mapping mapping, BooleanSupplier alive) {
+        private Session(String code, String personal, String key, String address, Mapping mapping, BooleanSupplier alive) {
             this.code = code;
+            this.personal = personal;
             this.key = key;
             this.address = address;
             this.mapping = mapping;
@@ -295,11 +250,25 @@ public final class Wwls {
             return code;
         }
 
+        public String address() {
+            return address;
+        }
+
+        void filePersonal() {
+            if (personal == null) {
+                return;
+            }
+            try {
+                register(personal, address, key);
+            } catch (WwlsException | RuntimeException e) {
+                Log.warn("WWLS could not file the world under your friend code yet: " + e.getMessage());
+            }
+        }
+
         public boolean closed() {
             return closed.get();
         }
 
-        /** Runs r when the session closes, or at once if it already has. Each step runs once. */
         public void onClose(Runnable r) {
             closers.add(r);
             if (closed.get() && closers.remove(r)) {
@@ -324,6 +293,7 @@ public final class Wwls {
                 if (System.nanoTime() - lastRenew >= RENEW_SECONDS * 1_000_000_000L) {
                     lastRenew = System.nanoTime();
                     register(code, address, key);
+                    filePersonal();
                     renewPort(mapping);
                 }
             } catch (WwlsException | RuntimeException e) {
@@ -331,7 +301,6 @@ public final class Wwls {
             }
         }
 
-        /** Safe to call more than once and from any thread. */
         public void close() {
             if (!closed.compareAndSet(false, true)) {
                 return;
@@ -340,9 +309,11 @@ public final class Wwls {
             try {
                 Runtime.getRuntime().removeShutdownHook(hook);
             } catch (IllegalStateException e) {
-                // the game is already exiting
             }
             unregister(code, key);
+            if (personal != null) {
+                unregister(personal, key);
+            }
             closePort(mapping);
             for (Runnable r : closers) {
                 if (closers.remove(r)) {
@@ -352,15 +323,10 @@ public final class Wwls {
         }
     }
 
-    /**
-     * Opens a port on the router and files the room. The caller starts the world on that port and calls
-     * close() on the session if that fails. The session closes itself when alive turns false.
-     */
     public static Session host(int port, BooleanSupplier alive) throws WwlsException {
         Mapping mapping = openPort(port);
         String key = newSecret();
         String address = mapping.publicIp() + ":" + port;
-        // Try the scripts in a random order. The code made for the one that answers says where friends must ask.
         String code = null;
         WwlsException last = null;
         int n = BACKENDS.length;
@@ -378,10 +344,16 @@ public final class Wwls {
             closePort(mapping);
             throw last;
         }
-        return new Session(code, key, address, mapping, alive);
+        String personal = null;
+        try {
+            personal = Friends.myCode();
+        } catch (RuntimeException e) {
+            Log.warn("No friend code for this world: " + e);
+        }
+        Session s = new Session(code, personal, key, address, mapping, alive);
+        s.filePersonal();
+        return s;
     }
-
-    // ---------------------------------------------------------------- router (UPnP)
 
     private record Gateway(String control, String service, String localIp) {}
 
@@ -424,7 +396,6 @@ public final class Wwls {
                     } catch (java.net.SocketTimeoutException e) {
                         continue;
                     }
-                    // The router is a device on this network. A reply from anywhere else is ignored.
                     InetAddress from = in.getAddress();
                     if (!from.isSiteLocalAddress()) {
                         continue;
@@ -440,13 +411,11 @@ public final class Wwls {
                     }
                 }
             } catch (IOException e) {
-                // this adapter cannot search, try the next one
             }
         }
         return null;
     }
 
-    /** Reads the router's description. Its address and its control address must both be the device that answered. */
     private static Gateway describe(String location, String expectedHost) {
         try {
             URI base = URI.create(location);
@@ -505,7 +474,6 @@ public final class Wwls {
         soap(g, "AddPortMapping", add);
     }
 
-    /** Asks the router to forward the port. Throws with a sentence the player can act on. */
     public static Mapping openPort(int port) throws WwlsException {
         try {
             Gateway g = discover();
@@ -513,7 +481,6 @@ public final class Wwls {
                 throw new WwlsException("Your router did not answer. Turn on UPnP in the router settings, "
                         + "or use the playit.gg helper on this page.");
             }
-            // A limited time, renewed while the world runs. Some routers only allow permanent ones.
             int lease = PORT_LEASE_SECONDS;
             try {
                 addMapping(g, port, lease);
@@ -564,7 +531,6 @@ public final class Wwls {
             soap(g, "DeletePortMapping", "<NewRemoteHost></NewRemoteHost><NewExternalPort>" + m.port()
                     + "</NewExternalPort><NewProtocol>TCP</NewProtocol>");
         } catch (IOException e) {
-            // the router drops it on restart, or when its lease ends
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }

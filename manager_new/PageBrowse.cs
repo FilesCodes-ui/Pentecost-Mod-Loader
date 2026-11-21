@@ -5,7 +5,6 @@ namespace Pentecost.Manager;
 
 public partial class MainWindow
 {
-    /// <summary>Browse: a grid of cards from Modrinth. More load near the end; cards far off screen are dropped.</summary>
     FrameworkElement BuildBrowse()
     {
         var root = new Grid();
@@ -14,8 +13,8 @@ public partial class MainWindow
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var type = "mod";
-        var loader = "All";
-        var sort = "relevance";
+        var loader = Settings.BrowseLoader;
+        var sort = Settings.BrowseSort;
         var cats = new HashSet<string>();
         var hideInstalled = false;
         var hits = new List<Hit>();
@@ -25,6 +24,9 @@ public partial class MainWindow
         var busy = false;
         CancellationTokenSource? cts = null;
         var installedIds = new HashSet<string>();
+        var installedFiles = new Dictionary<string, HashSet<string>>();
+        var unknownFiles = new HashSet<string>();
+        var packs = new HashSet<string>();
         var working = new HashSet<string>();
         var allCats = new List<Category>();
         var paged = true;
@@ -32,6 +34,9 @@ public partial class MainWindow
         const int PageSize = 100;
         var pager = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 8, 0, 4), Visibility = Visibility.Collapsed };
 
+        var harbor = new Harbor { Height = 270, Margin = new Thickness(-34, -24, -28, 0) };
+        var headCount = Ui.T("Modrinth, Minecraft 1.20.1", 13, "Soft");
+        headCount.FontFamily = (FontFamily)FindResource("Mono");
         var status = Ui.T("", 12.5, "Muted", trim: true);
         status.VerticalAlignment = VerticalAlignment.Center;
         var progress = new ProgressBar { Style = Ui.St("Bar"), Margin = new Thickness(0, 10, 0, 0) };
@@ -40,7 +45,6 @@ public partial class MainWindow
         lazy = new LazyList(150, CardRow);
         lazy.View.Margin = new Thickness(0, 10, 0, 0);
 
-        // ---- search box: searches by itself a moment after typing stops
         var boxHost = Ui.SearchBox("Search Modrinth", out var box);
         var typing = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
         typing.Tick += (_, _) => { typing.Stop(); _ = Search(true); };
@@ -48,8 +52,6 @@ public partial class MainWindow
         box.KeyDown += (_, e) => { if (e.Key == Key.Enter) { typing.Stop(); _ = Search(true); } };
         searchFocus["Browse"] = () => { box.Focus(); box.SelectAll(); };
         searchWith = term => { box.Text = term; typing.Stop(); _ = Search(true); };
-        var searchRow = Ui.Row(boxHost, status.With(new Thickness(16, 0, 0, 0)));
-        searchRow.Margin = new Thickness(0, 18, 0, 0);
 
         RadioButton Seg(string label, string group, bool on, Action pick)
         {
@@ -59,21 +61,26 @@ public partial class MainWindow
         }
 
         StackPanel loaders = null!; WrapPanel catPanel = null!; ToggleButton filtersBtn = null!;
-        var types = Ui.H(Seg("Mods", "bt", true, () => SetType("mod")),
-            Seg("Shaders", "bt", false, () => SetType("shader")),
-            Seg("Resource packs", "bt", false, () => SetType("resourcepack")),
-            Seg("Modpacks", "bt", false, () => SetType("modpack")));
-        loaders = Ui.H(Seg("All", "bl", true, () => { loader = "All"; _ = Search(true); }),
-            Seg("Forge", "bl", false, () => { loader = "Forge"; _ = Search(true); }),
-            Seg("Fabric", "bl", false, () => { loader = "Fabric"; _ = Search(true); }),
-            Seg("Quilt", "bl", false, () => { loader = "Quilt"; _ = Search(true); }));
-        var sorts = Ui.H(Seg("Relevance", "bs", true, () => { sort = "relevance"; _ = Search(true); }),
-            Seg("Downloads", "bs", false, () => { sort = "downloads"; _ = Search(true); }),
-            Seg("Follows", "bs", false, () => { sort = "follows"; _ = Search(true); }),
-            Seg("Newest", "bs", false, () => { sort = "newest"; _ = Search(true); }),
-            Seg("Updated", "bs", false, () => { sort = "updated"; _ = Search(true); }));
+        var types = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        foreach (var (label, kind) in new[] { ("MODS", "mod"), ("SHADERS", "shader"), ("RESOURCE PACKS", "resourcepack"), ("MODPACKS", "modpack") })
+        {
+            var k = kind;
+            var mark = new Wordmark { Text = label, Pixel = 1, Fill = Ui.Br(k == "mod" ? "Text" : "Muted") };
+            var rb = new RadioButton { GroupName = "bt", Style = Ui.St("Tab"), IsChecked = k == "mod", Margin = new Thickness(0, 0, 4, 0), Content = mark };
+            rb.Checked += (_, _) => { mark.Fill = Ui.Br("Text"); if (type != k) SetType(k); };
+            rb.Unchecked += (_, _) => mark.Fill = Ui.Br("Muted");
+            types.Children.Add(rb);
+        }
+        loaders = Ui.H(Seg("All", "bl", loader == "All", () => { loader = "All"; _ = Search(true); }),
+            Seg("Forge", "bl", loader == "Forge", () => { loader = "Forge"; _ = Search(true); }),
+            Seg("Fabric", "bl", loader == "Fabric", () => { loader = "Fabric"; _ = Search(true); }),
+            Seg("Quilt", "bl", loader == "Quilt", () => { loader = "Quilt"; _ = Search(true); }));
+        var sorts = Ui.H(Seg("Relevance", "bs", sort == "relevance", () => { sort = "relevance"; _ = Search(true); }),
+            Seg("Downloads", "bs", sort == "downloads", () => { sort = "downloads"; _ = Search(true); }),
+            Seg("Follows", "bs", sort == "follows", () => { sort = "follows"; _ = Search(true); }),
+            Seg("Newest", "bs", sort == "newest", () => { sort = "newest"; _ = Search(true); }),
+            Seg("Updated", "bs", sort == "updated", () => { sort = "updated"; _ = Search(true); }));
 
-        // ---- category filters
         catPanel = new WrapPanel { Margin = new Thickness(0, 8, 0, 0), Visibility = Visibility.Collapsed };
         filtersBtn = new ToggleButton { Content = "Filters", Style = Ui.St("Chip"), VerticalAlignment = VerticalAlignment.Center, ToolTip = "Show or hide the category filters" };
         filtersBtn.Click += (_, _) =>
@@ -122,8 +129,33 @@ public partial class MainWindow
         var paging = Ui.H(Seg("Pages", "bp", true, () => { paged = true; _ = Search(true); }),
             Seg("Endless", "bp", false, () => { paged = false; _ = Search(true); }));
 
-        // ---- layout
-        root.Children.Add(Header("Browse", "Modrinth, filtered to Minecraft 1.20.1.", types));
+        var headText = Ui.V(new Wordmark { Text = "BROWSE", Pixel = 3, Fill = Ui.Br("Text"), HorizontalAlignment = HorizontalAlignment.Left },
+            headCount.With(new Thickness(2, 10, 0, 0)));
+        headText.HorizontalAlignment = HorizontalAlignment.Left;
+        headText.VerticalAlignment = VerticalAlignment.Bottom;
+        headText.Margin = new Thickness(2, 0, 0, 46);
+        headText.IsHitTestVisible = false;
+        var head = new Grid();
+        head.Children.Add(harbor);
+        head.Children.Add(headText);
+        root.Children.Add(head);
+        harbor.Picked += id =>
+        {
+            if (hits.FirstOrDefault(x => x.ProjectId == id) is not { } h) return;
+            ShowProject(h.ProjectId, h.Type, h.Title, h.IconUrl, h.Author, () => { unknownFiles.Add(h.ProjectId); installedIds.Add(h.ProjectId); Redraw(h); });
+        };
+
+        var searchRow = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+        searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        searchRow.Children.Add(types);
+        boxHost.Margin = new Thickness(18, 0, 18, 0);
+        boxHost.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(boxHost, 1);
+        searchRow.Children.Add(boxHost);
+        Grid.SetColumn(status, 2);
+        searchRow.Children.Add(status);
         Grid.SetRow(searchRow, 1);
         root.Children.Add(searchRow);
         var chips = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };
@@ -149,7 +181,6 @@ public partial class MainWindow
         Grid.SetRow(top, 5);
         root.Children.Add(top);
 
-        // More results load by themselves near the end of the list.
         lazy.View.ScrollChanged += (_, _) =>
         {
             var want = lazy.View.VerticalOffset > 500;
@@ -157,7 +188,6 @@ public partial class MainWindow
             else if (!want) top.Visibility = Visibility.Collapsed;
             if (!paged && !busy && offset < total && lazy.NearEnd) _ = Search(false);
         };
-        // The number of cards in a row follows the width of the window.
         lazy.View.SizeChanged += (_, _) =>
         {
             var n = Math.Max(1, (int)(lazy.View.ActualWidth / 340));
@@ -207,27 +237,27 @@ public partial class MainWindow
             status.Text = fresh ? "Searching Modrinth" : "Loading more";
             try
             {
-                if (fresh)
-                {
-                    var mods = await Task.Run(ModScan.Scan);
-                    foreach (var id in mods.Where(m => m.ProjectId != null).Select(m => m.ProjectId!)) installedIds.Add(id);
-                }
+                if (fresh) await RefreshInstalled(false);
                 var page = await Modrinth.Search(box.Text.Trim(), type, loader, cats.ToList(), sort, offset, my.Token);
                 if (my.IsCancellationRequested) return;
                 total = paged ? page.Total : page.Hits.Count == 0 ? offset : page.Total;
                 offset += page.Hits.Count;
                 var lastRow = Rows() - 1;
-                foreach (var h in page.Hits)
-                    if (!hideInstalled || !installedIds.Contains(h.ProjectId)) hits.Add(h);
+                foreach (var h in page.Hits.OrderByDescending(x => Feed.Flag(x.ProjectId, "pin")))
+                    if ((!hideInstalled || !installedIds.Contains(h.ProjectId)) && !Feed.Flag(h.ProjectId, "hide")) hits.Add(h);
                 lazy.SetCount(Rows());
                 if (lastRow >= 0) lazy.Invalidate(lastRow);
-                status.Text = hits.Count == 0 ? "Nothing found" : paged ? $"Page {pageNo + 1} of {Math.Clamp((total + PageSize - 1) / PageSize, 1, 500)}, {Ui.Num(total)} results" : $"{hits.Count} of {Ui.Num(total)}";
+                if (fresh)
+            {
+                harbor.SetCargo(hits.Take(3).Select(x => (x.ProjectId, x.Title)));
+                headCount.Text = hits.Count == 0 ? "Nothing found on Modrinth" : $"{Ui.Num(total)} on Modrinth for 1.20.1";
+            }
+            status.Text = hits.Count == 0 ? "Nothing found" : paged ? $"Page {pageNo + 1} of {Math.Clamp((total + PageSize - 1) / PageSize, 1, 500)}, {Ui.Num(total)} results" : $"{hits.Count} of {Ui.Num(total)}";
                 DrawPager();
             }
             catch (OperationCanceledException) { return; }
             catch (Exception ex) { AppLog.Write("browse: " + ex.Message); status.Text = "Search failed: " + ex.Message; total = offset; }
             finally { if (cts == my) { busy = false; progress.IsIndeterminate = false; progress.Value = 0; } }
-            // A short list does not scroll, so keep going until the screen is full.
             if (!paged && cts == my && offset < total)
                 _ = Dispatcher.BeginInvoke(DispatcherPriority.Background, () => { if (!paged && !busy && offset < total && lazy.NearEnd) _ = Search(false); });
         }
@@ -238,9 +268,84 @@ public partial class MainWindow
             if (i >= 0) lazy.Invalidate(i / cols);
         }
 
+        static string Bare(string file) => file.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase) ? file[..^9] : file;
+
+        static bool FileThere(string name)
+        {
+            foreach (var dir in new[] { Paths.Mods, Modrinth.DirFor("shader"), Modrinth.DirFor("resourcepack") })
+            {
+                var p = Path.Combine(dir, name);
+                if (File.Exists(p) || File.Exists(p + ".disabled")) return true;
+            }
+            return false;
+        }
+
+        async Task RefreshInstalled(bool deleted)
+        {
+            var mods = await Task.Run(ModScan.Scan);
+            var known = installedFiles.ToDictionary(kv => kv.Key, kv => kv.Value.ToList());
+            var next = await Task.Run(() =>
+            {
+                var map = new Dictionary<string, HashSet<string>>();
+                foreach (var m in mods)
+                    if (m.ProjectId != null)
+                    {
+                        if (!map.TryGetValue(m.ProjectId, out var set)) map[m.ProjectId] = set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        set.Add(Bare(Path.GetFileName(m.File)));
+                    }
+                foreach (var (id, files) in known)
+                {
+                    var still = files.Where(FileThere).ToList();
+                    if (still.Count == 0) continue;
+                    if (!map.TryGetValue(id, out var set)) map[id] = set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var f in still) set.Add(f);
+                }
+                return map;
+            });
+            if (deleted) unknownFiles.Clear();
+            installedFiles = next;
+            installedIds.Clear();
+            foreach (var id in next.Keys) installedIds.Add(id);
+            foreach (var id in unknownFiles) installedIds.Add(id);
+            foreach (var id in packs) installedIds.Add(id);
+            lazy.InvalidateAll();
+        }
+
+        var watchers = new List<FileSystemWatcher>();
+        var settle = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+        var sawDelete = false;
+        settle.Tick += (_, _) => { settle.Stop(); var d = sawDelete; sawDelete = false; _ = RefreshInstalled(d); };
+        void Changed(bool delete) => Dispatcher.BeginInvoke(() => { sawDelete |= delete; settle.Stop(); settle.Start(); });
+        root.Loaded += (_, _) =>
+        {
+            if (watchers.Count > 0) return;
+            foreach (var dir in new[] { Paths.Mods, Modrinth.DirFor("shader"), Modrinth.DirFor("resourcepack") })
+            {
+                try
+                {
+                    Directory.CreateDirectory(dir);
+                    var w = new FileSystemWatcher(dir) { IncludeSubdirectories = false, NotifyFilter = NotifyFilters.FileName };
+                    w.Created += (_, _) => Changed(false);
+                    w.Deleted += (_, _) => Changed(true);
+                    w.Renamed += (_, _) => Changed(true);
+                    w.EnableRaisingEvents = true;
+                    watchers.Add(w);
+                }
+                catch (Exception ex) { AppLog.Write("browse watch " + dir + ": " + ex.Message); }
+            }
+            _ = RefreshInstalled(true);
+        };
+        root.Unloaded += (_, _) =>
+        {
+            foreach (var w in watchers) w.Dispose();
+            watchers.Clear();
+            settle.Stop();
+        };
+
         async Task Install(Hit h, string loaderName)
         {
             if (working.Contains(h.ProjectId) || installedIds.Contains(h.ProjectId)) return;
+            if (!await FeedAllowsInstall(h.ProjectId, h.Title, null)) return;
             working.Add(h.ProjectId);
             Redraw(h);
             try
@@ -249,6 +354,8 @@ public partial class MainWindow
                 {
                     Toast("Installing " + h.Title + ". Its mods download in the background.");
                     var pack = await Packs.InstallFromModrinth(h.ProjectId, loader == "All" ? null : loader.ToLowerInvariant(), CancellationToken.None);
+                    packs.Add(h.ProjectId);
+                    harbor.Unload();
                     installedIds.Add(h.ProjectId);
                     Toast(pack.Summary);
                     return;
@@ -256,7 +363,10 @@ public partial class MainWindow
                 var added = h.Type == "mod"
                     ? await Modrinth.Install(h.ProjectId, loaderName, _ => { }, CancellationToken.None)
                     : await Modrinth.InstallOther(h.ProjectId, h.Type, CancellationToken.None);
+                if (added.Count > 0) installedFiles[h.ProjectId] = new HashSet<string>(new[] { Bare(added[0]) }, StringComparer.OrdinalIgnoreCase);
+                else unknownFiles.Add(h.ProjectId);
                 installedIds.Add(h.ProjectId);
+                if (added.Count > 0) harbor.Unload();
                 Toast(added.Count == 0 ? h.Title + " was already there."
                     : h.Type == "mod" ? "Installed " + h.Title + (added.Count > 1 ? $" and {added.Count - 1} needed mods" : "")
                     : "Installed " + h.Title + ". Pick it in the game's options.");
@@ -305,7 +415,6 @@ public partial class MainWindow
             Grid.SetColumn(text, 1);
             upper.Children.Add(text);
 
-            // Pentecost runs every loader, so a mod is offered for each one it was built for.
             var options = h.Type == "mod"
                 ? new[] { "forge", "fabric", "quilt" }.Where(l => h.Loaders.Contains(l)).ToArray()
                 : Array.Empty<string>();
@@ -326,8 +435,18 @@ public partial class MainWindow
             }            btn.Padding = new Thickness(12, 5, 12, 5);
             btn.FontSize = 11.5;
 
-            var meta = Ui.H(Ui.Glyph("", 10, "Faint"), Ui.T(Ui.Num(h.Downloads), 11.5, "Faint").With(new Thickness(5, 0, 12, 0)),
+            var metaStats = Ui.H(Ui.Glyph("", 10, "Faint"), Ui.T(Ui.Num(h.Downloads), 11.5, "Faint").With(new Thickness(5, 0, 12, 0)),
                 Ui.Glyph("", 10, "Faint"), Ui.T(Ui.Num(h.Follows), 11.5, "Faint").With(new Thickness(5, 0, 0, 0)));
+            var meta = Ui.H();
+            foreach (var pill in FeedPills(h.ProjectId).Take(2)) meta.Children.Add(pill);
+            meta.Children.Add(metaStats);
+            if (h.Type == "modpack" && Settings.PackDetails)
+            {
+                metaStats.Visibility = Visibility.Collapsed;
+                var packLine = Ui.T("Reading the pack", 11.5, "Faint", trim: true);
+                meta.Children.Add(packLine);
+                _ = FillPackLine(packLine, h.ProjectId);
+            }
             meta.VerticalAlignment = VerticalAlignment.Center;
             var lower = Ui.Row(meta, btn);
             lower.VerticalAlignment = VerticalAlignment.Bottom;
@@ -337,9 +456,9 @@ public partial class MainWindow
             inner.Children.Add(lower);
             var card = Ui.Lift(Ui.SheetCard(inner, 14));
             card.Cursor = Cursors.Hand;
-            card.MouseLeftButtonUp += (_, _) => ShowProject(h.ProjectId, h.Type, h.Title, h.IconUrl, h.Author, () => { installedIds.Add(h.ProjectId); Redraw(h); });
-            Ui.HoverCard(upper, () => Ui.Preview(h.IconUrl, h.Title, "by " + h.Author, h.Desc, h.Categories.Select(Ui.Nice),
-                Ui.Num(h.Downloads) + " downloads. Click for pictures and versions."));
+            card.MouseLeftButtonUp += (_, _) => ShowProject(h.ProjectId, h.Type, h.Title, h.IconUrl, h.Author, () => { unknownFiles.Add(h.ProjectId); installedIds.Add(h.ProjectId); Redraw(h); });
+            Ui.HoverCard(upper, () => Peek.Card(h, installedIds.Contains(h.ProjectId), FeedPills(h.ProjectId).ToList(),
+                Feed.Mod(h.ProjectId)?["warn"]?["text"]?.ToString()));
             return card;
         }
 

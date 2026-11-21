@@ -1,16 +1,3 @@
-<#
-  Installs Pentecost into the official Minecraft Launcher (Windows).
-    - copies Pentecost's jars to <.minecraft>\pentecost\lib
-    - writes the launcher version "Pentecost-<version>" (a small JSON file) in <.minecraft>\versions
-    - adds a "Pentecost" profile to launcher_profiles.json (the file is backed up first)
-  Minecraft and Forge are NOT part of this installer. Pentecost downloads them from Mojang and Forge on its first start.
-
-  Normally started by "Install Pentecost.cmd". Options:
-    -MinecraftDir <path>   the .minecraft folder (default: %APPDATA%\.minecraft)
-    -Uninstall             remove the launcher version and profile, and the program files (saves and mods stay)
-    -RemoveData            with -Uninstall: also delete the Pentecost game folder, INCLUDING SAVES (asks first)
-    -NoPause               do not wait for a key at the end
-#>
 param(
     [string]$MinecraftDir = (Join-Path $env:APPDATA '.minecraft'),
     [switch]$Uninstall,
@@ -18,32 +5,26 @@ param(
     [switch]$NoPause
 )
 $ErrorActionPreference = 'Stop'
-
 $ProfileKey = 'pentecost'
 $Root = Split-Path -Parent $PSScriptRoot
 $Payload = Join-Path $Root 'payload'
 $PentecostHome = Join-Path $MinecraftDir 'pentecost'
 $ProfilesFile = Join-Path $MinecraftDir 'launcher_profiles.json'
-
 function Finish([int]$code) {
     if (-not $NoPause) { Write-Host ''; Read-Host 'Press Enter to close' | Out-Null }
     exit $code
 }
-
 function Fail([string]$message) {
     Write-Host ''
     Write-Host "Could not finish: $message" -ForegroundColor Red
     Finish 1
 }
-
 function Test-LauncherRunning {
-    # Only the real launcher folder is protected; a test folder (-MinecraftDir elsewhere) is not.
     if ($MinecraftDir -ne (Join-Path $env:APPDATA '.minecraft')) { return $false }
     return [bool](Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^Minecraft(Launcher|\.Launcher)$' })
 }
 
 function New-Dict { [System.Collections.Generic.Dictionary[string,object]]::new() }
-
 function Read-Profiles {
     Add-Type -AssemblyName System.Web.Extensions
     $ser = New-Object System.Web.Script.Serialization.JavaScriptSerializer
@@ -54,16 +35,12 @@ function Read-Profiles {
     if (-not $data.ContainsKey('profiles')) { $data['profiles'] = New-Dict }
     return @($ser, $data)
 }
-
 function Save-Profiles($ser, $data) {
     [IO.File]::WriteAllText($ProfilesFile, $ser.Serialize($data), (New-Object Text.UTF8Encoding($false)))
 }
-
 if (-not (Test-Path $MinecraftDir)) { Fail "I cannot find $MinecraftDir. Open the Minecraft Launcher once, then run this again." }
 if (-not (Test-Path $ProfilesFile)) { Fail "I cannot find launcher_profiles.json in $MinecraftDir. Open the Minecraft Launcher once, sign in, close it, then run this again." }
 if (Test-LauncherRunning) { Fail 'The Minecraft Launcher is open. Close it completely (also from the system tray), then run this again. It rewrites its profile file when it closes.' }
-
-# ------------------------------------------------------------------ uninstall
 if ($Uninstall) {
     Write-Host 'Removing Pentecost from the Minecraft Launcher...'
     $backup = "$ProfilesFile.pentecost-backup"
@@ -88,17 +65,12 @@ if ($Uninstall) {
     Write-Host 'Done.'
     Finish 0
 }
-
-# ------------------------------------------------------------------ install
 $mainJar = Get-ChildItem (Join-Path $Payload 'lib') -Filter 'pentecost-*.jar' -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -notmatch 'gameglue|forgeglue' } | Select-Object -First 1
 if (-not $mainJar) { Fail 'The installer files are incomplete (payload\lib is missing). Unzip the whole zip first, then run the installer from the unzipped folder.' }
 $Version = $mainJar.BaseName -replace '^pentecost-', ''
 $VersionId = "Pentecost-$Version"
-
 Write-Host "Installing Pentecost $Version into $MinecraftDir"
-
-# Program files. The old jars go first so versions do not pile up. Worlds, mods and settings (run\) and downloads (cache\) stay.
 New-Item -ItemType Directory -Force $PentecostHome | Out-Null
 $lib = Join-Path $PentecostHome 'lib'
 if (Test-Path $lib) { Remove-Item $lib -Recurse -Force }
@@ -112,10 +84,6 @@ foreach ($f in 'pentecost-wrapper.ps1', 'pentecost-wrapper.cmd', 'pentecost.ico'
 Set-Content -Path (Join-Path $PentecostHome 'version.txt') -Value $Version -Encoding ASCII
 New-Item -ItemType Directory -Force (Join-Path $PentecostHome 'run\mods') | Out-Null
 Write-Host '  program files copied'
-
-# The launcher version. It builds on vanilla 1.20.1 for the launcher's own bookkeeping, then replaces the main class and
-# the class path, so the game itself is started by Pentecost. The class path is given with absolute paths. The launcher puts
-# its own -cp first and Java uses the LAST -cp, so this one wins and the vanilla jar stays off the class path.
 $gameglue = Join-Path $lib "glue\pentecost-gameglue-$Version.jar"
 $forgeglue = Join-Path $lib "glue\pentecost-forgeglue-$Version.jar"
 $now = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
@@ -146,8 +114,6 @@ New-Item -ItemType Directory -Force $vdir | Out-Null
 $json = $version | ConvertTo-Json -Depth 10
 [IO.File]::WriteAllText((Join-Path $vdir "$VersionId.json"), $json, (New-Object Text.UTF8Encoding($false)))
 Write-Host "  launcher version $VersionId written"
-
-# The launcher profile.
 $backup = "$ProfilesFile.pentecost-backup"
 if (-not (Test-Path $backup)) { Copy-Item $ProfilesFile $backup; Write-Host '  launcher_profiles.json backed up' }
 $pair = Read-Profiles
@@ -178,7 +144,6 @@ $entry['gameDir'] = [string]$PentecostHome
 $entry['lastUsed'] = [string]$now
 $profiles[$ProfileKey] = $entry
 Save-Profiles $ser $data
-
 Write-Host ''
 Write-Host 'Pentecost is installed.' -ForegroundColor Green
 Write-Host '  1. Open the Minecraft Launcher and pick "Pentecost" next to the Play button.'

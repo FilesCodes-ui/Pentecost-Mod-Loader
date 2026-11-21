@@ -14,56 +14,37 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.TreeMap;
 
-/**
- * Pentecost's own settings, as the player set them in the Settings screen.
- * Saved in config/pentecost/settings.json. Every setting has a default, so a missing file is fine.
- */
 public final class Settings {
-    /** Window mode: windowed, fullscreen or borderless. */
     public static final String WINDOW = "interface.window";
-    /** Pentecost draws the main and pause menus. */
     public static final String MENUS = "interface.menus";
-    /** Mod buttons on Pentecost's menus show in black and white. */
     public static final String GRAY_BUTTONS = "interface.grayButtons";
-    /** The slow dot pattern behind Pentecost's screens. */
     public static final String PATTERN = "interface.pattern";
-    /** Pentecost draws the loading screen. */
     public static final String LOADING = "interface.loading";
-    /** Pentecost's look for every screen's buttons, sliders, checkboxes and backgrounds. */
     public static final String RESTYLE = "interface.restyle";
-    /** Pentecost draws the F3 screen. */
     public static final String OVERLAY = "interface.overlay";
-    /** How much the F3 screen shows: standard or full. */
     public static final String OVERLAY_DETAIL = "interface.overlayDetail";
-    /** Where the small Pentecost button sits on a mod's main menu: empty is top right, else topLeft, bottomRight, bottomLeft or off. */
     public static final String MENU_BUTTONS = "interface.menuButtons";
 
-    /** Mobs far from every player think every third tick. */
     public static final String FAR_MOBS = "server.farMobs";
-    /** Chunks unload a few at a time instead of all in one tick. */
     public static final String SPREAD_UNLOADS = "server.spreadUnloads";
-    /** The messenger thread and its workers. A prototype: off unless the player turns it on. */
     public static final String MESSENGER = "threads.messenger";
-    /** Mob path searches run on the workers while the messenger is on. */
     public static final String ASYNC_PATHS = "threads.paths";
-    /** Mobs fully behind solid blocks are not drawn. Found on the messenger's workers. */
     public static final String CULL_ENTITIES = "threads.cullEntities";
     public static final String MOB_THREADS = "threads.mobs";
     public static final String VANILLA_MOB_THREADS = "threads.vanillaMobs";
+    public static final String BLOCK_THREADS = "threads.blockEntities";
+    public static final String MOD_TICKS = "threads.modTicks";
+    public static final String PARALLEL_GEN = "chunks.parallelGen";
+    public static final String FOLLOW_SOLO = "pregen.followSolo";
+    public static final String SPREAD_WATER = "chunks.spreadWater";
 
-    /** The game's own options screens open instead of Pentecost's settings. Off unless the player turns it on. */
     public static final String VANILLA_SETTINGS = "interface.vanillaSettings";
-    /** The camera leaves the player and films them while the pause menu is open. */
     public static final String PAUSE_CAMERA = "interface.pauseCamera";
-    /** "cinematic" plays every kind of shot, "orbit" only turns slowly around the player. */
     public static final String PAUSE_CAMERA_STYLE = "interface.pauseCameraStyle";
-    /** "pentecost" draws players' name tags in Pentecost's look, "vanilla" leaves the game's own. */
     public static final String NAME_TAGS = "interface.nameTags";
-    /** How long the name line and the dev tag are: "auto" follows your gaze, "short" or "long" stay put. */
     public static final String TAG_LENGTH = "interface.tagLength";
     public static final String JAVA_MEMORY = "java.memory";
     public static final String JAVA_YOUNG = "java.young";
-    /** Backup memory in GB, on top of java.memory. Unset means the default for this PC, 0 means none. */
     public static final String JAVA_RESERVE = "java.reserve";
     public static final String JAVA_GC = "java.gc";
     public static final String FAR_RANGE = "server.farRange";
@@ -72,11 +53,11 @@ public final class Settings {
     public static final String STALL_MS = "gameplay.stallMs";
     public static final String OUTLINE_COLOR = "building.outlineColor";
     public static final String OUTLINE_ALPHA = "building.outlineAlpha";
+    public static final String OUTLINE_SHAPE = "building.shapeOutline";
     public static final String SOUND_MUTED_MODS = "sound.mutedMods";
     public static final String SOUND_MUTED = "sound.muted";
     public static final String SOUND_GAP = "sound.gap";
     public static final String SOUND_LIMIT = "sound.limit";
-    /** Pentecost looks at GitHub once at startup for a newer release and shows a toast. Nothing downloads until the player asks. */
     public static final String UPDATE_CHECK = "updates.check";
 
     private static final Map<String, String> DEFAULTS = new java.util.HashMap<>(Map.of(
@@ -100,8 +81,30 @@ public final class Settings {
         DEFAULTS.put(MESSENGER, "false");
         DEFAULTS.put(ASYNC_PATHS, "true");
         DEFAULTS.put(CULL_ENTITIES, "false");
+        DEFAULTS.put("patch.instanceofGate", "true");
+        DEFAULTS.put("fix.portalRefresh", "true");
+        DEFAULTS.put("camera.orbit", "true");
+        DEFAULTS.put("cape.pentecost", "true");
+        for (String k : new String[]{"useWide", "useFollow", "useClose", "overHead", "ghost", "crosshair",
+                "smartCave", "smartCeiling", "smartSpeed", "smartLook", "smartCombat",
+                "seeThrough", "shoulderKey", "autoShoulder", "bowZoom", "lockOn"}) {
+            DEFAULTS.put("camera." + k, "true");
+        }
+        DEFAULTS.put("camera.crosshairWide", "false");
+        DEFAULTS.put("camera.comfort", "false");
         DEFAULTS.put(MOB_THREADS, "false");
         DEFAULTS.put(VANILLA_MOB_THREADS, "false");
+        DEFAULTS.put(BLOCK_THREADS, "false");
+        DEFAULTS.put(OUTLINE_SHAPE, "true");
+        DEFAULTS.put(MOD_TICKS, "false");
+        DEFAULTS.put(PARALLEL_GEN, "true");
+        DEFAULTS.put("render.glFilter", "true");
+        DEFAULTS.put("render.portalShadow", "true");
+        DEFAULTS.put("debug.telemetry", "true");
+        DEFAULTS.put("debug.telemetry.stacks", "true");
+        DEFAULTS.put(FOLLOW_SOLO, "true");
+        DEFAULTS.put(SPREAD_WATER, "true");
+        DEFAULTS.put("online.discordStatus", "true");
     }
 
     private static final Map<String, String> VALUES = new TreeMap<>();
@@ -146,6 +149,9 @@ public final class Settings {
 
     public static synchronized String get(String key) {
         load();
+        if (khi.pentecost.auth.DevFeed.killed(key)) {
+            return "false";
+        }
         String v = VALUES.get(key);
         return v != null ? v : DEFAULTS.getOrDefault(key, "");
     }
@@ -165,7 +171,6 @@ public final class Settings {
         }
     }
 
-    /** A whole number setting, or def when it is unset or not a number. */
     public static int num(String key, int def) {
         try {
             String v = get(key);

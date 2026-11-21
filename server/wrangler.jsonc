@@ -1,0 +1,14 @@
+{
+  "name": "api",
+  "main": "src/index.js",
+  "compatibility_date": "2026-11-01",
+  "workers_dev": true,
+  "assets": { "directory": "./public", "binding": "ASSETS" },
+  "durable_objects": { "bindings": [{ "name": "HUB", "class_name": "Hub" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Hub"] }],
+  "vars": {
+    "OWNER": "808323d1022140ccb69bf8bcd0d16112",
+    "DEV_KEY_SPKI": "MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEA2Yc034jvhsZUrCEd+UYjmgmGMt7Pgj9gqde/5WWA2vqH46b5XM4CCAD8bnjIb/5RnCsC0t9ZCUGfdpqcnTKiaSmqlrwIYsjEKcPTzEf7NO4zIJo+uYZl8Uv/Kpy962Xylce0qhRbKMCu5O1j47H7/LctMorhzYKLPHnAbUzkGOmXbAz0Ch0ijkr5xzNto2Dk4dPbbb/p/QZQCafPT1v2AxGRdMl0WKoFrIuklt8U05uk0ywleXFVs7vi6YwBeKwYjHL9mTvyaMP7xDVSUUxLP4Uz4rXgHd7ysB4fk8M2QVTM1E69TiaEP3gm0tqYRYnDLoXbWhp2GOjbFPtQuKSwChUxCYH8yUL55qNUL7UzS5FmkTVwD9b/3xaceUIhDtjbBx7ienvf1kdsNpF7VHzVSbTo+TmVeB5gqg0tqaDJz6Uo8ihy0a6kCOXQFUS7R0LrFQE4Vjp/4s23Q4Y9aefvPjzYeEwt1tWcP3Ux3HgibmpuPQM3Sme75qWUHGexf4K9AgMBAAE="
+  },
+  "observability": { "enabled": false }
+}

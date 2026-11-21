@@ -9,35 +9,21 @@ import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Random;
 
-/**
- * Plans a camera route through real blocks: down the tunnels of a mineshaft or stronghold, or along the streets of a
- * village. It finds every spot where a person could stand, links the ones that touch, picks the biggest connected
- * network near the place, finds a long path through it that keeps to the middle of the passages, then smooths that
- * path into a camera move that cannot clip a wall.
- */
 public final class WalkRoute {
     private WalkRoute() {}
 
     public enum Mode { TUNNEL, STREET }
 
-    /** Camera positions and aim points, equal in number and evenly spaced, so two uniform rails stay in step. */
     public record Route(List<Vec> eye, List<Vec> look, double length) {}
 
     private static final int[][] DIRS = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
     private static final double SPACING = 2.0;
     private static final int MIN_CELLS = 50;
 
-    /** True when a person could stand with feet in this block: floor below, three blocks of air. */
     public static boolean standing(Voxels v, int x, int y, int z) {
         return v.solid(x, y - 1, z) && !v.solid(x, y, z) && !v.solid(x, y + 1, z) && !v.solid(x, y + 2, z);
     }
 
-    /**
-     * @param centre    the place, in blocks
-     * @param half      half the size of the box to search, per axis
-     * @param targetLen wanted route length, blocks
-     * @return the route, or null when the place has no passages long enough
-     */
     public static Route plan(Voxels v, Mode mode, int cx, int cy, int cz, int rx, int ry, int rz, Random rnd, double targetLen) {
         Grid g = new Grid(v, mode, cx, cy, cz, rx, ry, rz);
         if (g.count < MIN_CELLS) {
@@ -54,7 +40,6 @@ public final class WalkRoute {
                 members.add(i);
             }
         }
-        // Two sweeps give a long path: the farthest cell from anywhere, then the farthest from that one.
         int s0 = members.get(rnd.nextInt(members.size()));
         int a = g.farthest(s0, comp, best).cell;
         Sweep sweep = g.farthest(a, comp, best);
@@ -131,7 +116,6 @@ public final class WalkRoute {
                 }
             }
             if (mode == Mode.STREET && !all.isEmpty()) {
-                // Roofs are standing places too. Keep what is near the street level: the lower third of the heights, and a little above it.
                 int[] ys = new int[all.size()];
                 for (int i = 0; i < ys.length; i++) {
                     ys[i] = all.get(i)[1];
@@ -157,7 +141,6 @@ public final class WalkRoute {
             return true;
         }
 
-        /** Neighbours a person could walk to: a step sideways, up one block or down one. */
         int[] neighbours(int i) {
             int[] c = cells.get(i);
             int[] out = new int[12];
@@ -171,7 +154,7 @@ public final class WalkRoute {
                         continue;
                     }
                     if (dy == 1 && v.solid(c[0], c[1] + 3, c[2])) {
-                        continue; // no room to step up
+                        continue;
                     }
                     out[n++] = j;
                 }
@@ -179,7 +162,6 @@ public final class WalkRoute {
             return java.util.Arrays.copyOf(out, n);
         }
 
-        /** How close the walls are: a cell in the middle of a passage costs little, one hugging a wall costs more. */
         float cost(int i) {
             if (!Float.isNaN(penalty[i])) {
                 return penalty[i];
@@ -222,7 +204,6 @@ public final class WalkRoute {
             return comp;
         }
 
-        /** The connected network that is big and close to the place. -1 when none is big enough. */
         int bestComponent(int[] comp, int cx, int cy, int cz) {
             int n = 0;
             for (int c : comp) {
@@ -288,20 +269,18 @@ public final class WalkRoute {
             return new Sweep(dist, parent, far);
         }
 
-        /** The cells from {@code from} to the sweep's farthest cell. */
         List<Integer> path(Sweep s, int from) {
             List<Integer> out = new ArrayList<>();
             for (int i = s.cell(); i >= 0; i = s.parent()[i]) {
                 out.add(i);
             }
-            Collections.reverse(out); // now from the source to the far cell
+            Collections.reverse(out);
             if (!out.isEmpty() && out.get(0) != from) {
                 Collections.reverse(out);
             }
             return out;
         }
 
-        /** Smooths a cell path into evenly spaced camera and aim points that stay clear of walls. */
         Route camera(List<Integer> path, double eyeHeight, double lead) {
             int n = path.size();
             double[] rx = new double[n], ry = new double[n], rz = new double[n];
@@ -319,7 +298,6 @@ public final class WalkRoute {
                     sz[i] = (sz[i] + rz[i]) / 2;
                 }
             }
-            // evenly spaced points along the smoothed line
             List<Vec> eye = new ArrayList<>();
             double carry = 0;
             eye.add(new Vec(sx[0], sy[0], sz[0]));
@@ -370,7 +348,6 @@ public final class WalkRoute {
             return out;
         }
 
-        /** The camera is a small box: none of its corners may sit inside a block. */
         private boolean free(double x, double y, double z) {
             for (int dx = -1; dx <= 1; dx += 2) {
                 for (int dz = -1; dz <= 1; dz += 2) {

@@ -25,24 +25,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Supplier;
 
-/**
- * Measures what each mod costs the game while the player plays.
- *
- * Java's Flight Recorder samples the render thread and the server thread every PERIOD_MS without stopping the game.
- * Each sample is charged to the first mod found from the top of the stack: the mod's own classes, or Mixin code a mod
- * merged into a game class. Library mods (Kotlin and the like) pass the charge on to the mod that called them.
- * Samples times the period, divided by frames (or ticks), gives milliseconds per frame (or per tick) for each mod.
- * Code no mod owns is charged to "minecraft" (the game and Forge).
- *
- * A mod that measured as costly after enough play gets a flag, saved per mod and version, which the Mods screen shows.
- * Mods that draw the world in place of the game (Embeddium, Oculus) are expected to cost frame time and never get one.
- */
 public final class ModImpact {
     public interface Owners {
-        /** The mod that owns this code, or null for the game and the JDK. */
         String owner(String className, String method, String descriptor);
 
-        /** True for libraries that should pass their cost on to the mod that called them. */
         boolean passThrough(String mod);
     }
 
@@ -52,9 +38,7 @@ public final class ModImpact {
 
     public static final long PERIOD_MS = 10;
     public static final String GAME = "minecraft";
-    /** Mods that replace how the world is drawn. Their frame time is the drawing itself. */
     static final Set<String> RENDERERS = Set.of("embeddium", "rubidium", "sodium", "oculus", "iris", "flywheel");
-    /** Enough play to trust the numbers. */
     static final double MIN_SECONDS = 30;
     static final long MIN_FRAMES = 300;
     static final double FLAG_MS_FRAME = 3.0;
@@ -66,7 +50,6 @@ public final class ModImpact {
         final Map<String, LongAdder> tick = new ConcurrentHashMap<>();
         final LongAdder frames = new LongAdder();
         final LongAdder ticks = new LongAdder();
-        /** Per mod: its hottest own methods, and the game code that called into it. Keys are "F mod" or "T mod". */
         final Map<String, Map<String, LongAdder>> where = new ConcurrentHashMap<>();
         final Map<String, Map<String, LongAdder>> via = new ConcurrentHashMap<>();
         final long started = System.nanoTime();
@@ -93,7 +76,6 @@ public final class ModImpact {
         return session != null;
     }
 
-    /** True while the mod index is still being read, before sampling starts. */
     public static boolean preparing() {
         Session s = session;
         return s != null && s.stream == null && s.error.isEmpty();
@@ -114,7 +96,6 @@ public final class ModImpact {
         return s == null ? 0 : s.frames.sum();
     }
 
-    /** Starts measuring. The owner index is built on a background thread first. */
     public static synchronized void start(Supplier<Owners> owners) {
         start(owners, "Render thread", "Server thread");
     }
@@ -148,7 +129,6 @@ public final class ModImpact {
         t.start();
     }
 
-    /** Stops measuring and returns the measurement. loaded: mod id to version, for the flags. */
     public static synchronized List<Row> stop(Map<String, String> loaded, Path flagFile) {
         Session s = session;
         if (s == null) {
@@ -161,7 +141,6 @@ public final class ModImpact {
             try {
                 rs.close();
             } catch (RuntimeException ignored) {
-                // Closing is best effort.
             }
         }
         List<Row> rows = rows(s);
@@ -237,10 +216,6 @@ public final class ModImpact {
         }
     }
 
-    /**
-     * Where a sample landed inside a mod: [0] the mod's first method from the top (where the time is spent),
-     * [1] the code just below the mod's lowest method (what called into the mod: mob AI, an event, a block entity).
-     */
     static String[] detail(List<String[]> frames, Owners owners, String mod) {
         String top = null;
         int deepest = -1;
@@ -266,7 +241,6 @@ public final class ModImpact {
         return (dot >= 0 ? c.substring(dot + 1) : c) + "." + f[1];
     }
 
-    /** A text breakdown of the costliest mods: their hottest methods and what called them. */
     public static String detailReport() {
         Session s = session != null ? session : last;
         if (s == null) {
@@ -305,7 +279,6 @@ public final class ModImpact {
         }
     }
 
-    /** The mod a stack is charged to: the first owner from the top, passing over libraries. */
     static String charge(List<String[]> frames, Owners owners) {
         String library = null;
         for (String[] f : frames) {
@@ -356,8 +329,6 @@ public final class ModImpact {
         return out;
     }
 
-    // ------------------------------------------------------------------ flags on disk
-
     public static synchronized Map<String, Flag> loadFlags(Path file) {
         if (flags != null) {
             return flags;
@@ -375,7 +346,6 @@ public final class ModImpact {
                 }
             }
         } catch (IOException | RuntimeException e) {
-            // A damaged file means no flags, never a crash.
         }
         flags = Map.copyOf(read);
         return flags;
@@ -393,13 +363,11 @@ public final class ModImpact {
         }
     }
 
-    /** The flag for this mod and version, or null. A flag for another version of the mod does not count. */
     public static Flag flag(Path file, String mod, String version) {
         Flag f = loadFlags(file).get(mod);
         return f != null && f.version().equals(version) ? f : null;
     }
 
-    /** For tests: forget cached flags. */
     static synchronized void forgetFlags() {
         flags = null;
     }

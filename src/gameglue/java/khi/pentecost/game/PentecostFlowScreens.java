@@ -13,20 +13,14 @@ import net.minecraft.network.chat.Component;
 
 import java.lang.reflect.Field;
 
-/**
- * The screens in the middle of getting into and out of a game: connecting to a server, being disconnected,
- * and "are you sure". They keep the game's own screens (so their layout and their behavior stay the game's),
- * and give them Pentecost's background and header. Their buttons and text boxes already follow Pentecost's look.
- */
 public final class PentecostFlowScreens {
     private PentecostFlowScreens() {}
 
     static void backdrop(GuiGraphics g, Minecraft mc) {
-        g.fill(0, 0, g.guiWidth(), g.guiHeight(), mc.level == null ? 0xFF0A0A0B : 0xD80A0A0B);
+        g.fill(0, 0, g.guiWidth(), g.guiHeight(), Ui.back(mc));
         Ui.dither(g, g.guiWidth(), g.guiHeight());
     }
 
-    /** The logo and a word at the top of the screen. */
     static void header(GuiGraphics g, Minecraft mc, String word) {
         float ui = Ui.scale(mc);
         int vw = (int) (g.guiWidth() / ui);
@@ -52,9 +46,6 @@ public final class PentecostFlowScreens {
         }
     }
 
-    // ---------------------------------------------------------------- connecting
-
-    /** "Connecting to the server": Pentecost's picture, with the game's own connecting screen doing the work. */
     public static final class Connecting extends Screen {
         private final ConnectScreen inner;
         private int cancelX, cancelY, cancelW;
@@ -142,8 +133,6 @@ public final class PentecostFlowScreens {
         return incoming instanceof ConnectScreen c ? new Connecting(c) : null;
     }
 
-    // ---------------------------------------------------------------- disconnected
-
     public static final class Disconnected extends DisconnectedScreen {
         Disconnected(Screen parent, Component title, Component reason, Component buttonText) {
             super(parent, title, reason, buttonText);
@@ -173,8 +162,6 @@ public final class PentecostFlowScreens {
         }
         return new Disconnected(parent instanceof Screen p ? p : null, incoming.getTitle(), r, b);
     }
-
-    // ---------------------------------------------------------------- confirm
 
     public static final class Confirm extends ConfirmScreen {
         Confirm(BooleanConsumer callback, Component title, Component message, Component yes, Component no) {

@@ -18,7 +18,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class WardrobeStoreTest {
-    /** A skin: opaque everywhere, except what the options say. */
     private static byte[] skin(int height, boolean slim, int seed) throws IOException {
         BufferedImage img = new BufferedImage(64, height, BufferedImage.TYPE_INT_ARGB);
         for (int y = 0; y < height; y++) {
@@ -26,7 +25,6 @@ class WardrobeStoreTest {
                 img.setRGB(x, y, 0xFF000000 | ((seed * 40 + x * 3 + y) & 0xFFFFFF));
             }
         }
-        // The hat area is mostly clear, like a real skin.
         for (int y = 0; y < 16; y++) {
             for (int x = 32; x < 64; x++) {
                 img.setRGB(x, y, 0);
@@ -86,10 +84,8 @@ class WardrobeStoreTest {
         BufferedImage old = SkinImage.read(skin(32, false, 3));
         BufferedImage up = SkinImage.read(SkinImage.upgradeLegacy(skin(32, false, 3)));
         assertEquals(64, up.getHeight());
-        // Right leg front pixel (4,20) lands mirrored on the left leg front (20..23, 52..): x 23 is the mirror of x 4 in that block.
         assertEquals(old.getRGB(4, 20), up.getRGB(23, 52));
         assertEquals(old.getRGB(7, 31), up.getRGB(20, 63));
-        // The original part is untouched.
         assertEquals(old.getRGB(10, 10), up.getRGB(10, 10));
         byte[] modern = skin(64, false, 3);
         assertSame(modern, SkinImage.upgradeLegacy(modern));

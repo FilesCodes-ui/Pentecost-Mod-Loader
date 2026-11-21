@@ -2,12 +2,18 @@ namespace Pentecost.Manager;
 
 public partial class MainWindow
 {
-    /// <summary>The downloaded one-file Manager offers to install itself. It then restarts from the install folder and offers Pentecost.</summary>
     void OfferSelfInstall()
     {
         var no = Ui.Btn("Run once", "Secondary", (_, _) => HideModal());
         var go = Ui.Btn("Install", "Primary", async (_, _) =>
         {
+            if (App.Demo)
+            {
+                HideModal();
+                await DemoInstall.Manager(text => Toast(text));
+                AskInstall(true);
+                return;
+            }
             var err = await Task.Run(SelfInstall.Install);
             if (err != null) { HideModal(); Toast(err, "Bad"); return; }
             App.ReleaseSingle();

@@ -1,19 +1,3 @@
-<#
-  Modrinth App wrapper for Pentecost.
-
-  In the Modrinth App: open an instance > Settings > Launch hooks > Wrapper, and enter
-      powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:/path/to/pentecost-wrapper.ps1
-  (use forward slashes). Modrinth then starts this instead of the game and passes the game's command line,
-  which includes the session of the account you signed in with in Modrinth.
-  This script takes that session (name, id, token) and starts Pentecost with it, so Pentecost needs no sign in of its own.
-  The token is only passed on. It is never written to a file or a log.
-
-  Needs Java 21. Order tried: PENTECOST_JAVA, the first line of java.txt in this folder (a java.exe path), the Java Modrinth
-  passes if it is 21 or newer, JAVA_HOME, then the Minecraft Launcher's Java 21, Modrinth's downloaded Javas, common JDK folders,
-  java on PATH.
-
-  Logs: run\logs\wrapper.log (what the wrapper did) and run\logs\game-output.log (everything the game prints, live).
-#>
 $ErrorActionPreference = 'Stop'
 $all = @($args)
 $PentecostHome = $PSScriptRoot
@@ -24,12 +8,10 @@ $outLog = Join-Path $runDir 'logs\game-output.log'
 function Log([string]$m) { Add-Content -Path $log -Value ("{0:s} {1}" -f (Get-Date), $m) }
 
 Log ("Wrapper started with {0} arguments. First: {1}" -f $all.Count, $(if ($all.Count -gt 0) { $all[0] } else { '(none)' }))
-
 function Get-Arg([string]$name) {
     for ($i = 0; $i -lt $all.Count - 1; $i++) { if ($all[$i] -eq $name) { return $all[$i + 1] } }
     return $null
 }
-
 function Get-JavaMajor([string]$exe) {
     try {
         $out = (& $exe -version 2>&1 | Out-String)
@@ -48,8 +30,6 @@ if (-not $user -or -not $uuid -or -not $token -or $token -eq '0') {
     exit 1
 }
 Log "Session found for $user"
-
-# Which Java. Looks at the likely places first and stops at the first Java 21 or newer.
 function Find-Java {
     $direct = New-Object System.Collections.ArrayList
     if ($env:PENTECOST_JAVA) { [void]$direct.Add($env:PENTECOST_JAVA) }
@@ -87,21 +67,17 @@ if (-not $java) {
     exit 1
 }
 Log "Java: $java"
-
-# Memory. jvm-args.txt in the Pentecost folder (one flag per line) replaces the defaults.
 $flagFile = Join-Path $PentecostHome 'jvm-args.txt'
 if (Test-Path $flagFile) {
     $mem = @(Get-Content $flagFile | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') })
 } else {
     $gb = [math]::Floor((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
-    # A working size and a backup above it. The game stays near the working size and reaches into the backup for spikes.
     if ($gb -ge 24) { $heap = 8; $young = 4; $reserve = 2 } elseif ($gb -ge 16) { $heap = 6; $young = 3; $reserve = 2 } elseif ($gb -ge 12) { $heap = 5; $young = 2; $reserve = 2 }
     elseif ($gb -ge 8) { $heap = 4; $young = 2; $reserve = 1 } else { $heap = 3; $young = 1; $reserve = 0 }
     $reserve = [math]::Max(0, [math]::Min($reserve, $gb - 2 - $heap))
     $ceiling = $heap + $reserve
     $mem = @("-Xms${heap}G", "-Xmx${ceiling}G", "-Xmn${young}G")
 }
-
 $lib = Join-Path $PentecostHome 'lib'
 $jar = Get-ChildItem $lib -Filter 'pentecost-*.jar' -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch 'gameglue|forgeglue' } | Select-Object -First 1
 if (-not $jar) { Log 'lib is missing.'; Write-Host 'Pentecost wrapper: Pentecost is not installed here. Run the Pentecost installer first.'; exit 1 }
@@ -110,7 +86,6 @@ $cp = Join-Path $lib '*'
 $secure = Get-ChildItem (Join-Path $PentecostHome 'cache\forge-install\libraries\cpw\mods\securejarhandler') -Directory -ErrorAction SilentlyContinue |
     Sort-Object Name | Select-Object -Last 1
 if ($secure) { $cp = $cp + ';' + (Join-Path $secure.FullName '*') }
-
 $jvm = @($mem) + @(
     "-Dpentecost.home=$PentecostHome",
     "-Dpentecost.gameglue=$(Join-Path $lib "glue\pentecost-gameglue-$version.jar")",
@@ -126,7 +101,6 @@ $jvm = @($mem) + @(
     '--username', $user, '--uuid', $uuid, '--accessToken', $token
 )
 if ($type) { $jvm += @('--userType', $type) }
-
 Log "Starting Pentecost $version for $user"
 Set-Location $runDir
 Set-Content -Path $outLog -Value ("{0:s} Pentecost {1} starting" -f (Get-Date), $version)

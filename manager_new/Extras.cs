@@ -3,7 +3,6 @@ using System.Windows.Threading;
 
 namespace Pentecost.Manager;
 
-/// <summary>Shortcuts, the download line, the project box and pack import and export.</summary>
 public partial class MainWindow
 {
     readonly Dictionary<string, Action> searchFocus = new();
@@ -18,18 +17,13 @@ public partial class MainWindow
         foreach (var rb in NavPanel.Children.OfType<RadioButton>()) rb.ToolTip = "Ctrl+" + i++;
     }
 
-    // ---------------------------------------------------------------- page header
-
-    /// <summary>A page title, a line of help under it, and the page's own buttons on the right.</summary>
     static Grid Header(string title, string sub, params UIElement[] right)
     {
-        var left = Ui.V(new TextBlock { Text = title, Style = Ui.St("H1") }, Ui.T(sub, 13, "Muted").With(new Thickness(0, 3, 0, 0)));
+        var left = new Wordmark { Text = title.ToUpperInvariant(), Pixel = 3, Fill = Ui.Br("Text"), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center };
         var g = Ui.Row(left, right.Length == 0 ? null : Ui.H(right));
         if (right.Length > 0) ((StackPanel)g.Children[1]).VerticalAlignment = VerticalAlignment.Center;
         return g;
     }
-
-    // ---------------------------------------------------------------- keyboard
 
     void OnKey(object s, KeyEventArgs e)
     {
@@ -51,6 +45,7 @@ public partial class MainWindow
         else if (e.Key == Key.P && Modal.Visibility != Visibility.Visible) { StartGame(); e.Handled = true; }
         else if (e.Key == Key.L) { Go("Log"); e.Handled = true; }
         else if (e.Key == Key.U) { _ = CheckUpdates(true); e.Handled = true; }
+        else if (e.Key == Key.O) { OpenFolder(Path.Combine(Paths.Home, "run")); e.Handled = true; }
     }
 
     void Keys_Click(object s, RoutedEventArgs e) => ShowShortcuts();
@@ -76,6 +71,7 @@ public partial class MainWindow
         Line("Ctrl+P", "Play, or stop the game");
         Line("Ctrl+L", "Open the game log");
         Line("Ctrl+U", "Check for a new Pentecost version");
+        Line("Ctrl+O", "Open the game folder (worlds, mods, logs)");
         Line("F5", "Reload the page");
         Line("Esc", "Close a box");
         Line("F1", "Show this list");
@@ -86,8 +82,6 @@ public partial class MainWindow
         box.Width = 520;
         ShowModal(Ui.Card(box, 26));
     }
-
-    // ---------------------------------------------------------------- downloads
 
     void RenderDownloads()
     {
@@ -105,21 +99,6 @@ public partial class MainWindow
         DlPanel.ToolTip = string.Join("\n", jobs.Select(j => j.Name + "  " + j.State.ToLowerInvariant()));
     }
 
-    // ---------------------------------------------------------------- one project: pictures, text and versions
-
-    static string Plain(string markdown)
-    {
-        var t = Regex.Replace(markdown, @"!\[[^\]]*\]\([^)]*\)", "");
-        t = Regex.Replace(t, @"\[([^\]]*)\]\([^)]*\)", "$1");
-        t = Regex.Replace(t, @"<[^>]+>", "");
-        t = Regex.Replace(t, @"(?m)^\s{0,3}#{1,6}\s*", "");
-        t = Regex.Replace(t, @"(?m)^\s*-{3,}\s*$", "");
-        t = Regex.Replace(t, @"[*_`>]{1,3}", "");
-        t = Regex.Replace(t, @"(\r?\n\s*){3,}", "\n\n").Trim();
-        return t.Length > 1600 ? t[..1600].TrimEnd() + " ..." : t;
-    }
-
-    /// <summary>Opens a jar in Explorer with the file picked out.</summary>
     void ShowInFolder(string file)
     {
         if (testing) return;
@@ -127,10 +106,8 @@ public partial class MainWindow
         catch (Exception ex) { AppLog.Write("show " + file + ": " + ex.Message); }
     }
 
-    /// <summary>Set by the Browse page, so another page can hand it something to search for.</summary>
     Action<string>? searchWith;
 
-    /// <summary>A picture at full size, with the arrow keys and the buttons to move between them.</summary>
     void ShowPicture(List<string> links, int at, string title)
     {
         if (links.Count == 0) return;
@@ -170,21 +147,26 @@ public partial class MainWindow
         card.Focus();
     }
 
-    /// <summary>Set while a picture is open: moves one picture back or forward, wherever the focus is.</summary>
     Action<int>? pictureStep;
-
-    // ---------------------------------------------------------------- packs
 
     async void ImportPack()
     {
         if (testing) return;
-        var dlg = new Microsoft.Win32.OpenFileDialog { Title = "Choose a Modrinth pack", Filter = "Modrinth pack (*.mrpack)|*.mrpack" };
+        var exports = Path.Combine(Paths.Home, "exports");
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Choose a pack",
+            Filter = "Packs (*.mrpack, *.zip)|*.mrpack;*.zip|Modrinth pack (*.mrpack)|*.mrpack|Pentecost pack from the game (*.zip)|*.zip",
+            InitialDirectory = Directory.Exists(exports) ? exports : null,
+        };
         if (dlg.ShowDialog(this) != true) return;
         if (game.Running) { Toast("Close the game first.", "Warn"); return; }
         Toast("Importing the pack. Downloads show on the left.");
         try
         {
-            var r = await Packs.Import(dlg.FileName, CancellationToken.None);
+            var r = dlg.FileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
+                ? await Packs.ImportPentecost(dlg.FileName, CancellationToken.None)
+                : await Packs.Import(dlg.FileName, CancellationToken.None);
             if (current is "Profiles" or "Mods" or "Play") Refresh();
             var text = $"Imported {r.Name} as a new profile: {r.Mods} mods, {r.Downloaded} downloaded.";
             if (r.Problems.Count > 0)

@@ -7,14 +7,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Random;
 
-/** A place to put the camera and the thing it looks at, with a score for how good the view is. */
 public record Vantage(Vec eye, Vec focus, double score) {
 
-    /**
-     * Looks for good views around a centre. Each try picks a spot, a height above the ground and a direction, then
-     * scores the view: how open the line of sight is, how much the land rises and falls along it, how high the
-     * viewpoint stands over its surroundings, and whether water is in view.
-     */
     public static List<Vantage> scan(Terrain t, int centerX, int centerZ, int radius, int keep, Random rnd) {
         List<Vantage> found = new ArrayList<>();
         int tries = keep * 12;

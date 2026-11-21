@@ -10,23 +10,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
 
-/**
- * Step 2 of mod threads: the threads themselves, and calls between them.
- *
- * Each group from the ThreadPlan gets one thread. The real server thread is the home of everything not on a mod
- * thread. When code on one thread calls a mod that lives on another, the messenger carries the call there, runs it,
- * and hands back the answer (or the exception), so the caller sees an ordinary call.
- *
- * Rules that keep it safe:
- * - Same thread, a shared library, or a mod with no thread: the call runs right where it is, at full speed.
- * - While a thread waits for an answer it keeps answering calls sent to it. A calls B, B calls back into A: A runs
- *   that call during its wait, so the two can never lock each other up.
- * - A thread that does not answer in time is cut off: it is reported, and from then on calls to its mods run on the
- *   caller's thread, the old single-thread way, until the game restarts.
- * - Every carried call is counted per pair of mods, so the next plan can put mods that talk a lot on one thread.
- */
 public final class ModThreads {
-    /** Where a call runs. HOME is the real server thread. */
     public static final int HOME = -1;
     private static final int NONE = -2;
 
@@ -53,16 +37,13 @@ public final class ModThreads {
         }
     }
 
-    /** The mod threads of this game, once the plan is made. Null until then, or when the messenger is off. */
     public static volatile ModThreads shared;
+    public static volatile khi.pentecost.core.ModOwners owners;
 
-    /** A mod thread. It carries the world changes it made during a parallel phase, applied later on the server thread. */
     public static final class Worker extends Thread {
         public final int index;
         public final ModThreads owner;
-        /** World changes waiting for the server thread, in the order this thread made them. */
         public final java.util.ArrayList<Runnable> deferred = new java.util.ArrayList<>();
-        /** This thread's own random numbers, so it never shares the world's with another thread. */
         public Object random;
 
         Worker(ModThreads owner, int index) {
@@ -73,7 +54,6 @@ public final class ModThreads {
         }
     }
 
-    /** The mod thread running this code, or null. */
     public static Worker worker() {
         return Thread.currentThread() instanceof Worker w ? w : null;
     }
@@ -116,12 +96,10 @@ public final class ModThreads {
         }
     }
 
-    /** The thread that is HOME (the server thread). Calls it makes are answered while it waits. */
     public void setHome(Thread t) {
         home = t;
     }
 
-    /** The thread a mod lives on, HOME when it has none. Libraries have none: they run on whoever calls them. */
     public int threadOf(String mod) {
         if (mod == null || libraries.contains(mod)) {
             return HOME;
@@ -129,13 +107,11 @@ public final class ModThreads {
         return threadOf.getOrDefault(mod, HOME);
     }
 
-    /** Where the calling code is running now: a mod thread index, or HOME. */
     public int here() {
         int w = where.get();
         return w == NONE ? HOME : w;
     }
 
-    /** Calls work as if it were a direct call into target, carrying it to target's thread when that is another one. */
     @SuppressWarnings("unchecked")
     public <T> T call(String caller, String target, Callable<T> work) throws Exception {
         int to = threadOf(target);
@@ -151,7 +127,6 @@ public final class ModThreads {
         inbox[to].add(task);
         LockSupport.unpark(threads[to]);
         while (!task.done) {
-            // Answer whatever was sent to this thread while it waits, so calls back into it cannot lock up.
             if (from != HOME) {
                 drain(from);
             } else if (Thread.currentThread() == home) {
@@ -166,12 +141,10 @@ public final class ModThreads {
                     report.accept("Mod thread " + (to + 1) + " did not answer " + caller + " -> " + target + " within "
                             + timeoutNanos / 1_000_000 + " ms. It is cut off: its mods now run on the caller's thread.");
                 }
-                // The call is still queued there. If it never ran, take it back and run it here.
                 if (inbox[to].remove(task)) {
                     inline.incrementAndGet();
                     return work.call();
                 }
-                // It is running on the stuck thread right now. Waiting is the only safe choice: running it twice is not.
                 start = System.nanoTime();
             }
             LockSupport.parkNanos(20_000);
@@ -189,15 +162,10 @@ public final class ModThreads {
         return (T) task.result;
     }
 
-    /** Runs a job on a mod's thread and waits, for the server thread to hand a mod its share of a tick. */
     public <T> T runOn(String mod, Callable<T> work) throws Exception {
         return call("server", mod, work);
     }
 
-    /**
-     * Runs work on the server thread from a mod thread and waits for it. While the server thread waits on the mod
-     * threads it keeps answering these, so a mod thread can always reach it.
-     */
     @SuppressWarnings("unchecked")
     public <T> T callHome(Callable<T> work) throws Exception {
         Worker w = worker();
@@ -229,12 +197,10 @@ public final class ModThreads {
         return threads.length;
     }
 
-    /** The mod thread with this index, or null. */
     public Worker workerAt(int index) {
         return index >= 0 && index < threads.length ? (Worker) threads[index] : null;
     }
 
-    /** Answers everything mod threads sent to the server thread. */
     public void drainHome() {
         Task t;
         while ((t = homeInbox.poll()) != null) {
@@ -242,18 +208,15 @@ public final class ModThreads {
         }
     }
 
-    /**
-     * Runs one batch of jobs on each mod thread at the same time and waits until all are done. The server thread keeps
-     * answering calls from the mod threads while it waits, and runs idle (the game's own waiting work) between them.
-     * A batch slower than slowMillis is written to the report once.
-     */
     public void runAll(Map<Integer, Runnable> batches, Runnable idle, long slowMillis) {
         if (batches.isEmpty()) {
             return;
         }
         java.util.List<Task> tasks = new java.util.ArrayList<>();
+        java.util.List<Integer> where = new java.util.ArrayList<>();
         for (Map.Entry<Integer, Runnable> b : batches.entrySet()) {
             int to = b.getKey();
+            where.add(to);
             Runnable job = b.getValue();
             Task task = new Task(() -> {
                 job.run();
@@ -286,7 +249,19 @@ public final class ModThreads {
             }
             if (!told && System.nanoTime() - start > slowMillis * 1_000_000L) {
                 told = true;
-                report.accept("Mod threads took over " + slowMillis + " ms for one batch. The server waits for them.");
+                StringBuilder b = new StringBuilder("Mod threads took over " + slowMillis + " ms for one batch. The server waits for them.");
+                for (int i = 0; i < tasks.size(); i++) {
+                    int to = where.get(i);
+                    if (tasks.get(i).done || to < 0 || to >= threads.length) {
+                        continue;
+                    }
+                    b.append("\n  Mod thread ").append(to + 1).append(" is at:");
+                    StackTraceElement[] st = threads[to].getStackTrace();
+                    for (int k = 0; k < Math.min(st.length, 20); k++) {
+                        b.append("\n    ").append(st[k]);
+                    }
+                }
+                report.accept(b.toString());
             }
             LockSupport.parkNanos(10_000);
         }
@@ -309,7 +284,6 @@ public final class ModThreads {
         while (running) {
             Task t = inbox[index].poll();
             if (t == null) {
-                // New work unparks the thread at once. The timeout is only a safety net.
                 LockSupport.parkNanos(2_000_000);
                 continue;
             }
@@ -335,7 +309,6 @@ public final class ModThreads {
         return new Stats(threads.length, inline.get(), c, c == 0 ? 0 : waitNanos.get() / c / 1000, cut);
     }
 
-    /** How often each pair of mods talked across threads. The next plan joins pairs that talk a lot. */
     public Map<String, Long> pairCounts() {
         Map<String, Long> m = new java.util.TreeMap<>();
         pairs.forEach((k, v) -> m.put(k, v.get()));

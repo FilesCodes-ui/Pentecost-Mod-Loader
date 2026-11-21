@@ -22,7 +22,13 @@ installer/obj/
 installer/payload.zip
 installer/worlds.json
 installer/app.ico
+/manager/
 manager_new/bin/
 manager_new/obj/
 manager_new/shots/
 manager_new/plain/
+setup/bin/
+setup/obj/
+mods-removed/
+server/feed-history/
+_parked/

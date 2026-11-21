@@ -18,24 +18,15 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
 
-/**
- * Forge's code expects Forge's own launcher underneath it. Pentecost is underneath instead.
- * This class rewires the few places where Forge reaches down, and holds the code they land in.
- * Everything else in Forge runs unchanged.
- */
 public final class ForgeRedirects {
     private static final String SELF = "khi/pentecost/adapter/forge/ForgeRedirects";
 
     private ForgeRedirects() {}
 
-    // ------------------------------------------------------------------ landing points
-
-    /** Forge looks up a Java module per mod. Pentecost has one class loader, so any module stands in. */
     public static Optional<Module> findModule(ModuleLayer layer, String name) {
         return Optional.of(Object.class.getModule());
     }
 
-    /** Forge loads a mod class from its module. Pentecost loads it from the game class loader. */
     public static Class<?> forName(Module module, String name) {
         try {
             return Class.forName(name, false, PentecostRuntime.loader);
@@ -44,27 +35,20 @@ public final class ForgeRedirects {
         }
     }
 
-    /** Forge prints its launcher's name in crash reports. */
     public static String getLauncherInfo() {
         return "Pentecost";
     }
 
-    /** Forge lists its launcher's plugins in crash reports. Pentecost has none of those. */
     public static java.util.List<Map<String, String>> modLauncherModList() {
         return java.util.List.of();
     }
 
-    /** Forge finds its plug-in services through a Java module layer. Pentecost finds them through the game class loader. */
     public static <T> java.util.ServiceLoader<T> loadServices(ModuleLayer layer, Class<T> type) {
         return java.util.ServiceLoader.load(type, PentecostRuntime.loader);
     }
 
     private static volatile Mappings.NameTable table;
 
-    /**
-     * Forge mods look up game members by SRG name through reflection.
-     * The game runs in readable names here, so this converts the name first.
-     */
     public static Optional<BiFunction<Object, String, String>> nameFunction(String naming) {
         return Optional.of((domain, name) -> {
             Mappings.NameTable t = table;
@@ -84,16 +68,11 @@ public final class ForgeRedirects {
         });
     }
 
-    // ------------------------------------------------------------------ rewiring
-
-    /** Method bodies replaced outright. Key: class name, then method name plus descriptor. */
     private static final Map<String, Map<String, String>> BODIES = new HashMap<>();
-    /** Call sites replaced inside chosen classes. Key: owner.name+descriptor of the call. */
     private static final Map<String, String[]> CALLS = new HashMap<>();
     private static final Set<String> CALL_CLASSES = new HashSet<>();
 
     static {
-        // The event bus asks Forge's launcher to build listener classes. The plain class loader path works here.
         body("net.minecraftforge.eventbus.BusBuilderImpl", "useModLauncher()Lnet/minecraftforge/eventbus/api/BusBuilder;", "this");
         body("net.minecraftforge.fml.loading.FMLLoader",
                 "getNameFunction(Ljava/lang/String;)Ljava/util/Optional;", "nameFunction");
@@ -110,7 +89,6 @@ public final class ForgeRedirects {
                 "forName", "(Ljava/lang/Module;Ljava/lang/String;)Ljava/lang/Class;");
         call("java/util/ServiceLoader.load(Ljava/lang/ModuleLayer;Ljava/lang/Class;)Ljava/util/ServiceLoader;",
                 "loadServices", "(Ljava/lang/ModuleLayer;Ljava/lang/Class;)Ljava/util/ServiceLoader;");
-        // Forge code reads shared settings from its launcher's board. There is no Forge launcher here.
         callTo("cpw/mods/modlauncher/Launcher.blackboard()Lcpw/mods/modlauncher/api/TypesafeMap;",
                 "khi/pentecost/forgeglue/CoreMods", "blackboard",
                 "(Lcpw/mods/modlauncher/Launcher;)Lcpw/mods/modlauncher/api/TypesafeMap;");
@@ -121,12 +99,6 @@ public final class ForgeRedirects {
     private static final String DELEGATE_CALL = "net/minecraftforge/registries/IForgeRegistry.getDelegateOrThrow"
             + "(Ljava/lang/Object;)Lnet/minecraft/core/Holder$Reference;";
 
-    /**
-     * Forge's versions of some game objects (flowers, music discs) look up the registry entry
-     * of what they hold as they are made, and keep it as a supplier. Fabric mods make them before
-     * that entry is registered. Where the result goes straight into a supplier field,
-     * the lookup is swapped for one that falls back to the plain value.
-     */
     private static byte[] looseDelegates(byte[] bytes) {
         org.objectweb.asm.tree.ClassNode node = new org.objectweb.asm.tree.ClassNode();
         new ClassReader(bytes).accept(node, 0);
@@ -146,8 +118,6 @@ public final class ForgeRedirects {
                     m.instructions.set(call, new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC, SELF,
                             "delegateOrValue", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/util/function/Supplier;", false));
                 } else {
-                    // Items and blocks carry their own registry handle from birth. Until they are registered,
-                    // that handle stands in (item and block colors are set up this early by Fabric mods).
                     m.instructions.set(call, new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC,
                             "khi/pentecost/forgeglue/LateRegistry", "delegateOrOwnHolder",
                             "(Ljava/lang/Object;Ljava/lang/Object;)Lnet/minecraft/core/Holder$Reference;", false));
@@ -163,11 +133,6 @@ public final class ForgeRedirects {
         return writer.toByteArray();
     }
 
-    /**
-     * Minecraft builds its crash report text in getFriendlyReport. Every return of that method goes through
-     * CrashDetails.decorate, which puts Pentecost's summary above the game's text and its details after it.
-     * The game blames the wrong mod often (it named Fabric Biome API for a Curios crash), so the summary reads the trace itself.
-     */
     private static byte[] decorateCrashReport(byte[] bytes) {
         org.objectweb.asm.tree.ClassNode node = new org.objectweb.asm.tree.ClassNode();
         new ClassReader(bytes).accept(node, 0);
@@ -180,7 +145,6 @@ public final class ForgeRedirects {
                 if (insn.getOpcode() != Opcodes.ARETURN) {
                     continue;
                 }
-                // Stack before: the text. After ALOAD 0 and SWAP: the report, then the text. decorate returns the new text.
                 org.objectweb.asm.tree.InsnList pre = new org.objectweb.asm.tree.InsnList();
                 pre.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
                 pre.add(new org.objectweb.asm.tree.InsnNode(Opcodes.SWAP));
@@ -212,7 +176,6 @@ public final class ForgeRedirects {
         return false;
     }
 
-    /** Landing point in Forge's flower blocks: the registry entry if it exists, else the value itself. */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public static java.util.function.Supplier<Object> delegateOrValue(Object registry, Object value) {
         try {
@@ -221,24 +184,17 @@ public final class ForgeRedirects {
                 return sup;
             }
         } catch (ReflectiveOperationException | RuntimeException e) {
-            // fall through to the plain value
         }
         return () -> value;
     }
 
-    /**
-     * Landing point of Forge's "is this mod loaded". Pentecost's mod list answers, so a Forge mod
-     * finds a Fabric or Quilt mod the same way it finds a Forge one.
-     */
     public static boolean isModLoaded(String id) {
         if ("minecraft".equals(id) || "forge".equals(id)) {
             return true;
         }
-        // Exact id, then provides, then the same mod under a Fabric or Quilt spelling.
         return khi.pentecost.mods.ModFinder.find(khi.pentecost.core.PentecostRuntime.mods, id, true).isPresent();
     }
 
-    /** Landing point of the coremod name lookups: a member name from Forge's game build to the readable name. */
     public static String mapSrgName(String name) {
         return nameFunction("srg").map(f -> f.apply(null, name)).orElse(name);
     }
@@ -296,8 +252,6 @@ public final class ForgeRedirects {
                             && n.equals("dispatchAndHandleError");
                     boolean clientHooksDoor = name.equals("net.minecraftforge.client.ForgeHooksClient")
                             && n.equals("initClientHooks");
-                    // The end of Forge's first loading phase on the client: registries are filled, and the game
-                    // has not yet built its item models, colors and renderers. Fabric mods start here.
                     boolean beginDoor = name.equals("net.minecraftforge.client.loading.ClientModLoader")
                             && n.equals("begin");
                     return new MethodVisitor(Opcodes.ASM9, mv) {
@@ -372,7 +326,6 @@ public final class ForgeRedirects {
             }
             case "void" -> mv.visitInsn(Opcodes.RETURN);
             default -> {
-                // Pass the arguments on to the landing point of the same name and return its result.
                 int slot = (access & Opcodes.ACC_STATIC) != 0 ? 0 : 1;
                 for (Type t : Type.getArgumentTypes(desc)) {
                     mv.visitVarInsn(t.getOpcode(Opcodes.ILOAD), slot);

@@ -16,7 +16,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ModImpactTest {
-    /** Owners by class name prefix: "slowmod" owns slow.*, "kotlin" (a library) owns kotlin.*. */
     private static final ModImpact.Owners OWNERS = new ModImpact.Owners() {
         @Override
         public String owner(String c, String m, String d) {
@@ -79,7 +78,6 @@ class ModImpactTest {
         assertEquals("create", ModOwners.group("create"));
     }
 
-    /** Spins on a thread named like the game's render thread, so the real Flight Recorder samples it. */
     static final class Busy {
         static volatile double sink;
 
@@ -100,7 +98,6 @@ class ModImpactTest {
         long end = System.nanoTime() + 2_500_000_000L;
         AtomicBoolean done = new AtomicBoolean();
         Thread render = new Thread(() -> {
-            // Wait for the recorder to start before spinning.
             while (ModImpact.preparing()) {
                 Thread.onSpinWait();
             }
@@ -129,7 +126,6 @@ class ModImpactTest {
         assertNotNull(ModImpact.flag(file, "slowmod", "1.0"));
         assertNull(ModImpact.flag(file, "slowmod", "2.0"));
         assertNull(ModImpact.flag(file, "othermod", "1.0"));
-        // A short measurement does not change the flags.
         ModImpact.start(() -> OWNERS, "nobody", "nobody");
         Thread.sleep(50);
         ModImpact.stop(Map.of("slowmod", "1.0"), file);

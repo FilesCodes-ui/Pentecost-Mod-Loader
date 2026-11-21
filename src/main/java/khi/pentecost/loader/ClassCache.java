@@ -30,15 +30,6 @@ import java.util.concurrent.atomic.LongAdder;
 import java.util.stream.Stream;
 import java.util.zip.CRC32C;
 
-/**
- * Keeps the finished bytes of every class between launches, so a warm launch skips the transformers and Mixin.
- * The cache is only valid for one exact setup: the same game, libraries, mod files, Pentecost build, player
- * choices and Java version. Any change makes a new key, and the old data is thrown away.
- * Each class also checks the checksum of its original bytes before the cached copy is used.
- * Set PENTECOST_NOCACHE to turn it off. Set PENTECOST_CACHE_CHECK to compare every cached class with a fresh run.
- * Pentecost's report mode (PENTECOST_REPORT) turns it off, since the report needs every class to run.
- * Folder: cache/classes with classes.pack (the bytes, appended in order) and classes.idx (the index).
- */
 public final class ClassCache {
     static final boolean CHECK = System.getenv("PENTECOST_CACHE_CHECK") != null;
     private static final int MAGIC = 0x50434332;
@@ -64,7 +55,6 @@ public final class ClassCache {
     private volatile boolean off;
     private volatile boolean closing;
 
-    /** Opens the cache for this setup, or returns null when it is off or cannot start. Never throws. */
     public static ClassCache openFor(GameClassLoader loader, String choices) {
         if (System.getenv("PENTECOST_NOCACHE") != null) {
             Log.info("Class cache is off (PENTECOST_NOCACHE)");
@@ -127,7 +117,6 @@ public final class ClassCache {
         }
     }
 
-    /** The finished bytes of a class, or null when the cache has none that match these original bytes. */
     byte[] get(String name, byte[] raw) {
         if (off) {
             return null;
@@ -154,7 +143,6 @@ public final class ClassCache {
         }
     }
 
-    /** Hands over the finished bytes of a class. A background thread writes them. */
     void put(String name, byte[] raw, byte[] finished) {
         if (off || closing || entries.containsKey(name) || queued.putIfAbsent(name, Boolean.TRUE) != null) {
             return;
@@ -162,7 +150,6 @@ public final class ClassCache {
         pending.add(new Pending(name, crc(raw), raw.length, finished));
     }
 
-    /** Check mode: compares a cached class with the one a full run just made. */
     void compare(String name, byte[] cached, byte[] fresh) {
         if (Arrays.equals(cached, fresh)) {
             matches.increment();
@@ -208,7 +195,6 @@ public final class ClassCache {
         }
     }
 
-    /** Called when the game closes. Finishes the writes and saves the index. */
     private void close() {
         closing = true;
         try {
@@ -239,7 +225,6 @@ public final class ClassCache {
         }
     }
 
-    /** One key for everything a transformed class depends on. */
     private static String fingerprint(URL[] urls, String choices) throws Exception {
         MessageDigest sha = MessageDigest.getInstance("SHA-1");
         feed(sha, "pentecost-class-cache-6");

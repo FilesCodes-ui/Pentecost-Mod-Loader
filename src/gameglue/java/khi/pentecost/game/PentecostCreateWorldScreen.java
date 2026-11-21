@@ -19,23 +19,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
-/**
- * Pentecost's Create World screen. It does not make worlds itself: it edits the game's own creation state
- * (the same one the game's screen uses) and asks the game's screen to create, so every rule, warning and
- * data pack behaves as in the game. Game rules, data packs and experiments stay in the game's own screen,
- * one button away.
- */
 public final class PentecostCreateWorldScreen extends Screen {
     private record Hit(int x, int y, int w, int h, Runnable action) {}
 
-    /** The game's screen that is about to be shown on purpose, so it is not swapped for this one again. */
     static volatile Screen showVanilla;
 
     private static Method create;
 
     private final CreateWorldScreen inner;
     private final List<Hit> hits = new ArrayList<>();
-    private int focus; // 0 name, 1 seed
+    private int focus;
     private String status = "";
     private long statusUntil;
 
@@ -52,7 +45,6 @@ public final class PentecostCreateWorldScreen extends Screen {
     @Override
     protected void init() {
         super.init();
-        // The game's screen needs to know the window to do its work (it opens warnings and loads packs through it).
         inner.init(minecraft, width, height);
     }
 
@@ -60,8 +52,6 @@ public final class PentecostCreateWorldScreen extends Screen {
         status = text;
         statusUntil = System.currentTimeMillis() + 4500;
     }
-
-    // ---------------------------------------------------------------- actions
 
     private void create() {
         if (state().getName().trim().isEmpty()) {
@@ -136,8 +126,6 @@ public final class PentecostCreateWorldScreen extends Screen {
         focus = 1;
     }
 
-    // ---------------------------------------------------------------- remembered choices
-
     private static final String REMEMBER = "create.remember";
     private static final String[] REMEMBERED = {"create.mode", "create.difficulty", "create.type", "create.cheats",
             "create.structures", "create.bonus"};
@@ -187,7 +175,6 @@ public final class PentecostCreateWorldScreen extends Screen {
         return i < 0 ? "" : t.substring(0, i + 1);
     }
 
-    /** Saves the choices made on this screen, so the next new world starts from them. Hardcore is not kept. */
     private void remember() {
         if (!remembering()) {
             return;
@@ -207,7 +194,6 @@ public final class PentecostCreateWorldScreen extends Screen {
         Settings.set("create.structures", String.valueOf(s.isGenerateStructures()));
     }
 
-    /** Starts a fresh world from the last choices. A world made from an existing one keeps its own. */
     private void restore() {
         if (!remembering()) {
             return;
@@ -261,7 +247,6 @@ public final class PentecostCreateWorldScreen extends Screen {
         say("Forgot your last choices and seeds.");
     }
 
-    /** The last seeds used, as small buttons under the seed field. */
     private void drawRecent(GuiGraphics g, List<String> seeds, int x0, int y, int colW, int mx, int my) {
         g.drawString(font, "Recent", x0, y + 2, Ui.FAINT, false);
         int x = x0 + font.width("Recent") + 8;
@@ -285,8 +270,6 @@ public final class PentecostCreateWorldScreen extends Screen {
             x += w + 4;
         }
     }
-
-    // ---------------------------------------------------------------- drawing
 
     private String fit(String s, int w) {
         if (font.width(s) <= w) {
@@ -334,7 +317,7 @@ public final class PentecostCreateWorldScreen extends Screen {
 
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-        g.fill(0, 0, width, height, minecraft.level == null ? 0xFF0A0A0B : 0xD80A0A0B);
+        g.fill(0, 0, width, height, Ui.back(minecraft));
         Ui.dither(g, width, height);
         float ui = Ui.scale(minecraft);
         int vw = (int) (width / ui);
@@ -418,8 +401,6 @@ public final class PentecostCreateWorldScreen extends Screen {
         centered(g, "Tab switches field   Enter creates   Ctrl+C copies", cx, by - 16, Ui.FAINT);
         g.pose().popPose();
     }
-
-    // ---------------------------------------------------------------- input
 
     @Override
     public boolean charTyped(char c, int modifiers) {
@@ -511,7 +492,6 @@ public final class PentecostCreateWorldScreen extends Screen {
 
     @Override
     public void onClose() {
-        // The game's own way out: it also removes the temporary data pack folder it may have made.
         inner.onClose();
     }
 }

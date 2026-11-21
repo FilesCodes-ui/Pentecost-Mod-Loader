@@ -9,11 +9,6 @@ import org.lwjgl.glfw.GLFW;
 
 import java.util.List;
 
-/**
- * The prompt a host sees while a friend waits to be let in, so the host never has to hunt for the WWLS screen.
- * It stays at the top of the screen until the host answers: Y lets the friend in, N turns them away, O opens WWLS.
- * The keys only count while no screen is open, so they never get in the way of typing in chat.
- */
 final class WwlsPrompt {
     private static boolean yesDown;
     private static boolean noDown;
@@ -21,7 +16,6 @@ final class WwlsPrompt {
 
     private WwlsPrompt() {}
 
-    /** Called once per frame. */
     static void frame(Minecraft mc) {
         boolean y = false;
         boolean n = false;
@@ -45,7 +39,6 @@ final class WwlsPrompt {
         openDown = o;
     }
 
-    /** Drawn on top of the game's interface. */
     static void draw(GuiGraphics g) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.screen != null || mc.level == null || mc.options.hideGui) {

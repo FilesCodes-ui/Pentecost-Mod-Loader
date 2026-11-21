@@ -15,10 +15,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-/**
- * Renames the vanilla jar from scrambled names to readable names.
- * Scrambled names repeat across classes, so each lookup walks the class hierarchy.
- */
 public final class GameRemapper extends Remapper {
     private final Mappings m;
     private final Map<String, String[]> parents;
@@ -29,7 +25,6 @@ public final class GameRemapper extends Remapper {
         this.parents = parents;
     }
 
-    /** Reads the parents (superclass and interfaces) of every class in a jar. */
     public static Map<String, String[]> readHierarchy(Path jar) throws IOException {
         Map<String, String[]> out = new HashMap<>();
         try (ZipFile z = new ZipFile(jar.toFile())) {

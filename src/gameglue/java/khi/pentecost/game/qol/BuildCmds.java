@@ -31,11 +31,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-/**
- * Building from a distance: two corners, then fill, replace, walls, spheres and more, with undo.
- * An edit is limited to 250,000 blocks, and the last 10 edits of each player can be undone. The history is dropped when
- * the world closes, and a player's history is dropped half an hour after they leave.
- */
 final class BuildCmds {
     private static final String C = "Build";
     private static final int LIMIT = 250_000;
@@ -76,7 +71,6 @@ final class BuildCmds {
     private static final Map<UUID, Sel> SELS = new HashMap<>();
     private static final Map<UUID, Deque<Job>> UNDO = new HashMap<>();
     private static final Map<UUID, Clip> CLIPS = new HashMap<>();
-    /** When each player with saved build state left, so the state of players who never come back is let go. */
     private static final Map<UUID, Long> AWAY = new HashMap<>();
     private static final long KEEP_MS = 30L * 60_000L;
     private static int sinceSweep;
@@ -86,7 +80,6 @@ final class BuildCmds {
 
     private BuildCmds() {}
 
-    /** For a new server. The history holds the old world's levels, so it must not outlive that world. */
     static void clear() {
         SELS.clear();
         UNDO.clear();
@@ -95,7 +88,6 @@ final class BuildCmds {
         sinceSweep = 0;
     }
 
-    /** Driven by Qol.tick. Once a minute, drops the build state of players who have been gone for half an hour. */
     static void tick(MinecraftServer server) {
         if (++sinceSweep < 1200) {
             return;
@@ -120,8 +112,6 @@ final class BuildCmds {
         }
         AWAY.keySet().retainAll(holders);
     }
-
-    // ---------------------------------------------------------------- helpers
 
     private static BlockState block(String s) {
         ResourceLocation rl = ResourceLocation.tryParse(s.contains(":") ? s : "minecraft:" + s.toLowerCase(Locale.ROOT));
@@ -209,7 +199,6 @@ final class BuildCmds {
         boolean at(int x, int y, int z, int[] b);
     }
 
-    /** Fills the part of the selection that the test accepts. */
     private static void boxCommand(String name, String desc, Pick pick) {
         Qol.word(C, name, 2, "<block>", desc, false, BLOCKS, (c, w) -> {
             ServerPlayer p = Qol.me(c);
@@ -258,8 +247,6 @@ final class BuildCmds {
                 .then(Commands.argument("word", StringArgumentType.word()).suggests(BLOCKS)
                         .then(Commands.argument("n", IntegerArgumentType.integer(1, 40)).executes(Qol.guard(c -> sphere(c, hollow))))));
     }
-
-    // ---------------------------------------------------------------- commands
 
     static void add() {
         corner("pos1", 1);

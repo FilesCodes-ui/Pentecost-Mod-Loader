@@ -14,10 +14,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Random;
 
-/**
- * Headless check: the terrain read from heightmaps agrees with the blocks themselves.
- * Usage: CacheTerrainCheck <seedCacheDir> <scratchDir>
- */
 public final class CacheTerrainCheck {
     private static int failures;
 
@@ -46,7 +42,6 @@ public final class CacheTerrainCheck {
         int expected = (maxCx - minCx + 1) * (maxCz - minCz + 1);
         check("every chunk of the box is read", terrain.chunkCount() == expected, terrain.chunkCount() + " of " + expected + " in " + ms + " ms");
 
-        // Compare 400 random columns with the top block found by walking the real block data down.
         Random rnd = new Random(42);
         int same = 0, wetAgree = 0, total = 0, wetColumns = 0, tried = 0;
         StringBuilder firstBad = new StringBuilder();

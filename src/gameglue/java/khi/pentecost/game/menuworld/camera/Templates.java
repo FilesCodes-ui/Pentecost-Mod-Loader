@@ -7,7 +7,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
-/** The library of camera moves. Each turns a vantage into a shot, with its own random choices. */
 public final class Templates {
     private Templates() {}
 
@@ -16,7 +15,6 @@ public final class Templates {
 
         Shot compose(Vantage v, Terrain t, Random r, String id);
 
-        /** Same, for a moment of the day (game ticks). Moves that care about the sun use it. */
         default Shot compose(Vantage v, Terrain t, Random r, String id, double tod) {
             return compose(v, t, r, id);
         }
@@ -83,7 +81,6 @@ public final class Templates {
         return new Vec(-f.z(), 0, f.x());
     }
 
-    /** Circle the subject, a little higher by the end. */
     static Shot orbit(Vantage v, Terrain t, Random r, String id) {
         Vec c = v.focus();
         Vec off = v.eye().sub(c).withY(0);
@@ -101,7 +98,6 @@ public final class Templates {
                 65, 65, between(r, -1.5, 1.5), 0.5);
     }
 
-    /** Slide sideways while the aim drifts the other way, so the foreground slides past the view. */
     private static Shot dolly(Vantage v, Terrain t, Random r, String id) {
         Vec side = sideways(forward(v));
         double travel = between(r, 70, 170) * (r.nextBoolean() ? 1 : -1);
@@ -113,7 +109,6 @@ public final class Templates {
                 between(r, 18, 28), Ease.SMOOTH, between(r, 55, 75), between(r, 55, 75), 0, 0.6);
     }
 
-    /** Start low, rise high, and tip up to the horizon. */
     private static Shot crane(Vantage v, Terrain t, Random r, String id) {
         Vec f = forward(v);
         Vec base = v.eye().withY(ground(t, v.eye()) + 6);
@@ -124,7 +119,6 @@ public final class Templates {
                 between(r, 20, 30), Ease.SMOOTHER, 60, 75, 0, 0.35);
     }
 
-    /** Move straight at the subject. Sometimes the field of view widens as it closes in, the vertigo effect. */
     private static Shot pushIn(Vantage v, Terrain t, Random r, String id) {
         Vec f = forward(v);
         Vec end = v.eye().add(f.scale(between(r, 80, 200))).add(0, -between(r, 0, 12), 0);
@@ -133,7 +127,6 @@ public final class Templates {
                 between(r, 16, 24), Ease.SMOOTH, vertigo ? 45 : 70, vertigo ? 85 : 58, 0, 0.4);
     }
 
-    /** Skim forward along a weaving line close to the ground. */
     private static Shot flyThrough(Vantage v, Terrain t, Random r, String id) {
         Vec f = forward(v);
         Vec side = sideways(f);
@@ -154,7 +147,6 @@ public final class Templates {
         return p.withY(ground(t, p) + clearance);
     }
 
-    /** Start low behind the land, rise over it, and let the view open up. */
     private static Shot reveal(Vantage v, Terrain t, Random r, String id) {
         Vec f = forward(v);
         Vec start = v.eye().withY(ground(t, v.eye()) + 3);
@@ -163,7 +155,6 @@ public final class Templates {
                 Rail.line(v.focus().add(0, 80, 0), v.focus()), between(r, 14, 20), Ease.OUT_QUINT, 60, 68, 0, 0.3);
     }
 
-    /** High and wide, barely moving. Suits night and long looks at the horizon. */
     private static Shot establish(Vantage v, Terrain t, Random r, String id) {
         Vec side = sideways(forward(v));
         Vec a = v.eye().add(0, 50, 0);

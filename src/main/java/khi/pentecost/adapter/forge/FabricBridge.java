@@ -20,20 +20,12 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
 
-/**
- * Forge and Fabric each rewrite the same parts of the game: registries, loot, fluids, rendering.
- * Stock Fabric API expects the unpatched game, so on the Forge layer its hooks miss or collide.
- * The bridge swaps it for Forgified Fabric API: the same Fabric API surface for mods,
- * with every feature carried out by Forge's own systems.
- */
 public final class FabricBridge {
     private static final String PROJECT = "forgified-fabric-api";
-    /** Pentecost is the Fabric loader here. The bridge's own copy of one stays out. */
     private static final String OWN_LOADER = "fabric-loader-";
 
     private FabricBridge() {}
 
-    /** Returns the mod list with stock Fabric API replaced by the bridge. No Fabric mods: no change. */
     public static List<ModInfo> apply(List<ModInfo> found, String minecraft) throws IOException {
         boolean anyFabric = found.stream()
                 .anyMatch(m -> m.loader() == LoaderKind.FABRIC || m.loader() == LoaderKind.QUILT);
@@ -90,7 +82,6 @@ public final class FabricBridge {
         }
     }
 
-    /** A plain jar file name: letters, digits and . _ + - only, no folders. Anything else is refused. */
     static String safeJarName(String raw) throws IOException {
         if (raw == null || !raw.matches("[A-Za-z0-9._+-]{1,150}\\.jar") || raw.contains("..")) {
             throw new IOException("Refusing a download with an unsafe file name");

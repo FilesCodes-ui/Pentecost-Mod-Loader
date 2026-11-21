@@ -45,7 +45,6 @@ class OcclusionTest {
 
     @Test
     void aMobPeekingOverAWallIsVisible() {
-        // Wall from y=-10 to y=1. The mob's box reaches y=2.5, above it.
         Set<String> wall = new HashSet<>();
         for (int y = -10; y <= 1; y++) {
             for (int z = -10; z <= 10; z++) {
@@ -53,7 +52,6 @@ class OcclusionTest {
             }
         }
         assertTrue(Occlusion.visible(0.5, 2.6, 0.5, 9.7, 0.0, 0.2, 10.3, 2.5, 0.8, walls(wall)));
-        // A full wall hides it.
         assertFalse(Occlusion.visible(0.5, 0.5, 0.5, 9.7, 0.0, 0.2, 10.3, 1.8, 0.8, walls(wallAtX(5, -10, 10))));
     }
 

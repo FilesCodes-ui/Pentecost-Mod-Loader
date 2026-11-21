@@ -13,11 +13,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/**
- * "Update to X?", drawn the way the rest of Pentecost is: the logo and wordmark, the two versions with an arrow between,
- * the release notes in a thin box, and two buttons that fill on hover. Nothing is downloaded until Update now is pressed.
- * Enter does the same, Esc and Not now go back.
- */
 final class UpdatePromptScreen extends Screen {
     private record Hit(int x, int y, int w, int h, Runnable action) {}
 
@@ -47,7 +42,6 @@ final class UpdatePromptScreen extends Screen {
         this.rawNotes = clean(release.notes());
     }
 
-    /** Release notes as plain lines: no markdown marks, links reduced to their words, blank runs collapsed. */
     static List<String> clean(String md) {
         List<String> out = new ArrayList<>();
         if (md == null) {
@@ -101,7 +95,7 @@ final class UpdatePromptScreen extends Screen {
 
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-        g.fill(0, 0, width, height, minecraft.level == null ? 0xFF0A0A0B : 0xD80A0A0B);
+        g.fill(0, 0, width, height, Ui.back(minecraft));
         Ui.dither(g, width, height);
         float ui = Ui.scale(minecraft);
         int vw = (int) (width / ui);
@@ -130,7 +124,6 @@ final class UpdatePromptScreen extends Screen {
 
         int y = top + 14 * px + 20;
 
-        // 0.3.0  ->  0.3.1
         String cur = PentecostMain.VERSION;
         String next = release.version();
         float s = 1.5f;
@@ -161,7 +154,6 @@ final class UpdatePromptScreen extends Screen {
         g.drawString(font, "WHAT'S NEW", x0, y, Ui.FAINT, false);
         y += 13;
 
-        // The notes box. Only the lines that fit are drawn, so no clipping is needed under the scale.
         if (wrappedFor != colW) {
             List<String> w = new ArrayList<>();
             for (String line : rawNotes.isEmpty() ? List.of("No release notes for this version.") : rawNotes) {

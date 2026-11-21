@@ -10,23 +10,20 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Pentecost's pause menu. The game's pause menu underneath, Pentecost's layout on top. */
 public final class PentecostPauseScreen extends PauseScreen {
     private static final List<String> MAIN = List.of("menu.returnToGame", "gui.advancements", "gui.stats",
             MenuView.MODS, MenuView.SETTINGS, MenuView.MANAGE, MenuView.COMMANDS, "menu.options", "menu.shareToLan", "menu.playerReporting", "menu.returnToMenu",
-            "menu.disconnect");
+            "menu.disconnect", MenuView.QUIT);
     private static final Map<String, String> LINKS = new LinkedHashMap<>();
     static {
         LINKS.put("menu.sendFeedback", "Give feedback");
         LINKS.put("menu.reportBugs", "Report bugs");
     }
 
-    /** The corner line is drawn at this fraction of normal text size. */
     private static final float STRIP_SCALE = 0.7f;
 
     private final MenuView view = new MenuView("pause");
     private final boolean menu;
-    // the quiet corner line: frames, memory used and where the player is. The position copies on click.
     private long copiedUntil;
     private int coordX, coordW, coordY;
 
@@ -46,8 +43,6 @@ public final class PentecostPauseScreen extends PauseScreen {
 
     @Override
     public void removed() {
-        // The pause camera is not ended here: the next screen may be another menu of the pause flow, and the camera
-        // plays on behind it. PauseCinema ends it when the game is back, or when the world goes away.
         super.removed();
     }
 
@@ -55,7 +50,6 @@ public final class PentecostPauseScreen extends PauseScreen {
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         WindowMode.fixStaleSize(this);
         view.harvest(children());
-        // With the pause camera running the picture matters, so the shade is lighter.
         g.fill(0, 0, width, height, PauseCinema.active() ? 0x520A0A0B : 0x800A0A0B);
         Ui.dither(g, width, height);
         view.draw(this, g, mouseX, mouseY, partialTick, "PAUSED", place(), List.of(),
@@ -63,7 +57,6 @@ public final class PentecostPauseScreen extends PauseScreen {
         strip(g, mouseX, mouseY);
     }
 
-    // coordX, coordW and coordY are in screen pixels, after the strip's scale.
     private boolean overCoords(double mx, double my) {
         return coordW > 0 && mx >= coordX && mx <= coordX + coordW && my >= coordY - 2 && my <= coordY + 9;
     }
@@ -93,12 +86,11 @@ public final class PentecostPauseScreen extends PauseScreen {
         g.drawString(font, stats, 0, 0, ink, false);
         g.drawString(font, where, statsW, 0, hover || copied ? 0xFFF2F2F2 : ink, false);
         if (hover && !copied) {
-            g.fill(statsW, 9, statsW + font.width(where), 10, 0x80F2F2F2); // a hairline: it can be clicked
+            g.fill(statsW, 9, statsW + font.width(where), 10, 0x80F2F2F2);
         }
         g.pose().popPose();
     }
 
-    /** The world or server being played, for the quiet line under the wordmark. */
     private String place() {
         if (minecraft == null) {
             return "";

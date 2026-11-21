@@ -10,13 +10,7 @@ import org.lwjgl.glfw.GLFW;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * A plain Pentecost panel: dark backdrop, hairlines, white-on-hover buttons and typed fields, all drawn at the
- * Pentecost interface scale. Fields are typed into by hand (no game widgets), like the WWLS screen.
- * Screens built on it do not pause the game, so a command sent from them runs at once.
- */
 abstract class PanelScreen extends Screen {
-    /** One line of text the player types into. */
     static final class Field {
         final String label;
         final int max;
@@ -59,23 +53,19 @@ abstract class PanelScreen extends Screen {
         minecraft.setScreen(parent);
     }
 
-    /** What the screen draws, in Pentecost interface units. */
     protected abstract void draw(GuiGraphics g);
 
-    /** Enter was pressed in a field. */
     protected void onEnter(Field f) {}
 
-    /** A field changed. */
     protected void onChange(Field f) {}
 
-    /** Up or down was pressed while a field has focus. Returns true when handled. */
     protected boolean onArrow(Field f, boolean up) {
         return false;
     }
 
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-        g.fill(0, 0, width, height, minecraft.level == null ? 0xFF0A0A0B : 0xE00A0A0B);
+        g.fill(0, 0, width, height, khi.pentecost.game.menuworld.MenuHost.showing() ? Ui.back(minecraft) : minecraft.level == null ? 0xFF0A0A0B : 0xE00A0A0B);
         Ui.dither(g, width, height);
         ui = Ui.scale(minecraft);
         vw = (int) (width / ui);
@@ -93,7 +83,6 @@ abstract class PanelScreen extends Screen {
         }
     }
 
-    /** The logo, the wordmark and a hairline, centred. Returns the y to continue from. */
     protected int header(GuiGraphics g, String word, String sub, int x0, int colW) {
         int cx = vw / 2;
         int y = Math.max(14, vh / 14);
@@ -132,7 +121,6 @@ abstract class PanelScreen extends Screen {
         }
     }
 
-    /** A small label on the left and a field under it. */
     protected void field(GuiGraphics g, Field f, int x, int y, int w) {
         g.drawString(font, f.label, x, y, Ui.FAINT, false);
         int fy = y + 11;
@@ -148,7 +136,6 @@ abstract class PanelScreen extends Screen {
         hits.add(new Hit(x, fy, w, 18, () -> focus = f));
     }
 
-    /** A small clickable word, for lists of names. Returns its width. */
     protected int chip(GuiGraphics g, String label, int x, int y, Runnable action) {
         int w = font.width(label) + 10;
         boolean hover = Ui.over(mx, my, x, y, w, 14);
@@ -162,7 +149,6 @@ abstract class PanelScreen extends Screen {
         return w;
     }
 
-    /** Sends a command as the player and notes it in the output. */
     protected void send(String command) {
         if (minecraft == null || minecraft.player == null) {
             return;
@@ -176,7 +162,6 @@ abstract class PanelScreen extends Screen {
         minecraft.player.connection.sendCommand(c);
     }
 
-    /** A row with a label and an on/off pill. */
     protected void toggle(GuiGraphics g, String label, int x, int y, int w, boolean on, Runnable action) {
         boolean hover = Ui.over(mx, my, x, y, w, 20);
         if (hover) {
@@ -198,7 +183,6 @@ abstract class PanelScreen extends Screen {
         hits.add(new Hit(x, y, w, 20, action));
     }
 
-    /** A label, the value, and a bar to drag. Takes 30 units of height. done runs when the pointer is let go. */
     protected void slider(GuiGraphics g, String label, int x, int y, int w, int min, int max, int step, int value,
                           String unit, java.util.function.IntConsumer set, Runnable done) {
         g.drawString(font, label, x + 2, y + 2, Ui.SOFT, false);
@@ -238,7 +222,6 @@ abstract class PanelScreen extends Screen {
         return super.mouseReleased(mouseX, mouseY, button);
     }
 
-    /** Cuts a line into pieces that fit the width. */
     protected List<String> wrap(String text, int w) {
         List<String> out = new ArrayList<>();
         String rest = text;
@@ -258,7 +241,6 @@ abstract class PanelScreen extends Screen {
         return out;
     }
 
-    /** The last lines of chat, wrapped, drawn in a box. */
     protected void log(GuiGraphics g, int x, int y, int w, int lines) {
         int h = lines * 11 + 8;
         g.fill(x, y, x + w, y + h, 0x55000000);

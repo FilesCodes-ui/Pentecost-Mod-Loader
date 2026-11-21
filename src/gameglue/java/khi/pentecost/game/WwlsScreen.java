@@ -6,7 +6,6 @@ import khi.pentecost.core.JoinApprovals;
 import khi.pentecost.core.Wwls;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.toasts.SystemToast;
 import net.minecraft.client.gui.screens.ConnectScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.multiplayer.ServerData;
@@ -20,19 +19,9 @@ import net.minecraft.util.HttpUtil;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * World Wide Local Server: friends join a world by a short code. No port forwarding, no accounts for them to make.
- * Drawn like the other Pentecost screens: black and white, one centered column.
- *
- * A world open to friends is protected four ways: a connection guard turns away floods and repeat connections,
- * the host says yes or no to every account before it can play, a watchdog closes the sharing when nobody joins
- * for 30 minutes or when floods keep coming, and the buttons here have cooldowns so nothing can be hammered.
- * When the sharing ends for any reason, the world stops listening for new connections.
- */
 public final class WwlsScreen extends Screen {
     private record Hit(int x, int y, int w, int h, Runnable action) {}
 
-    /** The world open to friends right now, if any. It outlives the screen and closes itself when the world stops. */
     private static volatile Wwls.Session session;
     private static volatile HostGuard guard;
     private static volatile JoinApprovals approvals;
@@ -40,7 +29,6 @@ public final class WwlsScreen extends Screen {
     private static volatile boolean busy;
     private static String typed = "";
 
-    /** Failed joins in a row, and the time before which another try is refused. */
     private static volatile int failures;
     private static volatile long lockedUntil;
     private static volatile long nextHostAt;
@@ -53,12 +41,40 @@ public final class WwlsScreen extends Screen {
         this.parent = parent;
     }
 
-    /** True while this computer hosts a world open to friends. */
     static boolean hosting() {
         return live() != null;
     }
 
-    /** Says yes or no to one waiting person. */
+    static String hostAddress() {
+        Wwls.Session s = live();
+        return s == null ? null : s.address();
+    }
+
+    static String hostCode() {
+        Wwls.Session s = live();
+        return s == null ? null : s.code();
+    }
+
+    static void joinFromDiscord(String raw) {
+        String code = Wwls.cleanCode(raw);
+        if (code.length() != Wwls.CODE_LENGTH) {
+            return;
+        }
+        Minecraft mc = Minecraft.getInstance();
+        mc.execute(() -> {
+            typed = code;
+            boolean inWorld = mc.level != null && !khi.pentecost.game.menuworld.MenuHost.showing();
+            if (inWorld) {
+                khi.pentecost.game.PentecostToast.show(Component.literal("A friend invited you"),
+                        Component.literal("Leave your world and open WWLS. The code is filled in."));
+                return;
+            }
+            WwlsScreen screen = new WwlsScreen(mc.screen);
+            mc.setScreen(screen);
+            screen.join();
+        });
+    }
+
     static void answerFor(java.util.UUID id, boolean yes) {
         JoinApprovals ap = approvals;
         if (ap == null) {
@@ -78,7 +94,6 @@ public final class WwlsScreen extends Screen {
         }
     }
 
-    /** The session, or null when none is open or it has closed itself. */
     private static Wwls.Session live() {
         Wwls.Session s = session;
         return s != null && !s.closed() ? s : null;
@@ -93,15 +108,12 @@ public final class WwlsScreen extends Screen {
         t.start();
     }
 
-    /** Tells the host that someone is waiting: a pop-up and a line in chat. Runs on the game's main thread. */
     private static void announce(Minecraft mc, JoinApprovals.Request r) {
-        SystemToast.addOrUpdate(mc.getToasts(), SystemToast.SystemToastIds.PERIODIC_NOTIFICATION,
-                Component.literal(r.name() + " wants to join"), Component.literal("Press Y to let them in, N for no."));
+        khi.pentecost.game.PentecostToast.show(Component.literal(r.name() + " wants to join"), Component.literal("Press Y to let them in, N for no."));
         mc.gui.getChat().addMessage(Component.literal("[Pentecost] " + r.name()
                 + " wants to join your world. Press Y to let them in, N to say no, O to open WWLS."));
     }
 
-    /** Everyone waiting for an answer, oldest first. Empty when no world is open to friends. */
     static List<JoinApprovals.Request> waitingList() {
         JoinApprovals ap = approvals;
         if (live() == null || ap == null) {
@@ -110,7 +122,6 @@ public final class WwlsScreen extends Screen {
         return ap.pending();
     }
 
-    /** Says yes or no to the person who has waited longest. Used by the on-screen prompt. */
     static void answer(boolean yes) {
         JoinApprovals ap = approvals;
         List<JoinApprovals.Request> list = waitingList();
@@ -131,8 +142,6 @@ public final class WwlsScreen extends Screen {
     static void open(Minecraft mc) {
         mc.setScreen(new WwlsScreen(mc.screen));
     }
-
-    // ---------------------------------------------------------------- actions
 
     private void host() {
         Minecraft mc = Minecraft.getInstance();
@@ -157,6 +166,7 @@ public final class WwlsScreen extends Screen {
         Thread t = new Thread(() -> {
             int port = HttpUtil.getAvailablePort();
             try {
+                FriendsScreen.useConfig(mc);
                 Wwls.Session s = Wwls.host(port, server::isRunning);
                 mc.execute(() -> {
                     ConnectionLimiter limiter = new ConnectionLimiter();
@@ -165,7 +175,6 @@ public final class WwlsScreen extends Screen {
                         closeAsync(s);
                         status = "The game could not open the world on port " + port + ".";
                     } else {
-                        // However the sharing ends, the world stops listening for new connections.
                         s.onClose(() -> ConnectionGuard.stopListening(server, port));
                         try {
                             ConnectionGuard.install(server, limiter);
@@ -235,7 +244,6 @@ public final class WwlsScreen extends Screen {
                 int n = failures + 1;
                 failures = n;
                 if (n >= 3) {
-                    // 30 seconds after the third miss, then a minute, 90 seconds and so on, up to 5 minutes.
                     lockedUntil = System.currentTimeMillis() + Math.min(300_000L, 30_000L * (n - 2));
                 }
                 status = e.getMessage();
@@ -246,16 +254,25 @@ public final class WwlsScreen extends Screen {
         t.start();
     }
 
-    // ---------------------------------------------------------------- drawing
+    private long opened;
 
-    private void centered(GuiGraphics g, String text, int cx, int y, int color) {
-        g.drawString(font, text, cx - font.width(text) / 2, y, color, false);
+    private static float ease(double v) {
+        double c = Math.max(0, Math.min(1, v));
+        return (float) (1 - Math.pow(1 - c, 3));
     }
 
-    private void button(GuiGraphics g, String label, int x, int y, int w, int mx, int my, boolean enabled, Runnable action) {
+    private static int fade(int color, float a) {
+        int al = (int) (((color >>> 24) & 0xFF) * a);
+        return (Math.max(0, Math.min(255, al)) << 24) | (color & 0xFFFFFF);
+    }
+
+    private void button(GuiGraphics g, String label, int x, int y, int w, int mx, int my, boolean enabled, boolean solid, Runnable action) {
         boolean hover = enabled && Ui.over(mx, my, x, y, w, 20);
         if (hover) {
             g.fill(x, y, x + w, y + 20, Ui.TEXT);
+        } else if (solid && enabled) {
+            g.fill(x, y, x + w, y + 20, 0x26FFFFFF);
+            Ui.outline(g, x, y, x + w, y + 20, 0x80FFFFFF);
         } else {
             Ui.outline(g, x, y, x + w, y + 20, enabled ? 0x66FFFFFF : 0x24FFFFFF);
         }
@@ -266,9 +283,48 @@ public final class WwlsScreen extends Screen {
         }
     }
 
+    private void card(GuiGraphics g, int x, int y, int w, int h, String title, String right, float in) {
+        int off = (int) ((1 - in) * 8);
+        g.fill(x, y + off, x + w, y + h + off, fade(0x66000000, in));
+        Ui.outline(g, x, y + off, x + w, y + h + off, fade(0x26FFFFFF, in));
+        g.fill(x, y + off, x + 14, y + off + 1, fade(Ui.TEXT, in));
+        g.drawString(font, title, x + 14, y + off + 12, fade(Ui.FAINT, in), false);
+        if (right != null) {
+            g.drawString(font, right, x + w - 14 - font.width(right), y + off + 12, fade(Ui.MUTED, in), false);
+        }
+    }
+
+    private int boxes(GuiGraphics g, String text, int x, int y, int w, boolean caret, boolean lit) {
+        int n = Wwls.CODE_LENGTH;
+        int gap = 4;
+        int bw = Math.max(14, Math.min(30, (w - (n - 1) * gap) / n));
+        int total = n * bw + (n - 1) * gap;
+        int bx = x + (w - total) / 2;
+        boolean blink = (System.currentTimeMillis() / 500) % 2 == 0;
+        for (int i = 0; i < n; i++) {
+            int cx = bx + i * (bw + gap);
+            boolean filled = i < text.length();
+            boolean next = caret && i == text.length();
+            g.fill(cx, y, cx + bw, y + 30, filled ? (lit ? 0x26FFFFFF : 0x14FFFFFF) : 0x0AFFFFFF);
+            Ui.outline(g, cx, y, cx + bw, y + 30, next ? 0xAAFFFFFF : filled ? 0x55FFFFFF : 0x22FFFFFF);
+            if (filled) {
+                String ch = text.substring(i, i + 1);
+                float s = 2f;
+                Ui.text(g, font, ch, cx + (bw - font.width(ch) * s) / 2f, y + 8, Ui.TEXT, s);
+            } else if (next && blink) {
+                g.fill(cx + bw / 2, y + 7, cx + bw / 2 + 1, y + 23, Ui.TEXT);
+            }
+        }
+        return y + 30;
+    }
+
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-        g.fill(0, 0, width, height, minecraft.level == null ? 0xFF0A0A0B : 0xD80A0A0B);
+        if (opened == 0) {
+            opened = net.minecraft.Util.getMillis();
+        }
+        double t = (net.minecraft.Util.getMillis() - opened) / 1000.0;
+        g.fill(0, 0, width, height, Ui.back(minecraft));
         Ui.dither(g, width, height);
         float ui = Ui.scale(minecraft);
         int vw = (int) (width / ui);
@@ -279,12 +335,7 @@ public final class WwlsScreen extends Screen {
         g.pose().pushPose();
         g.pose().scale(ui, ui, 1);
 
-        int cx = vw / 2;
-        int colW = Math.min(280, vw - 40);
-        int x0 = cx - colW / 2;
         boolean inWorld = minecraft.getSingleplayerServer() != null;
-
-        // When the watchdog closed the sharing, say why once.
         Wwls.Session open = live();
         HostGuard watch = guard;
         if (open == null && watch != null && !watch.reason().isEmpty()) {
@@ -295,61 +346,79 @@ public final class WwlsScreen extends Screen {
             approvals = null;
         }
 
-        // Header, centered: logo and wordmark, the full name under it, a hairline.
-        int y = Math.max(20, vh / 12);
-        String word = "WWLS";
-        int total = (Ui.LOGO_W + 5) * 2 + Ui.wordmarkWidth(word, 2);
-        int hx = cx - total / 2;
-        Ui.logo(g, hx, y - 2, 2, Ui.TEXT);
-        Ui.wordmark(g, word, hx + (Ui.LOGO_W + 5) * 2, y, 2, Ui.TEXT);
-        y += 34;
-        centered(g, "WORLD WIDE LOCAL SERVER", cx, y, Ui.MUTED);
-        y += 14;
-        g.fill(x0, y, x0 + colW, y + 1, Ui.LINE);
-        y += 16;
+        int margin = 48;
+        Ui.logo(g, margin, 24, 2, Ui.TEXT);
+        Ui.wordmark(g, "WWLS", margin + (Ui.LOGO_W + 5) * 2, 26, 2, Ui.TEXT);
+        String sub = "WORLD WIDE LOCAL SERVER";
+        g.drawString(font, sub, vw - margin - font.width(sub), 40, Ui.MUTED, false);
+        g.fill(margin, 66, vw - margin, 67, Ui.LINE);
 
-        // Host.
-        centered(g, "HOST", cx, y, Ui.FAINT);
-        y += 14;
+        int areaW = Math.min(760, vw - margin * 2);
+        int x0 = (vw - areaW) / 2;
+        boolean two = areaW >= 500;
+        int gap = 16;
+        int colW = two ? (areaW - gap) / 2 : areaW;
+        int top = 86;
+
+        JoinApprovals ap = approvals;
+        List<JoinApprovals.Request> asking = open == null || ap == null ? List.of() : ap.pending();
+        int shown = Math.min(3, asking.size());
+        int hostH = open == null ? 150 : 150 + (shown > 0 ? 20 + shown * 26 : 0) + (asking.size() > shown ? 14 : 0);
+        int joinH = 150;
+        int cardH = two ? Math.max(hostH, joinH) : 0;
+
+        float inA = ease((t - 0.05) / 0.45);
+        int hx = x0;
+        int hy = top;
+        int count = open == null ? 0 : Math.max(0, minecraft.getSingleplayerServer() == null ? 0 : minecraft.getSingleplayerServer().getPlayerCount() - 1);
+        String hostRight = open == null ? null : count == 1 ? "1 FRIEND INSIDE" : count + " FRIENDS INSIDE";
+        card(g, hx, hy, colW, two ? cardH : hostH, "HOST", hostRight, inA);
+        int off = (int) ((1 - inA) * 8);
+        int y = hy + off + 32;
+        int ix = hx + 14;
+        int iw = colW - 28;
         String code = open == null ? null : open.code();
         if (code == null) {
-            button(g, "Open this world to friends", x0, y, colW, mx, my, inWorld && !busy, this::host);
-            y += 26;
-            if (!inWorld) {
-                centered(g, "Open a world first to share it.", cx, y, Ui.MUTED);
-                y += 14;
+            Ui.text(g, font, inWorld ? "Share this world" : "No world open", ix, y, fade(Ui.TEXT, inA), 1.4f);
+            y += 20;
+            String why = inWorld ? "Friends with your room code can ask to join. You say yes or no for each one."
+                    : "Open a singleplayer world first, then come back here to share it.";
+            for (String line : Ui.wrap(font, why, iw)) {
+                g.drawString(font, line, ix, y, fade(Ui.SOFT, inA), false);
+                y += 11;
             }
+            int by = hy + off + (two ? cardH : hostH) - 34;
+            button(g, busy ? "Opening..." : "Open to friends", ix, by, iw, mx, my, inWorld && !busy, true, this::host);
         } else {
-            float scale = 2.4f;
-            Ui.text(g, font, code, cx - font.width(code) * scale / 2f, y, Ui.TEXT, scale);
-            y += 34;
-            int half = (colW - 6) / 2;
-            button(g, "Copy code", x0, y, half, mx, my, true, () -> {
+            double pulse = 0.5 + 0.5 * Math.sin(t * 3);
+            g.fill(ix, y + 2, ix + 4, y + 6, fade(0xFF8FD18F, (float) (0.5 + 0.5 * pulse)));
+            g.drawString(font, "Open now", ix + 8, y, 0xFF8FD18F, false);
+            y += 14;
+            y = boxes(g, code, ix, y, iw, false, true) + 8;
+            int half = (iw - 6) / 2;
+            button(g, "Copy code", ix, y, half, mx, my, true, true, () -> {
                 Wwls.Session s = live();
                 minecraft.keyboardHandler.setClipboard(s == null ? "" : s.code());
+                status = "Copied. Send it to your friend.";
             });
-            button(g, "Stop sharing", x0 + half + 6, y, half, mx, my, true, this::stop);
+            button(g, "Stop sharing", ix + half + 6, y, half, mx, my, true, false, this::stop);
             y += 26;
             if (watch != null && watch.limiter().paused()) {
-                centered(g, "Heavy traffic: new connections are paused for a moment.", cx, y, Ui.SOFT);
-                y += 14;
+                g.drawString(font, "Heavy traffic: new connections paused.", ix, y, Ui.SOFT, false);
+                y += 12;
             }
-
-            // Anyone waiting for a yes or a no.
-            JoinApprovals ap = approvals;
-            List<JoinApprovals.Request> asking = ap == null ? List.of() : ap.pending();
-            if (!asking.isEmpty()) {
+            if (shown > 0) {
                 y += 4;
-                centered(g, "ASKING TO JOIN", cx, y, Ui.FAINT);
+                g.drawString(font, "ASKING TO JOIN", ix, y, Ui.FAINT, false);
                 y += 14;
-                int shown = Math.min(3, asking.size());
                 for (int i = 0; i < shown; i++) {
                     JoinApprovals.Request r = asking.get(i);
-                    g.drawString(font, r.name(), x0, y + 6, Ui.TEXT, false);
-                    int noW = 36;
-                    int yesW = 64;
-                    button(g, "No", x0 + colW - noW, y, noW, mx, my, true, () -> ap.deny(r.id()));
-                    button(g, "Let in", x0 + colW - noW - 6 - yesW, y, yesW, mx, my, true, () -> {
+                    g.fill(ix, y, ix + iw, y + 22, 0x0FFFFFFF);
+                    g.drawString(font, r.name(), ix + 6, y + 7, Ui.TEXT, false);
+                    int noW = 34;
+                    int yesW = 54;
+                    button(g, "No", ix + iw - noW - 1, y + 1, noW, mx, my, true, false, () -> ap.deny(r.id()));
+                    button(g, "Let in", ix + iw - noW - 6 - yesW, y + 1, yesW, mx, my, true, true, () -> {
                         if (ap.approve(r.id())) {
                             status = r.name() + " can join now. Ask them to try the code again.";
                         }
@@ -357,43 +426,42 @@ public final class WwlsScreen extends Screen {
                     y += 26;
                 }
                 if (asking.size() > shown) {
-                    centered(g, "+" + (asking.size() - shown) + " more waiting", cx, y, Ui.MUTED);
-                    y += 14;
+                    g.drawString(font, "+" + (asking.size() - shown) + " more waiting", ix, y, Ui.MUTED, false);
                 }
             }
         }
-        y += 14;
 
-        // Join.
-        centered(g, "JOIN", cx, y, Ui.FAINT);
-        y += 14;
-        Ui.outline(g, x0, y, x0 + colW, y + 22, 0x66FFFFFF);
-        if (typed.isEmpty()) {
-            g.drawString(font, "Room code", x0 + 8, y + 7, Ui.FAINT, false);
-        } else {
-            g.drawString(font, typed, x0 + 8, y + 7, Ui.TEXT, false);
-        }
-        if ((System.currentTimeMillis() / 500) % 2 == 0) {
-            int caret = x0 + 8 + (typed.isEmpty() ? 0 : font.width(typed));
-            g.fill(caret, y + 5, caret + 1, y + 17, Ui.TEXT);
-        }
-        y += 28;
-        button(g, "Join", x0, y, colW, mx, my, !busy, this::join);
-        y += 30;
+        float inB = ease((t - 0.15) / 0.45);
+        int jx = two ? x0 + colW + gap : x0;
+        int jy = two ? top : top + hostH + gap;
+        card(g, jx, jy, colW, two ? cardH : joinH, "JOIN", null, inB);
+        int offB = (int) ((1 - inB) * 8);
+        y = jy + offB + 32;
+        ix = jx + 14;
+        Ui.text(g, font, "Join a friend", ix, y, fade(Ui.TEXT, inB), 1.4f);
+        y += 20;
+        g.drawString(font, "Type or paste their room code.", ix, y, fade(Ui.SOFT, inB), false);
+        y += 16;
+        boxes(g, typed, ix, y, iw, true, false);
+        int jby = jy + offB + (two ? cardH : joinH) - 34;
+        button(g, busy ? "Looking..." : "Join", ix, jby, iw, mx, my, !busy && typed.length() == Wwls.CODE_LENGTH, true, this::join);
 
-        // Status.
-        for (String line : Ui.wrap(font, status, colW)) {
-            centered(g, line, cx, y, Ui.SOFT);
-            y += 11;
+        int sy = (two ? top + cardH : jy + joinH) + 14;
+        if (!status.isEmpty()) {
+            int dotC = busy ? ((int) (t * 3) % 2 == 0 ? Ui.TEXT : Ui.FAINT) : Ui.MUTED;
+            g.fill(x0, sy + 2, x0 + 4, sy + 6, dotC);
+            for (String line : Ui.wrap(font, status, areaW - 10)) {
+                g.drawString(font, line, x0 + 10, sy, Ui.SOFT, false);
+                sy += 11;
+            }
         }
 
-        // Back, bottom center.
-        int bw = font.width("Back") + 40;
-        button(g, "Back", cx - bw / 2, vh - 32, bw, mx, my, true, this::onClose);
+        int bw = 70;
+        int fw = 80;
+        button(g, "Back", vw - margin - bw, vh - 32, bw, mx, my, true, false, this::onClose);
+        button(g, "Friends", vw - margin - bw - 8 - fw, vh - 32, fw, mx, my, true, false, () -> minecraft.setScreen(new FriendsScreen(this)));
         g.pose().popPose();
     }
-
-    // ---------------------------------------------------------------- input
 
     @Override
     public boolean charTyped(char c, int modifiers) {
@@ -406,11 +474,11 @@ public final class WwlsScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (keyCode == 259 && !typed.isEmpty()) { // backspace
+        if (keyCode == 259 && !typed.isEmpty()) {
             typed = typed.substring(0, typed.length() - 1);
             return true;
         }
-        if (keyCode == 257 || keyCode == 335) { // enter
+        if (keyCode == 257 || keyCode == 335) {
             join();
             return true;
         }

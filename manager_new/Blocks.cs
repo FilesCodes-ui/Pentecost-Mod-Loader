@@ -2,11 +2,6 @@ using System.Windows.Media.Imaging;
 
 namespace Pentecost.Manager;
 
-/// <summary>
-/// A box with pixel-rounded corners: each corner is cut in a small staircase. It is a Border in every other way, so
-/// padding, child and brushes work as usual.
-/// With Sheet on, the box also shows the part of the window-wide pixel sheet (see Field) that lies under it.
-/// </summary>
 public class PixelBox : Border
 {
     public static readonly DependencyProperty NotchProperty = DependencyProperty.Register(nameof(Notch), typeof(double), typeof(PixelBox),
@@ -15,10 +10,8 @@ public class PixelBox : Border
     public static readonly DependencyProperty SheetProperty = DependencyProperty.Register(nameof(Sheet), typeof(bool), typeof(PixelBox),
         new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender));
 
-    /// <summary>Sets how far the corner step fades along the edges. Zero draws no step.</summary>
     public double Notch { get => (double)GetValue(NotchProperty); set => SetValue(NotchProperty, value); }
 
-    /// <summary>Shows the shared pixel sheet inside the box.</summary>
     public bool Sheet { get => (bool)GetValue(SheetProperty); set => SetValue(SheetProperty, value); }
 
     Point? seen;
@@ -28,7 +21,6 @@ public class PixelBox : Border
         SnapsToDevicePixels = true;
         RenderOptions.SetEdgeMode(this, EdgeMode.Aliased);
         RenderOptions.SetBitmapScalingMode(this, BitmapScalingMode.NearestNeighbor);
-        // A box that shows the sheet has to draw again when it moves, or it would carry its piece of the sheet along.
         Loaded += (_, _) => LayoutUpdated += Moved;
         Unloaded += (_, _) => LayoutUpdated -= Moved;
     }
@@ -51,7 +43,6 @@ public class PixelBox : Border
         catch { return null; }
     }
 
-    /// <summary>The outline: a rectangle whose corners are cut in a one-pixel staircase.</summary>
     static Geometry Outline(double l, double t, double r, double b, int k)
     {
         k = Math.Min(k, (int)Math.Min((r - l) / 3, (b - t) / 3));
@@ -67,10 +58,8 @@ public class PixelBox : Border
             }
             else
             {
-                // One staircase per corner, a pixel across and a pixel down at a time.
                 void Corner(double x, double y, int sx, int sy, bool first)
                 {
-                    // Enters along the previous side, leaves along the next. (x, y) is the sharp corner.
                     var pts = new List<Point>();
                     for (var i = 0; i < k; i++)
                     {
@@ -130,26 +119,18 @@ public class PixelBox : Border
     }
 }
 
-/// <summary>
-/// The Pentecost mark: a triangle turning in three dimensions, a dot at each corner, the corners joined by its edges.
-/// It is drawn into a small grid of square cells and blown up, so the edges stay blocky however large it gets.
-/// Three turns at once, at speeds that never line up, plus two fading ghosts of where it just was.
-/// </summary>
 public static class TriMark
 {
-    /// <summary>One frame, as a grid of brightness from 0 to 255. The caller decides how big a cell is.</summary>
     public static byte[] Frame(int cells, double t)
     {
         var buf = new byte[cells * cells];
         var eye = 3.1 + 0.55 * Math.Sin(t * 0.47);
-        // The ghosts come first, so the triangle itself paints over them.
         Draw(buf, cells, Angles(t - 0.22), eye, 70, 0.40);
         Draw(buf, cells, Angles(t - 0.11), eye, 130, 0.40);
         Draw(buf, cells, Angles(t), eye, 255, 0.40);
         return buf;
     }
 
-    // Three turns whose speeds share no common beat, so the shape never repeats the same way twice.
     static (double, double, double) Angles(double t) => (t * 0.91, t * 1.37, t * 0.58);
 
     static void Draw(byte[] buf, int n, (double X, double Y, double Z) turn, double eye, byte level, double reachPart)
@@ -161,7 +142,6 @@ public static class TriMark
             var a = Math.PI / 2 + i * 2 * Math.PI / 3;
             double x = Math.Cos(a), y = Math.Sin(a), z = 0;
 
-            // Turn about x, then y, then z.
             (y, z) = (y * Math.Cos(ax) - z * Math.Sin(ax), y * Math.Sin(ax) + z * Math.Cos(ax));
             (x, z) = (x * Math.Cos(ay) + z * Math.Sin(ay), -x * Math.Sin(ay) + z * Math.Cos(ay));
             (x, y) = (x * Math.Cos(az) - y * Math.Sin(az), x * Math.Sin(az) + y * Math.Cos(az));
@@ -178,7 +158,6 @@ public static class TriMark
             flat[i] = (mid + x * k * reach, mid - y * k * reach, k);
         }
 
-        // The three edges. A corner further away draws fainter, which is what makes it read as solid.
         for (var i = 0; i < 3; i++)
         {
             var a = flat[i];
@@ -186,7 +165,6 @@ public static class TriMark
             Line(buf, n, a.X, a.Y, b.X, b.Y, Dim(level, (a.Depth + b.Depth) / 2));
         }
 
-        // A dot at each corner, bigger when it is nearer.
         foreach (var (x, y, depth) in flat)
         {
             var r = n >= 26 ? (depth > 0.95 ? 2 : 1) : (depth > 0.95 ? 1 : 0);
@@ -199,7 +177,7 @@ public static class TriMark
                 }
         }
     }
-    static byte Dim(byte level, double depth) => (byte)Math.Clamp(level * Math.Clamp(depth * 0.78, 0.33, 1.0), 0, 255);
+    static byte Dim(byte level, double depth) => (byte)Math.Max(0, Math.Min(255, level * Math.Max(0.33, Math.Min(1.0, depth * 0.78))));
 
     static void Put(byte[] buf, int n, int x, int y, byte v)
     {
@@ -208,7 +186,6 @@ public static class TriMark
         if (buf[i] < v) buf[i] = v;
     }
 
-    /// <summary>A straight line of cells, the plain way, so the staircase stays visible.</summary>
     static void Line(byte[] buf, int n, double x0, double y0, double x1, double y1, byte v)
     {
         var steps = (int)Math.Ceiling(Math.Max(Math.Abs(x1 - x0), Math.Abs(y1 - y0)));
@@ -221,7 +198,6 @@ public static class TriMark
     }
 }
 
-/// <summary>The mark, turning, on screen.</summary>
 public class TriSpinner : FrameworkElement
 {
     public static readonly DependencyProperty CellsProperty = DependencyProperty.Register(nameof(Cells), typeof(int), typeof(TriSpinner),
@@ -229,7 +205,6 @@ public class TriSpinner : FrameworkElement
     public static readonly DependencyProperty FillProperty = DependencyProperty.Register(nameof(Fill), typeof(Color), typeof(TriSpinner),
         new FrameworkPropertyMetadata(Color.FromRgb(0xF2, 0xF2, 0xF2), FrameworkPropertyMetadataOptions.AffectsRender));
 
-    /// <summary>How many cells across. Fewer means chunkier.</summary>
     public int Cells { get => (int)GetValue(CellsProperty); set => SetValue(CellsProperty, value); }
     public Color Fill { get => (Color)GetValue(FillProperty); set => SetValue(FillProperty, value); }
 
@@ -245,18 +220,18 @@ public class TriSpinner : FrameworkElement
         RenderOptions.SetBitmapScalingMode(this, BitmapScalingMode.NearestNeighbor);
         RenderOptions.SetEdgeMode(this, EdgeMode.Aliased);
         IsHitTestVisible = false;
-        Loaded += (_, _) => CompositionTarget.Rendering += Tick;
-        Unloaded += (_, _) => CompositionTarget.Rendering -= Tick;
+        Loaded += (_, _) => Anim.Add(Tick);
+        Unloaded += (_, _) => Anim.Remove(Tick);
     }
 
     void Tick(object? sender, EventArgs e)
     {
-        // Half the screen's rate is plenty for something this small, and it keeps the picture steady.
         if (frame++ % 2 == 0) InvalidateVisual();
     }
 
     protected override void OnRender(DrawingContext dc)
     {
+        if (Anim.Sizing && bitmap != null) { dc.DrawImage(bitmap, new Rect(0, 0, ActualWidth, ActualHeight)); return; }
         if (ActualWidth < 2 || ActualHeight < 2) return;
         var n = Math.Max(8, Cells);
         if (bitmap == null || n != cells)
@@ -279,7 +254,6 @@ public class TriSpinner : FrameworkElement
     }
 }
 
-/// <summary>Writes the program's icon from the same mark, so the two can never drift apart.</summary>
 public static class IconMaker
 {
     static readonly int[] Sizes = { 16, 24, 32, 48, 64, 128, 256 };
@@ -316,16 +290,10 @@ public static class IconMaker
         File.WriteAllBytes(path, ms.ToArray());
     }
 
-    /// <summary>
-    /// The moment of the turn the program's icon stands on, in seconds: all three corners apart, the two near ones
-    /// bright, the far one fading. It is the same mark the Manager shows on screen, caught mid-turn.
-    /// </summary>
     const double StillAt = 11.0;
 
-    /// <summary>Whole pixels to a cell, so every cell of the mark is the same size.</summary>
     static int CellsFor(int size) => size >= 64 ? 32 : size >= 48 ? 24 : size >= 32 ? 16 : size >= 24 ? 12 : 16;
 
-    /// <summary>The mark as it is at this moment of its turn, for the taskbar icon. The same free turn as on screen.</summary>
     public static BitmapSource FrameAt(int size, double seconds)
     {
         var cells = CellsFor(size);
@@ -343,7 +311,6 @@ public static class IconMaker
         return ms.ToArray();
     }
 
-    /// <summary>The mark on a plate with stepped corners, as a picture of the size asked for.</summary>
     static BitmapSource Paint(int size, int cells, byte[] grid)
     {
         var px = new int[size * size];

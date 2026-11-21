@@ -10,14 +10,6 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
-/**
- * A finished menu-world cache packed into one zip, so a launch can unpack it instead of generating the world.
- * The zip holds exactly what {@link SeedPregen} writes: meta.json, level.dat and region/r.X.Z.mca.
- * It lives at {@code <home>/menu_world/<seed>.zip}.
- * <p>
- * Make one: generate the seed once (the menu world does it, or {@code SeedPregen}), then run
- * {@code SeedBundle <seed>}. Unpacking only copies files. It never starts a server.
- */
 public final class SeedBundle {
     private SeedBundle() {}
 
@@ -25,11 +17,6 @@ public final class SeedBundle {
         return home.resolve("menu_world").resolve(seed + ".zip");
     }
 
-    /**
-     * Unpacks the seed's zip into the cache when there is one. Returns true when the cache is then complete for the
-     * area. A zip that is missing, damaged or too small for the area leaves the cache without a meta.json, so the
-     * caller generates it the normal way.
-     */
     public static boolean install(Path home, Path cacheDir, SeedPregen.Area area) {
         Path zip = bundleFile(home, area.seed());
         if (!Files.isRegularFile(zip)) {
@@ -39,7 +26,7 @@ public final class SeedBundle {
         try {
             Files.createDirectories(cacheDir);
             Files.deleteIfExists(cacheDir.resolve("meta.json"));
-            Files.deleteIfExists(cacheDir.resolve("progress.json")); // it described the files this replaces
+            Files.deleteIfExists(cacheDir.resolve("progress.json"));
             tmp = Files.createTempDirectory(cacheDir, ".bundle-");
             try (ZipInputStream in = new ZipInputStream(Files.newInputStream(zip))) {
                 for (ZipEntry e; (e = in.getNextEntry()) != null; ) {
@@ -71,7 +58,7 @@ public final class SeedBundle {
             if (Files.isRegularFile(level)) {
                 Files.move(level, cacheDir.resolve("level.dat"), StandardCopyOption.REPLACE_EXISTING);
             }
-            Files.move(meta, cacheDir.resolve("meta.json"), StandardCopyOption.REPLACE_EXISTING); // last: it says "complete"
+            Files.move(meta, cacheDir.resolve("meta.json"), StandardCopyOption.REPLACE_EXISTING);
             if (SeedPregen.isComplete(cacheDir, area)) {
                 return true;
             }
@@ -98,7 +85,6 @@ public final class SeedBundle {
         try (ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(zip))) {
             add(out, cacheDir.resolve("level.dat"), "level.dat");
             Path region = cacheDir.resolve("region");
-            // Only the region files the meta lists: a cache that was moved or shrunk can hold more.
             java.util.Set<String> listed = new java.util.HashSet<>();
             try {
                 var regions = com.google.gson.JsonParser.parseString(Files.readString(cacheDir.resolve("meta.json")))
@@ -136,7 +122,6 @@ public final class SeedBundle {
         }
     }
 
-    /** Command line: SeedBundle seed. Reads config/pentecost/menu_world/seed, writes menu_world/seed.zip under pentecost.home. */
     public static void main(String[] args) throws Exception {
         String seed = args[0];
         Path home = Path.of(System.getProperty("pentecost.home", "."));

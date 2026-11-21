@@ -4,7 +4,6 @@ using System.Text.RegularExpressions;
 
 namespace Pentecost.Manager;
 
-/// <summary>Finds a Java 21 the same way the Modrinth wrapper script does, minus the Modrinth-specific parts.</summary>
 public static class JavaFinder
 {
     public static string? Find()
@@ -44,7 +43,6 @@ public static class JavaFinder
         return Major("java") >= 21 ? "java" : null;
     }
 
-    /// <summary>Saves the chosen java.exe on the first line of java.txt in the Pentecost folder.</summary>
     public static string? Choose(string exe)
     {
         if (!File.Exists(exe)) return "That file does not exist.";
@@ -72,13 +70,13 @@ public static class JavaFinder
     }
 }
 
-/// <summary>Starts the game. Standalone does what pentecost-wrapper.ps1 does, with no session, so the game uses its offline name.</summary>
 public sealed class GameRun
 {
     Process? p;
     public event Action<string>? Line;
     public event Action<int>? Exited;
     public bool Running => p is { HasExited: false };
+    public Process? Proc => p;
 
     public static (int Heap, int Young) AutoMemory()
     {
@@ -88,17 +86,14 @@ public sealed class GameRun
 
     public static double TotalGb => GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / (1024.0 * 1024 * 1024);
 
-    /// <summary>The backup that suits this computer for a heap of this size. It always leaves 2 GB free for Windows.</summary>
     public static int AutoReserve(int heap)
     {
         var gb = (int)TotalGb;
         return FitReserve(heap, gb >= 12 ? 2 : gb >= 8 ? 1 : 0);
     }
 
-    /// <summary>A backup, cut down so that heap plus backup leaves 2 GB free.</summary>
     public static int FitReserve(int heap, int reserve) => Math.Max(0, Math.Min(Math.Min(16, reserve), (int)TotalGb - 2 - heap));
 
-    /// <summary>The working size, the backup above it and the new objects area the game starts with for a profile.</summary>
     public static (int Heap, int Reserve, int Young) PlanFor(ModProfile p)
     {
         var heap = p.MemoryGb > 0 ? p.MemoryGb : AutoMemory().Heap;
@@ -106,18 +101,12 @@ public sealed class GameRun
         return (heap, reserve, Math.Max(1, heap / 2));
     }
 
-    /// <summary>For the facts on a page, such as "8 GB + 2 GB backup" or "Automatic, 8 GB + 2 GB backup".</summary>
     public static string MemoryText(ModProfile p, string auto)
     {
         var (heap, reserve, _) = PlanFor(p);
         return (p.MemoryGb > 0 ? "" : auto + ", ") + heap + " GB" + (reserve > 0 ? " + " + reserve + " GB backup" : "");
     }
 
-    /// <summary>
-    /// The game reads its memory choices from config/pentecost/settings.json at launch and restarts itself once when the
-    /// JVM flags differ. A profile with its own numbers writes them there, so the Manager and the game's Settings screen
-    /// agree. An automatic profile leaves the file alone, so the game's own choice stands.
-    /// </summary>
     public static void SyncGameSettings(ModProfile p)
     {
         if (p.MemoryGb <= 0 && p.ReserveGb < 0) return;
@@ -143,7 +132,7 @@ public sealed class GameRun
         catch (Exception ex) { AppLog.Write("game settings: " + ex.Message); }
     }
 
-    public string? Start(LaunchMode mode, string? java, ModProfile profile)
+    public string? Start(LaunchMode mode, string? java, ModProfile profile, string? world = null)
     {
         if (Running) return "The game is already running.";
         ProcessStartInfo psi;
@@ -160,6 +149,7 @@ public sealed class GameRun
                 if (java == null) return "Java 21 was not found. Choose java.exe in Settings.";
                 var err = Standalone(java, profile, out psi!);
                 if (err != null) return err;
+                if (world != null) psi.Environment["PENTECOST_WORLD"] = world;
                 break;
         }
         psi.UseShellExecute = false;
@@ -188,11 +178,6 @@ public sealed class GameRun
     public static bool LauncherRunning() =>
         Process.GetProcessesByName("MinecraftLauncher").Length > 0 || Process.GetProcessesByName("Minecraft.Launcher").Length > 0;
 
-    /// <summary>
-    /// The launcher cannot be told "start this profile", so the manager makes Pentecost the most recently used profile
-    /// and writes the memory of the active profile into it. A backup of the launcher's file is saved once.
-    /// Only done while the launcher is closed, because the launcher rewrites this file when it closes.
-    /// </summary>
     static string? PrepareLauncherProfile(ModProfile profile)
     {
         try

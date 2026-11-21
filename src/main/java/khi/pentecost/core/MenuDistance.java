@@ -8,14 +8,7 @@ import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
-/**
- * The render distance of the menu world. The game's effective render distance is the smaller of the player's own
- * setting and the one the level asks for, so a player with a low render distance got a short menu world however far
- * the menu world was set to load. While the menu world is showing, the menu world's own distance is used instead,
- * whatever the player's setting is. The player's setting is not changed, and it applies again in a real world.
- */
 public final class MenuDistance {
-    /** The menu world's view distance in chunks while it is showing, 0 when it is not. Set by the menu host. */
     public static volatile int chunks;
 
     private MenuDistance() {}

@@ -11,13 +11,11 @@ import net.minecraft.server.packs.resources.MultiPackResourceManager;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
-/**
- * Loads the worldgen registries (biomes, dimension types and so on) from the vanilla data pack only. The menu
- * world must not see mod biomes or mod data packs, so only the pack named "vanilla" is selected.
- * Takes a second or two, so call it off the render thread.
- */
 public final class MenuRegistries {
     private MenuRegistries() {}
 
@@ -28,7 +26,24 @@ public final class MenuRegistries {
         repo.setSelected(List.of("vanilla"));
         try (MultiPackResourceManager resources = new MultiPackResourceManager(PackType.SERVER_DATA, repo.openAllSelected())) {
             return RegistryDataLoader.load(resources, RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY),
-                    RegistryDataLoader.WORLDGEN_REGISTRIES);
+                    registries());
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<RegistryDataLoader.RegistryData<?>> registries() {
+        Map<Object, RegistryDataLoader.RegistryData<?>> byKey = new LinkedHashMap<>();
+        for (RegistryDataLoader.RegistryData<?> d : RegistryDataLoader.WORLDGEN_REGISTRIES) {
+            byKey.put(d.key(), d);
+        }
+        try {
+            Class<?> hooks = Class.forName("net.minecraftforge.registries.DataPackRegistriesHooks");
+            for (Object o : (List<Object>) hooks.getMethod("getDataPackRegistries").invoke(null)) {
+                RegistryDataLoader.RegistryData<?> d = (RegistryDataLoader.RegistryData<?>) o;
+                byKey.putIfAbsent(d.key(), d);
+            }
+        } catch (ReflectiveOperationException | LinkageError | RuntimeException e) {
+        }
+        return new ArrayList<>(byKey.values());
     }
 }

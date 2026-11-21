@@ -7,7 +7,6 @@ using System.Windows.Threading;
 
 namespace Pentecost.Manager;
 
-/// <summary>A folder or file inside a jar.</summary>
 sealed class ZNode
 {
     public string Name = "", Path = "";
@@ -19,7 +18,6 @@ sealed class ZNode
     public Dictionary<string, ZNode> Map = new(StringComparer.Ordinal);
 }
 
-/// <summary>The file tree of a mod, laid out like a file explorer, with a preview of whatever file is picked.</summary>
 public partial class MainWindow
 {
     static ZNode ReadTree(string file)
@@ -57,7 +55,6 @@ public partial class MainWindow
         return root;
     }
 
-    /// <summary>Sorts folders before files, and counts the files and bytes under each folder.</summary>
     static void Finish(ZNode n)
     {
         if (!n.Dir) { n.Files = 1; return; }
@@ -218,7 +215,6 @@ public partial class MainWindow
             }
             root = tree;
             status.Text = $"{Ui.Num(tree.Files)} files, {Sz(new FileInfo(m.File).Length)}";
-            // The folders people look at first are already open.
             foreach (var k in tree.Kids.Where(k => k.Dir && k.Name is "assets" or "data" or "META-INF")) { k.Open = false; }
             Draw();
         }
@@ -256,8 +252,6 @@ public partial class MainWindow
         try { File.WriteAllBytes(dlg.FileName, data); Toast("Saved " + n.Name); }
         catch (Exception ex) { Toast("Could not save it: " + ex.Message, "Bad"); }
     }
-
-    // ---------------------------------------------------------------- preview of one file
 
     static readonly HashSet<string> Pictures = new(StringComparer.OrdinalIgnoreCase) { ".png", ".jpg", ".jpeg", ".gif", ".bmp" };
 

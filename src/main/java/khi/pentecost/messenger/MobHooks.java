@@ -12,43 +12,24 @@ import org.objectweb.asm.Opcodes;
 import java.nio.charset.StandardCharsets;
 import java.util.function.Consumer;
 
-/**
- * Step 4 of mod threads: mods' mobs tick on their mod's thread.
- *
- * During the server's entity tick, a mob that belongs to a mod with its own thread is set aside instead of ticked.
- * When the game's loop over entities ends, every mod thread ticks its mobs at the same time while the server thread
- * waits. Then the server thread applies, in order, the world changes the mod threads asked for. To the game it looks
- * like one thread did all of it.
- *
- * During that parallel phase a mod thread:
- * - reads the world freely: nothing else changes it while the phase runs,
- * - queues block changes, new entities, removals, section moves, game events, and damage to anything not its own,
- * - uses its own random numbers, since the world's random number source fails when two threads share it,
- * - reads loaded chunks directly, and asks the server thread (which answers while it waits) for anything else.
- * A mob that throws sends its mod back to the server thread for the rest of the session, with the stack trace
- * in the messenger report. The game glue (khi.pentecost.game.MobThreads) does the game side.
- */
 public final class MobHooks {
     public interface Impl {
-        /** True when the entity was set aside for a mod thread. */
         boolean take(Object level, Consumer<Object> tick, Object entity);
 
         void flush(Object level);
 
-        /** The tick the game would have done. */
         void tickNow(Object level, Consumer<Object> tick, Object entity);
 
-        /** Whether hurting this entity from the current mod thread must wait for the server thread. */
         boolean foreign(Object entity);
 
         boolean hurtNow(Object entity, Object source, float amount);
 
         Object threadRandom();
 
-        /** A loaded chunk read without the server thread, or null. */
-        Object chunkNow(Object cache, int x, int z, Object status);
+        Object chunkNow(Object cache, int x, int z, Object status, boolean load);
 
-        // The queued world changes, run later on the server thread exactly as the mod asked for them.
+        Object loadedNow(Object cache, int x, int z);
+
         void setBlockNow(Object level, Object pos, Object state, int flags, int depth);
 
         void addEntityNow(Object level, Object entity);
@@ -61,7 +42,7 @@ public final class MobHooks {
     }
 
     public static volatile Impl impl;
-    /** True while mod threads tick their mobs. */
+    public static volatile long chunkWantedAt;
     public static volatile boolean phase;
     private static volatile boolean installTried;
 
@@ -81,19 +62,18 @@ public final class MobHooks {
         return i;
     }
 
-    /** True on a mod thread during the parallel phase: world changes must wait for the server thread. */
     public static boolean deferring() {
         return phase && impl != null && Thread.currentThread() instanceof ModThreads.Worker;
     }
 
-    /** Queues a world change for the server thread. Only call when deferring() is true. */
+    public static Thread ownThread(Thread levelThread) {
+        return deferring() ? Thread.currentThread() : levelThread;
+    }
+
     public static void defer(Runnable change) {
         ((ModThreads.Worker) Thread.currentThread()).deferred.add(change);
     }
 
-    // ------------------------------------------------------------------ called from the patched game
-
-    /** In place of level.guardEntityTick(tick, entity) in the server's entity loop. */
     @SuppressWarnings("unchecked")
     public static void guard(Object level, Consumer<?> tick, Object entity) {
         Impl i = impl(level);
@@ -107,7 +87,6 @@ public final class MobHooks {
         }
     }
 
-    /** After the server's entity loop. */
     public static void flush(Object level) {
         Impl i = impl;
         if (i != null) {
@@ -115,7 +94,6 @@ public final class MobHooks {
         }
     }
 
-    /** Head of Level.setBlock. True: the change was queued, and the method answers true. */
     public static boolean setBlock(Object level, Object pos, Object state, int flags, int depth) {
         if (!deferring()) {
             return false;
@@ -125,7 +103,6 @@ public final class MobHooks {
         return true;
     }
 
-    /** Head of ServerLevel.addEntity, where every way of adding an entity ends up. */
     public static boolean addEntity(Object level, Object entity) {
         if (!deferring()) {
             return false;
@@ -135,7 +112,6 @@ public final class MobHooks {
         return true;
     }
 
-    /** Head of ServerLevel.gameEvent. */
     public static boolean gameEvent(Object level, Object event, Object pos, Object context) {
         if (!deferring()) {
             return false;
@@ -145,7 +121,6 @@ public final class MobHooks {
         return true;
     }
 
-    /** Head of the entity section callback's onMove: moving between sections waits for the server thread. */
     public static boolean onMove(Object callback) {
         if (!deferring()) {
             return false;
@@ -155,7 +130,6 @@ public final class MobHooks {
         return true;
     }
 
-    /** Head of the entity section callback's onRemove. */
     public static boolean onRemove(Object callback, Object reason) {
         if (!deferring()) {
             return false;
@@ -165,7 +139,6 @@ public final class MobHooks {
         return true;
     }
 
-    /** In place of every entity.hurt(source, amount) call. Damage to what the thread does not own waits. */
     public static boolean hurt(Object entity, Object source, float amount) {
         Impl i = impl(entity);
         if (i == null) {
@@ -178,7 +151,6 @@ public final class MobHooks {
         return i.hurtNow(entity, source, amount);
     }
 
-    /** In place of reading level.random: a mod thread gets its own. */
     public static Object random(Object level, Object worldRandom) {
         if (deferring()) {
             Impl i = impl;
@@ -189,16 +161,23 @@ public final class MobHooks {
         return worldRandom;
     }
 
-    /** Head of ServerChunkCache.getChunk: a mod thread reads a loaded chunk directly. Null: the game's own way. */
+    public static final Object NO_CHUNK = new Object();
+
+    public static Object chunkNow(Object cache, int x, int z) {
+        if (!deferring()) {
+            return null;
+        }
+        Impl i = impl;
+        return i == null ? null : i.loadedNow(cache, x, z);
+    }
+
     public static Object chunk(Object cache, int x, int z, Object status, boolean load) {
         if (!deferring()) {
             return null;
         }
         Impl i = impl;
-        return i == null ? null : i.chunkNow(cache, x, z, status);
+        return i == null ? null : i.chunkNow(cache, x, z, status, load);
     }
-
-    // ------------------------------------------------------------------ reflection for queued calls
 
     private static final java.util.Map<String, java.lang.reflect.Method> METHODS = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -232,8 +211,6 @@ public final class MobHooks {
         throw new IllegalStateException("No method " + name + " with " + count + " arguments on " + c.getName());
     }
 
-    // ------------------------------------------------------------------ the patches
-
     private static final String SELF = "khi/pentecost/messenger/MobHooks";
     private static final String LEVEL = "net/minecraft/world/level/Level";
     private static final String SERVER_LEVEL = "net/minecraft/server/level/ServerLevel";
@@ -249,7 +226,6 @@ public final class MobHooks {
         return System.getenv("PENTECOST_NO_MOB_THREADS") != null;
     }
 
-    /** The game's own classes: the entity loop, setBlock, new entities, game events, section moves, chunk reads. */
     public static ClassTransformer transformer() {
         return (name, bytes) -> {
             if (off()) {
@@ -260,14 +236,14 @@ public final class MobHooks {
                 case "net.minecraft.world.level.Level" -> heads(bytes, name, "setBlock",
                         "(Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;II)Z", HeadKind.SET_BLOCK);
                 case "net.minecraft.world.level.entity.PersistentEntitySectionManager$Callback" -> callback(bytes);
-                case "net.minecraft.server.level.ServerChunkCache" -> heads(bytes, name, "getChunk",
-                        "(IILnet/minecraft/world/level/chunk/ChunkStatus;Z)Lnet/minecraft/world/level/chunk/ChunkAccess;", HeadKind.CHUNK);
+                case "net.minecraft.server.level.ServerChunkCache" -> heads(heads(bytes, name, "getChunk",
+                        "(IILnet/minecraft/world/level/chunk/ChunkStatus;Z)Lnet/minecraft/world/level/chunk/ChunkAccess;", HeadKind.CHUNK),
+                        name, "getChunkNow", "(II)Lnet/minecraft/world/level/chunk/LevelChunk;", HeadKind.CHUNK_NOW);
                 default -> bytes;
             };
         };
     }
 
-    /** Every class: entity.hurt(...) calls and level.random reads go through the hooks above. */
     public static ClassTransformer callSites() {
         return (name, bytes) -> {
             if (off() || name.startsWith("khi.pentecost.") || name.startsWith("java.") || name.startsWith("org.objectweb.")) {
@@ -442,9 +418,8 @@ public final class MobHooks {
         return writer.toByteArray();
     }
 
-    enum HeadKind { SET_BLOCK, ADD_ENTITY, GAME_EVENT, ON_MOVE, ON_REMOVE, CHUNK }
+    enum HeadKind { SET_BLOCK, ADD_ENTITY, GAME_EVENT, ON_MOVE, ON_REMOVE, CHUNK, CHUNK_NOW }
 
-    /** A check at the very start of a method. When the hook says so, the method answers at once. */
     private static MethodVisitor head(MethodVisitor mv, HeadKind kind) {
         return new MethodVisitor(Opcodes.ASM9, mv) {
             @Override
@@ -493,6 +468,20 @@ public final class MobHooks {
                         super.visitJumpInsn(Opcodes.IFEQ, go);
                         super.visitInsn(Opcodes.RETURN);
                     }
+                    case CHUNK_NOW -> {
+                        super.visitVarInsn(Opcodes.ALOAD, 0);
+                        super.visitVarInsn(Opcodes.ILOAD, 1);
+                        super.visitVarInsn(Opcodes.ILOAD, 2);
+                        super.visitMethodInsn(Opcodes.INVOKESTATIC, SELF, "chunkNow", "(Ljava/lang/Object;II)Ljava/lang/Object;", false);
+                        super.visitInsn(Opcodes.DUP);
+                        Label none = new Label();
+                        super.visitJumpInsn(Opcodes.IFNULL, none);
+                        super.visitTypeInsn(Opcodes.CHECKCAST, "net/minecraft/world/level/chunk/LevelChunk");
+                        super.visitInsn(Opcodes.ARETURN);
+                        super.visitLabel(none);
+                        super.visitFrame(Opcodes.F_SAME1, 0, null, 1, new Object[]{"java/lang/Object"});
+                        super.visitInsn(Opcodes.POP);
+                    }
                     case CHUNK -> {
                         super.visitVarInsn(Opcodes.ALOAD, 0);
                         super.visitVarInsn(Opcodes.ILOAD, 1);
@@ -503,6 +492,15 @@ public final class MobHooks {
                         super.visitInsn(Opcodes.DUP);
                         Label none = new Label();
                         super.visitJumpInsn(Opcodes.IFNULL, none);
+                        super.visitInsn(Opcodes.DUP);
+                        super.visitFieldInsn(Opcodes.GETSTATIC, SELF, "NO_CHUNK", "Ljava/lang/Object;");
+                        Label real = new Label();
+                        super.visitJumpInsn(Opcodes.IF_ACMPNE, real);
+                        super.visitInsn(Opcodes.POP);
+                        super.visitInsn(Opcodes.ACONST_NULL);
+                        super.visitInsn(Opcodes.ARETURN);
+                        super.visitLabel(real);
+                        super.visitFrame(Opcodes.F_SAME1, 0, null, 1, new Object[]{"java/lang/Object"});
                         super.visitTypeInsn(Opcodes.CHECKCAST, "net/minecraft/world/level/chunk/ChunkAccess");
                         super.visitInsn(Opcodes.ARETURN);
                         super.visitLabel(none);

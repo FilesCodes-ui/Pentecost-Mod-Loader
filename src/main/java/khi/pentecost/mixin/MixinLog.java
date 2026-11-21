@@ -4,7 +4,6 @@ import khi.pentecost.boot.Log;
 import org.spongepowered.asm.logging.Level;
 import org.spongepowered.asm.logging.LoggerAdapterAbstract;
 
-/** Sends Mixin's warnings and errors to the Pentecost log. Quieter levels are dropped. */
 final class MixinLog extends LoggerAdapterAbstract {
     MixinLog(String name) {
         super(name);

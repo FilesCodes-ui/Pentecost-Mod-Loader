@@ -1,6 +1,5 @@
 package net.fabricmc.loader.api;
 
-/** Pentecost's own copy of this Fabric Loader API type. Calls land in Pentecost. No Fabric Loader code runs. */
 public class VersionParsingException extends Exception {
     public VersionParsingException() {
         super();

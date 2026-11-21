@@ -11,15 +11,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-/**
- * Keeps out anyone the host has not said yes to.
- *
- * Every fifth of a second it looks at who is in the world. The host is always welcome. Anyone else goes to
- * JoinApprovals: approved accounts stay, everyone else is disconnected with a short reason and, the first time,
- * the host is asked. By then Mojang has verified the account, so the name the host sees belongs to a real
- * account and a friend's name cannot be borrowed. A turned-away player is in the world for a fraction of a
- * second, long enough to be sent home and not long enough to do anything.
- */
 final class JoinGate {
     private static final String WAIT = "The host was just asked to let you in. When they say yes, press Join again.";
     private static final String NO = "The host did not let you in.";
@@ -66,7 +57,6 @@ final class JoinGate {
         }
     }
 
-    /** Runs on the server's own thread, where the player list may be read. */
     private void scan() {
         if (stopped) {
             return;

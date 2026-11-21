@@ -20,10 +20,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-/**
- * Loads Minecraft, its libraries, and every mod. Each class passes through the
- * transformer chain first, then through Mixin. Also knows which mod a class came from, for crash blame.
- */
 public final class GameClassLoader extends URLClassLoader {
     static {
         ClassLoader.registerAsParallelCapable();
@@ -43,10 +39,6 @@ public final class GameClassLoader extends URLClassLoader {
         return create(game, mods, List.of(), List.of());
     }
 
-    /**
-     * @param first jars and folders searched before the game jar
-     * @param afterGame jars searched right after the game jar and before the mods
-     */
     public static GameClassLoader create(GameFiles game, List<ModInfo> mods, List<Path> first, List<Path> afterGame)
             throws MalformedURLException {
         List<URL> urls = new ArrayList<>();
@@ -73,12 +65,6 @@ public final class GameClassLoader extends URLClassLoader {
         return loader;
     }
 
-    /**
-     * Same as the stock lookup, with changes for one known failure: Embeddium asks for its shader files and
-     * the stock lookup answers "missing" although the jar holds them (Embeddium: "Shader not found").
-     * The stock lookup hides every error, so this one writes what happens to run/logs/pentecost-resources.log
-     * and, for Embeddium's files only, reads the file straight from its jar when the stock lookup fails.
-     */
     @Override
     public InputStream getResourceAsStream(String name) {
         name = withoutLeadingSlash(name);
@@ -114,7 +100,6 @@ public final class GameClassLoader extends URLClassLoader {
         return direct;
     }
 
-    /** Looks for the file in each jar, with a jar handle of its own. Slow, so only for files that must exist. */
     private InputStream openFromJars(String name) {
         for (URL u : getURLs()) {
             if (!"file".equals(u.getProtocol()) || !u.getPath().endsWith(".jar")) {
@@ -142,14 +127,9 @@ public final class GameClassLoader extends URLClassLoader {
             java.nio.file.Files.writeString(file, java.time.LocalTime.now() + " " + line + System.lineSeparator(),
                     java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
         } catch (IOException | RuntimeException e) {
-            // Logging must never break the game.
         }
     }
 
-    /**
-     * Embeddium asks the loader for "/assets/sodium/shaders/..." with a leading slash.
-     * A plain Java loader never matches that, Forge's loader does. Match Forge.
-     */
     private static String withoutLeadingSlash(String name) {
         int i = 0;
         while (i < name.length() && name.charAt(i) == '/') {
@@ -168,16 +148,10 @@ public final class GameClassLoader extends URLClassLoader {
         return super.findResource(withoutLeadingSlash(name));
     }
 
-    /** Adds a transformer that runs before Mixin. */
     public void addTransformer(ClassTransformer t) {
         transformers.add(t);
     }
 
-    /**
-     * Adds a transformer that runs after Mixin. Use it for changes that rename a game method or wrap its body:
-     * before Mixin they hide the real body, and every mod hook aimed at that method silently finds nothing.
-     * Late transformers are not cached, so they must stay cheap for classes they do not touch.
-     */
     public void addLateTransformer(ClassTransformer t) {
         lateTransformers.add(t);
     }
@@ -186,27 +160,20 @@ public final class GameClassLoader extends URLClassLoader {
         this.mixin = t;
     }
 
-    /** Returns the id of the mod whose jar holds this file, or null. */
     public String modOfResource(String path) {
         URL res = findResource(path);
         return res == null ? null : modByJarUrl.get(jarOf(res));
     }
 
-    /**
-     * Adds a place to load classes from. Declared here, not only inherited, because Fabric tools
-     * (Manningham Mills, used by Aether to add enum values) look for it on the loader's own class.
-     */
     @Override
     public void addURL(URL url) {
         super.addURL(url);
     }
 
-    /** Turns on the class cache. Call after Mixin has started, so every cached class has been through Mixin. */
     public void useCache(ClassCache c) {
         this.cache = c;
     }
 
-    /** Returns the id of the mod whose jar holds this class, or null. */
     public String modOf(String className) {
         URL res = findResource(className.replace('.', '/') + ".class");
         if (res == null) {
@@ -215,10 +182,8 @@ public final class GameClassLoader extends URLClassLoader {
         return modByJarUrl.get(jarOf(res));
     }
 
-    /** True on a thread that is reading class bytes for Mixin, not loading a class. */
     public static final ThreadLocal<Boolean> PEEK = ThreadLocal.withInitial(() -> false);
 
-    /** Class bytes after every transformer except Mixin. Mixin reads target classes through this. */
     public byte[] preMixinBytes(String name) throws IOException {
         long p0 = System.nanoTime();
         try {
@@ -324,7 +289,6 @@ public final class GameClassLoader extends URLClassLoader {
                             definePackage(pkg, null, null, null, null, null, null, null);
                         }
                     } catch (IllegalArgumentException alreadyDefined) {
-                        // Another thread defined the package first.
                     }
                 }
             }
@@ -342,12 +306,6 @@ public final class GameClassLoader extends URLClassLoader {
     private static final byte[] SYNTHETIC =
             "org/spongepowered/asm/synthetic/".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
 
-    /**
-     * True when a finished class points at a class that Mixin makes on demand (Args helpers, inner classes
-     * of a mixin). Mixin only makes those while it applies the mixin, so a cached copy of this class
-     * would find nothing on a warm launch. Such classes always run through Mixin.
-     * Any doubt counts as true.
-     */
     private boolean referencesGenerated(byte[] bytes) {
         try {
             if (indexOf(bytes, SYNTHETIC) >= 0) {

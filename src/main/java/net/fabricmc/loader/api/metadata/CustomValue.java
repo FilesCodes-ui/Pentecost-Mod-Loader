@@ -2,7 +2,6 @@ package net.fabricmc.loader.api.metadata;
 
 import java.util.Map;
 
-/** Pentecost's own copy of this Fabric Loader API type. Calls land in Pentecost. No Fabric Loader code runs. */
 public interface CustomValue {
     CvType getType();
 

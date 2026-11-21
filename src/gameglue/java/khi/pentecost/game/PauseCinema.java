@@ -17,15 +17,6 @@ import net.minecraft.world.phys.Vec3;
 import java.lang.reflect.Field;
 import java.util.Random;
 
-/**
- * The pause camera. While Pentecost's pause menu is open the camera leaves the player's eyes, pulls out and films the
- * player: slow orbits, low hero shots, cranes, push-ins, wide shots, a look over the shoulder, a bird's eye spiral.
- * It is a small director: every few seconds it picks the next shot, never the same twice in a row, and the camera
- * glides there instead of cutting. A ray from the player to the camera keeps it out of walls and hills.
- *
- * The game stays as it is: a separate invisible entity carries the camera, the player is not moved, and everything
- * is put back when the menu closes. The player can turn this off in Settings > Interface.
- */
 public final class PauseCinema {
     private enum Kind { ORBIT, LOW, CRANE, PUSH, WIDE, SHOULDER, SPIRAL }
 
@@ -44,47 +35,29 @@ public final class PauseCinema {
     private static net.minecraft.client.multiplayer.ClientLevel level;
     private static final Random RND = new Random();
 
-    // the shot being played
     private static Kind kind;
     private static Kind lastKind;
     private static double shotTime, shotLength, shotAngle;
     private static int dir = 1;
 
-    // where the camera is now, relative to the player's feet
     private static double az, rad, height, fov, clipScale = 1;
     private static double aimX, aimY, aimZ;
     private static long lastNanos;
 
-    // The camera is tied to the player's own drawn position, with no filter between them. A filter that follows the
-    // player is sampled at slightly different moments than the game draws the player, and that mismatch times the
-    // player's speed shows as shake, worst close up and from the side. Only a teleport is eased out (corr).
     private static final double TAU_JUMP = 0.35;
     private static final double TRAIL = 0.12;
     private static double corrX, corrY, corrZ, lastRealX, lastRealY, lastRealZ;
     private static boolean anchorSet;
-    // obstacle avoidance: the camera swings round or up to a clear spot, eased in and out
     private static double avoidAz, avoidUp, avoidAzT, avoidUpT, nextSearch;
-    // Once the camera has swung round or up to dodge something it stays there. It is held at the same place in the
-    // world while it orbits, and only goes back after the way has stayed clear for a while, so it never ping-pongs.
     private static boolean avoidLocked;
     private static double straightClear;
-    // the pull-in the rays ask for, held steady: a ray that flickers between hit and miss while the player moves must not
-    // push the camera in and out
     private static double clipWanted = 1, clearFor;
-    // where the player is heading: a smoothed velocity, and the way it carries the player in LOOKAHEAD seconds. The
-    // obstacle rays are cast from there as well as from where the player is, so the camera starts avoiding a wall
-    // before the player reaches it instead of reacting once it is already behind it
     private static final double LOOKAHEAD = 0.8;
     private static final double MAX_LEAD = 10.0;
     private static double velX, velY, velZ, leadX, leadY, leadZ;
-    // While the game is paused, and for a moment before it is, nothing the player was doing may carry into the camera.
     private static double settle;
     private static boolean wasPaused;
-    // The spot the player stood at when the game froze. While the game is paused the player cannot move, but the game's
-    // frame fraction (getFrameTime) keeps cycling, so sampling the player with it makes the anchor wobble by up to a
-    // whole tick of movement. The camera is tied to this fixed spot for as long as the pause lasts.
     private static Vec3 frozenAt;
-    // The opening glide: from rest, eased at both ends, from wherever the camera starts to the first shot.
     private static final double INTRO = 2.4;
     private static double introT, rad0, height0, aim0X, aim0Y, aim0Z, fov0;
 
@@ -98,10 +71,6 @@ public final class PauseCinema {
         return Settings.on(Settings.PAUSE_CAMERA);
     }
 
-    /**
-     * Called whenever the game is about to show another screen (or none). The camera plays on behind the menus of the
-     * pause flow, and stops here the moment the game is back or the world goes away.
-     */
     public static void screenChanging(Object shown) {
         if (!active) {
             return;
@@ -111,7 +80,6 @@ public final class PauseCinema {
             end(mc);
         }
     }
-    /** Flips the setting and starts or stops the camera at once. For the pause menu's own switch. */
     public static void toggle(Minecraft mc) {
         Settings.toggle(Settings.PAUSE_CAMERA);
         if (enabled()) {
@@ -121,9 +89,6 @@ public final class PauseCinema {
         }
     }
 
-    // ------------------------------------------------------------------ start and stop
-
-    /** Called when the pause menu opens. Does nothing when the camera is off or there is no world. */
     public static void begin(Minecraft mc) {
         if (active || failed || !enabled() || mc.player == null || mc.level == null) {
             return;
@@ -147,7 +112,6 @@ public final class PauseCinema {
             marker = new Marker(EntityType.MARKER, mc.level);
 
             if (saved.camera() == CameraType.FIRST_PERSON) {
-                // Start exactly where the player's eyes are, looking where they look, and glide out from there.
                 az = Math.atan2(-look.z, -look.x);
                 rad = 0.05;
                 height = eye;
@@ -155,8 +119,6 @@ public final class PauseCinema {
                 aimY = eye + look.y * 30;
                 aimZ = look.z * 30;
             } else {
-                // Third person: start where the game's own camera is and where it looks, so the picture carries on
-                // from there and glides into the first shot instead of pulling out from the player's eyes.
                 Vec3 c = cam.getPosition();
                 double yaw = Math.toRadians(cam.getYRot());
                 double pit = Math.toRadians(cam.getXRot());
@@ -214,7 +176,6 @@ public final class PauseCinema {
         }
     }
 
-    /** Called when the pause menu closes or goes to another screen. Puts everything back. */
     public static void end(Minecraft mc) {
         ZoomHooks.fovOverride = 0;
         Saved s = saved;
@@ -244,15 +205,11 @@ public final class PauseCinema {
         level = null;
     }
 
-    // ------------------------------------------------------------------ every frame
-
-    /** Called at the start of every frame, before the game sets up its camera, so the pose is the one for this very frame. */
     public static void frame() {
         if (!active) {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
-        // The camera keeps playing behind the menus opened from the pause menu. It stops when the game is back.
         if (mc.player == null || mc.level == null || mc.level != level || mc.screen == null || !enabled()
                 || mc.player.isDeadOrDying()) {
             end(mc);
@@ -275,7 +232,6 @@ public final class PauseCinema {
         Vec3 real = p.getPosition(mc.getFrameTime());
         if (mc.isPaused()) {
             if (frozenAt == null) {
-                // the spot the player was last drawn at before the game froze
                 frozenAt = anchorSet ? new Vec3(lastRealX, lastRealY, lastRealZ) : real;
             }
             real = frozenAt;
@@ -285,11 +241,8 @@ public final class PauseCinema {
         if (!anchorSet) {
             anchorSet = true;
         } else {
-            // A jump bigger than any player flies in one frame is a teleport: the camera stays and the gap eases out.
             double jx = real.x - lastRealX, jy = real.y - lastRealY, jz = real.z - lastRealZ;
             double limit = 2.5 + 80 * dt;
-            // The game freezing or resuming moves the player's drawn spot in one step, because it is drawn at a different
-            // frame fraction. That step is eased out, not shown as a jump, and the player's speed is ignored for a moment.
             boolean pauseChanged = mc.isPaused() != wasPaused;
             if (pauseChanged) {
                 settle = Math.max(settle, 0.3);
@@ -381,14 +334,13 @@ public final class PauseCinema {
             }
         }
 
-        // where the camera looks, relative to the player's feet
         double tAimX, tAimZ;
         if (overShoulder) {
             tAimX = fx * 25;
             tAimZ = fz * 25;
             tAimY = eye - 0.1;
         } else {
-            double side = lat * tRad; // keeps the player off centre, on a third
+            double side = lat * tRad;
             tAimX = -Math.sin(tAz) * side;
             tAimZ = Math.cos(tAz) * side;
         }
@@ -396,13 +348,12 @@ public final class PauseCinema {
         double azPrev = az;
         az += angleDiff(tAz, az) * blend(dt, TAU_ANGLE);
         if (avoidLocked) {
-            double dAz = az - azPrev; // the orbit moves on, the dodge stays where it is in the world
+            double dAz = az - azPrev;
             avoidAz -= dAz;
             avoidAzT -= dAz;
         }
         introT += dt;
         if (introT < INTRO) {
-            // The opening glide runs from rest to the shot: no starting speed and no long creeping tail.
             double k = introT / INTRO;
             double ie = k * k * (3 - 2 * k);
             rad = Mth.lerp(ie, rad0, tRad);
@@ -424,7 +375,6 @@ public final class PauseCinema {
         double ba = blend(dt, 0.9);
         avoidAz += (avoidAzT - avoidAz) * ba;
         avoidUp += (avoidUpT - avoidUp) * ba;
-        // The camera trails a little behind a moving player, by a smooth amount.
         Vec3 want = new Vec3(feet.x + Math.cos(az + avoidAz) * rad - velX * TRAIL, feet.y + height + avoidUp,
                 feet.z + Math.sin(az + avoidAz) * rad - velZ * TRAIL);
         Vec3 origin = new Vec3(feet.x, feet.y + Math.min(eye, 1.4), feet.z);
@@ -448,9 +398,7 @@ public final class PauseCinema {
                 "kind=%s t=%.1f clip=%.2f avoid=%.2f/%.1f rad=%.1f h=%.1f", kind, shotTime, clipScale, avoidAz, avoidUp, rad, height));
     }
 
-    /** Smooths the player's velocity and works out how far it carries the player in the look-ahead time. */
     private static void trackHeading(Minecraft mc, LocalPlayer p, double dt) {
-        // From the game's own ticks, which are exact, not from frame to frame, which is noisy. Zero while the game is paused.
         settle -= dt;
         if (mc.isPaused() || settle > 0) {
             velX = velY = velZ = leadX = leadY = leadZ = 0;
@@ -466,29 +414,23 @@ public final class PauseCinema {
         velX += (tx - velX) * k;
         velY += (ty - velY) * k;
         velZ += (tz - velZ) * k;
-        // Heights are left out unless clearly moving: a jump or a step must not swing the camera.
         double vy = Math.abs(velY) > 3.0 ? velY * 0.5 : 0;
         double lx = velX * LOOKAHEAD, ly = vy * LOOKAHEAD, lz = velZ * LOOKAHEAD;
         double len = Math.sqrt(lx * lx + ly * ly + lz * lz);
         if (len < 0.5) {
-            lx = ly = lz = 0; // standing still or barely moving
+            lx = ly = lz = 0;
         } else if (len > MAX_LEAD) {
             double c = MAX_LEAD / len;
             lx *= c;
             ly *= c;
             lz *= c;
         }
-        // eased, so the look-ahead itself never jumps when the player starts or stops
         double e = blend(dt, 0.3);
         leadX += (lx - leadX) * e;
         leadY += (ly - leadY) * e;
         leadZ += (lz - leadZ) * e;
     }
 
-    /**
-     * Clearance now and where the player is heading, whichever is worse. The camera sits relative to the player, so the
-     * predicted camera spot and the predicted player spot both move by the same lead.
-     */
     private static double clearAhead(Minecraft mc, Vec3 origin, Vec3 want) {
         double now = clearFraction(mc, origin, want);
         if (leadX * leadX + leadY * leadY + leadZ * leadZ < 0.25) {
@@ -500,10 +442,6 @@ public final class PauseCinema {
         return Math.min(now, Math.min(half, ahead));
     }
 
-    /**
-     * How much of the way from the player to {@code want} is clear, 0 to 1. Nine rays, a centre one and a ring round it,
-     * so the camera has a body and does not slip past corners or poke into walls.
-     */
     private static double clearFraction(Minecraft mc, Vec3 origin, Vec3 want) {
         Vec3 d = want.subtract(origin);
         double len = d.length();
@@ -531,10 +469,6 @@ public final class PauseCinema {
         return best;
     }
 
-    /**
-     * Looks for a clear spot a few times a second. When the wanted position is blocked it tries swinging round the
-     * player and lifting up, and picks the nearest clear one. It only sets targets: the camera eases to them.
-     */
     private static void avoid(Minecraft mc, Vec3 feet, double eye, double dt) {
         nextSearch -= dt;
         if (nextSearch > 0) {
@@ -547,7 +481,6 @@ public final class PauseCinema {
         if (avoidLocked) {
             straightClear = straight >= 0.92 ? straightClear + 0.25 : 0;
             if (straightClear >= 1.5) {
-                // the way has been clear for a while: go back to the shot's own spot, slowly
                 avoidLocked = false;
                 avoidAzT = 0;
                 avoidUpT = 0;
@@ -557,7 +490,7 @@ public final class PauseCinema {
             double here = clearAhead(mc, origin, new Vec3(feet.x + Math.cos(az + avoidAzT) * rad,
                     feet.y + height + avoidUpT, feet.z + Math.sin(az + avoidAzT) * rad));
             if (here >= 0.7) {
-                return; // the dodge spot is fine: stay, do not hop
+                return;
             }
         } else if (straight >= 0.92) {
             return;
@@ -587,7 +520,6 @@ public final class PauseCinema {
         straightClear = 0;
     }
 
-    /** Pulls the camera in when something solid is still between it and the player. In fast, out slowly, so it never hops. */
     private static Vec3 clip(Minecraft mc, Vec3 origin, Vec3 want, double dt) {
         Vec3 d = want.subtract(origin);
         double full = d.length();
@@ -597,8 +529,6 @@ public final class PauseCinema {
         }
         double frac = clearAhead(mc, origin, want);
         double raw = Math.min(1, Math.max(0.5 / full, frac - 0.3 / full));
-        // The wanted pull-in drops at once but only rises after the way has stayed clear for a while, then eases up.
-        // While the player walks or sprints the rays flicker between hit and miss. Followed directly, that is a jitter.
         if (raw < clipWanted) {
             clipWanted += (raw - clipWanted) * blend(dt, 0.12);
             clearFor = 0;
@@ -608,14 +538,11 @@ public final class PauseCinema {
                 clipWanted += (raw - clipWanted) * blend(dt, 1.0);
             }
         }
-        // In at a gentle pace, out slower: a camera that teleports in is worse than one that briefly clips a wall.
         double tau = clipWanted < clipScale ? 0.45 : 1.4;
         double step = (clipWanted - clipScale) * blend(dt, tau);
         clipScale += Math.max(-0.6 * dt, Math.min(0.5 * dt, step));
         return origin.add(d.scale(Math.min(1, clipScale)));
     }
-
-    // ------------------------------------------------------------------ the director
 
     private static void nextShot(LocalPlayer p) {
         Kind next;
@@ -648,9 +575,9 @@ public final class PauseCinema {
         double fz = Math.cos(Math.toRadians(p.getYRot()));
         double front = Math.atan2(fz, fx);
         shotAngle = switch (next) {
-            case PUSH -> front + dir * 0.5;       // facing the player
+            case PUSH -> front + dir * 0.5;
             case LOW -> front + dir * 0.6;
-            case ORBIT, CRANE, WIDE, SPIRAL -> az; // carry on from where the camera is
+            case ORBIT, CRANE, WIDE, SPIRAL -> az;
             case SHOULDER -> az;
         };
     }
@@ -664,9 +591,6 @@ public final class PauseCinema {
         shotAngle = az;
     }
 
-    // ------------------------------------------------------------------ small maths
-
-    /** How far to move toward the target this frame. Zero on the very first frame, so the camera starts at the player's eyes. */
     private static double blend(double dt, double tau) {
         return dt <= 0 ? 0 : 1 - Math.exp(-dt / tau);
     }

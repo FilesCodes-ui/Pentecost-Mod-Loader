@@ -19,11 +19,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Forge mods, and Forge itself, ship "coremods": small scripts that rewrite game classes as they load.
- * Forge's launcher runs them. Pentecost is the launcher here, so Pentecost runs them:
- * it hands every mod's scripts to Forge's own script engine and applies the results in its class loader.
- */
 public final class CoreMods {
     private static volatile Map<String, Set<ITransformer<?>>> byClass = Map.of();
     private static final Set<String> FAILED = ConcurrentHashMap.newKeySet();
@@ -35,7 +30,6 @@ public final class CoreMods {
     private static volatile Thread worker;
     private static final Set<String> SKIPPED = ConcurrentHashMap.newKeySet();
 
-    /** Reads the scripts on a background thread. Call awaitLoaded before the game starts. */
     static void loadAsync(List<ModFile> files) {
         Thread t = new Thread(() -> {
             try {
@@ -54,7 +48,6 @@ public final class CoreMods {
         t.start();
     }
 
-    /** Blocks until the scripts are read. */
     public static void awaitLoaded() {
         join(worker);
     }
@@ -70,7 +63,6 @@ public final class CoreMods {
         }
     }
 
-    /** True while the scripts are still loading and this class cannot wait for them. */
     private static boolean pendingFor(String className) {
         Thread t = worker;
         if (t == null || t == Thread.currentThread()) {
@@ -84,12 +76,10 @@ public final class CoreMods {
         return true;
     }
 
-    /** Landing point for Forge code that asks its launcher for the shared settings board. */
     public static cpw.mods.modlauncher.api.TypesafeMap blackboard(cpw.mods.modlauncher.Launcher launcher) {
         return launcher != null ? launcher.blackboard() : BOARD;
     }
 
-    /** Reads the scripts of every mod file. Called once, before the game starts. */
     static void load(List<ModFile> files) {
         try {
             CoreModProvider provider = new CoreModProvider();
@@ -121,7 +111,6 @@ public final class CoreMods {
         return byClass.containsKey(className);
     }
 
-    /** Runs every script that targets this class. A script that fails is reported once and skipped. */
     @SuppressWarnings("unchecked")
     static ClassNode apply(String className, ClassNode node) {
         Set<ITransformer<?>> list = byClass.get(className);
@@ -136,7 +125,6 @@ public final class CoreMods {
                         continue;
                     }
                     String kind = target.getTargetType().name();
-                    // Scripts name members the way Forge's own game build does. The game here uses readable names.
                     String member = target.getElementName() == null ? null
                             : ForgeRedirects.mapSrgName(target.getElementName());
                     if (kind.equals("METHOD")) {
@@ -166,7 +154,6 @@ public final class CoreMods {
         return node;
     }
 
-    /** What a script may ask about the class it is rewriting. Scripts here only need the name. */
     private record Context(String className) implements ITransformerVotingContext {
         @Override
         public String getClassName() {

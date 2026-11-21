@@ -22,7 +22,6 @@ class IslandsTest {
 
     @Test
     void biggestIslandGetsItsOwnThread() {
-        // Island A: 5 mobs in one cell. Islands B and C: 1 mob each. With 2 threads, B and C share.
         int[] t = Islands.assign(new int[]{0, 0, 0, 0, 0, 10, 20}, new int[]{0, 0, 0, 0, 0, 0, 0}, 2);
         assertEquals(t[5], t[6]);
         assertNotEquals(t[0], t[5]);

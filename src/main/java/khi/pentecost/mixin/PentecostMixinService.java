@@ -22,7 +22,6 @@ import java.net.URL;
 import java.util.Collection;
 import java.util.List;
 
-/** Connects the Mixin library to the Pentecost class loader. Pentecost is the host. No other loader runs. */
 public class PentecostMixinService extends MixinServiceAbstract implements IClassProvider, IClassBytecodeProvider {
     static volatile GameClassLoader loader;
     static volatile IMixinTransformerFactory factory;
@@ -82,13 +81,8 @@ public class PentecostMixinService extends MixinServiceAbstract implements IClas
         return new ContainerHandleVirtual(getName());
     }
 
-    /**
-     * Mods whose hooks may miss their target without stopping the game. On the Forge layer these are
-     * the Fabric and Quilt mods: they were written for the unpatched game. Forge mods stay strict.
-     */
     public static volatile java.util.Set<String> softMods = java.util.Set.of();
 
-    /** Hooks the player turned off. Hook list file name to the entries to leave out. */
     public static volatile java.util.Map<String, java.util.Set<String>> droppedMixins = java.util.Map.of();
 
     private static void drop(com.google.gson.JsonObject cfg, java.util.Set<String> entries) {
@@ -137,7 +131,6 @@ public class PentecostMixinService extends MixinServiceAbstract implements IClas
                         raw = cfg.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
                     }
                 } catch (RuntimeException notJson) {
-                    // Not a mixin config. Hand it over unchanged.
                 }
                 return new java.io.ByteArrayInputStream(raw);
             } catch (IOException e) {
@@ -146,8 +139,6 @@ public class PentecostMixinService extends MixinServiceAbstract implements IClas
         }
         return loader.getResourceAsStream(name);
     }
-
-    // ---- IClassProvider
 
     public URL[] getClassPath() {
         return new URL[0];
@@ -164,8 +155,6 @@ public class PentecostMixinService extends MixinServiceAbstract implements IClas
     public Class<?> findAgentClass(String name, boolean initialize) throws ClassNotFoundException {
         return Class.forName(name, initialize, PentecostMixinService.class.getClassLoader());
     }
-
-    // ---- IClassBytecodeProvider
 
     public ClassNode getClassNode(String name) throws ClassNotFoundException, IOException {
         return getClassNode(name, true, 0);
@@ -200,10 +189,6 @@ public class PentecostMixinService extends MixinServiceAbstract implements IClas
     private static final java.util.Map<String, java.util.Set<String>> TARGET_FIELDS = new java.util.concurrent.ConcurrentHashMap<>();
     private static final java.util.Set<String> RENAMED = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
-    /**
-     * Gives a mixin's own new fields a Pentecost prefix when their name is already a field of the target.
-     * Shadow fields mean the game's field on purpose and stay as they are.
-     */
     private void renameClashingFields(ClassNode node) {
         if (node.fields == null || node.fields.isEmpty()) {
             return;
@@ -220,8 +205,6 @@ public class PentecostMixinService extends MixinServiceAbstract implements IClas
             }
             for (String target : targets) {
                 java.util.Set<String> known = fieldsOf(target);
-                // Same name and type, not final: the mod means to share the field (Porting Lib and Forge's
-                // captured drops). Locked or of another type: the two cannot be one field, so they part.
                 boolean sameShape = known.contains(f.name + " " + f.desc);
                 boolean locked = known.contains("final " + f.name + " " + f.desc);
                 if ((sameShape && locked) || (!sameShape && known.contains(f.name))) {
@@ -258,10 +241,6 @@ public class PentecostMixinService extends MixinServiceAbstract implements IClas
         }
     }
 
-    /**
-     * Puts a check at the top of each void @Inject handler: when the mod failed to start, the handler
-     * returns before doing anything, and the game goes on as if the hook were not there.
-     */
     private static void guardHooks(ClassNode node, String modId) {
         if (modId == null || modId.equals("minecraft") || modId.equals("forge") || node.methods == null) {
             return;
@@ -293,7 +272,6 @@ public class PentecostMixinService extends MixinServiceAbstract implements IClas
 
     private static final String OPERATION = "Lcom/llamalad7/mixinextras/injector/wrapoperation/Operation;";
 
-    /** The code that leaves a hook without changing anything, or null when the hook kind is not covered. */
     private static org.objectweb.asm.tree.InsnList passThrough(org.objectweb.asm.tree.MethodNode m) {
         org.objectweb.asm.Type[] args = org.objectweb.asm.Type.getArgumentTypes(m.desc);
         org.objectweb.asm.Type ret = org.objectweb.asm.Type.getReturnType(m.desc);
@@ -405,16 +383,9 @@ public class PentecostMixinService extends MixinServiceAbstract implements IClas
         out.add(new org.objectweb.asm.tree.InsnNode(ret.getOpcode(org.objectweb.asm.Opcodes.IRETURN)));
     }
 
-    /**
-     * Hooks from Fabric ports of Forge's API (Porting Lib) that do a job Forge already does on the Forge layer.
-     * Both running at once breaks the game, so on the Forge layer these hooks are removed and Forge's own code runs.
-     * Mixin class, then its handler methods.
-     */
     private static final java.util.Map<String, java.util.Set<String>> FORGE_DOES_THIS = java.util.Map.of(
-            // Forge captures death loot and fires its own drops event.
             "io/github/fabricators_of_create/porting_lib/entity/mixin/common/LivingEntityMixin",
             java.util.Set.of("port_lib$startCapturingDrops", "port_lib$dropCapturedDrops"),
-            // Forge names each loot table. Porting Lib's copy would replace Forge's and refuse a second naming.
             "io/github/fabricators_of_create/porting_lib/loot/mixin/loottable/LootTableMixin",
             java.util.Set.of("setLootTableId", "getLootTableId"));
 
@@ -467,7 +438,6 @@ public class PentecostMixinService extends MixinServiceAbstract implements IClas
         return out;
     }
 
-    /** Field names of a game or mod class, before any mixin, as "name desc" and plain "name". */
     private java.util.Set<String> fieldsOf(String internal) {
         return TARGET_FIELDS.computeIfAbsent(internal, k -> {
             java.util.Set<String> names = new java.util.HashSet<>();
@@ -491,7 +461,6 @@ public class PentecostMixinService extends MixinServiceAbstract implements IClas
                     }, ClassReader.SKIP_CODE);
                 }
             } catch (Exception e) {
-                // Unknown target: nothing to compare against.
             }
             return names;
         });
@@ -511,7 +480,6 @@ public class PentecostMixinService extends MixinServiceAbstract implements IClas
         return false;
     }
 
-    /** Sets require = 0 on every injector annotation, so a missed target is a warning. */
     private static void softRequire(java.util.List<org.objectweb.asm.tree.AnnotationNode> list) {
         if (list == null) {
             return;

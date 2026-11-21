@@ -1,10 +1,5 @@
 package khi.pentecost.core;
 
-/**
- * Line of sight through the block grid, for hiding mobs behind walls. Pure math, no game classes: the caller says
- * which blocks are solid. A ray walks the grid cell by cell (Amanatides and Woo) and stops at the first solid cell.
- * The camera's own cell and the target's cell never block.
- */
 public final class Occlusion {
     public interface Solid {
         boolean at(int x, int y, int z);
@@ -12,7 +7,6 @@ public final class Occlusion {
 
     private Occlusion() {}
 
-    /** True when nothing solid lies between a and b. */
     public static boolean clear(double ax, double ay, double az, double bx, double by, double bz, Solid solid, int maxSteps) {
         int x = floor(ax), y = floor(ay), z = floor(az);
         int ex = floor(bx), ey = floor(by), ez = floor(bz);
@@ -41,7 +35,6 @@ public final class Occlusion {
                 tmz += tdz;
             }
             if (tmx > 1 && tmy > 1 && tmz > 1 && !(x == ex && y == ey && z == ez)) {
-                // Past the end point by rounding: treat as arrived.
                 return true;
             }
             if (!(x == ex && y == ey && z == ez) && solid.at(x, y, z)) {
@@ -51,7 +44,6 @@ public final class Occlusion {
         return true;
     }
 
-    /** True when any of the box's centre and eight corners can be seen from the eye. */
     public static boolean visible(double ex, double ey, double ez, double minX, double minY, double minZ,
                                   double maxX, double maxY, double maxZ, Solid solid) {
         int steps = (int) (Math.abs(ex - (minX + maxX) / 2) + Math.abs(ey - (minY + maxY) / 2) + Math.abs(ez - (minZ + maxZ) / 2)) + 8;

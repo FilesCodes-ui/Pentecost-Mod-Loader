@@ -30,13 +30,6 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
 
-/**
- * The player's saved skins, folders, tags, outfits, auto-apply rules and the skins worn before.
- * Lives in one folder: index.json, skins/&lt;id&gt;.png and history/&lt;sha1&gt;.png. No game classes in here.
- *
- * An outfit is a skin and a cape. A rule says "on this server (or in this world) wear that outfit".
- * Every method is safe to call from any thread. Lists handed out are copies.
- */
 public final class WardrobeStore {
     public static final class Skin {
         public String id = "";
@@ -46,7 +39,6 @@ public final class WardrobeStore {
         public List<String> tags = new ArrayList<>();
         public long added;
         public String sha1 = "";
-        /** Where it came from, for the player: a file name, a player name, "Current skin". */
         public String from = "";
     }
 
@@ -54,19 +46,16 @@ public final class WardrobeStore {
         public String id = "";
         public String name = "";
         public String skinId = "";
-        /** A cape id the account owns, or empty for no cape. */
         public String capeId = "";
     }
 
     public static final class Rule {
         public String id = "";
-        /** "server" or "world". */
         public String kind = "server";
         public String match = "";
         public String outfitId = "";
     }
 
-    /** A skin worn before an apply: kept so one press goes back to it. */
     public static final class Past {
         public String sha1 = "";
         public boolean slim;
@@ -99,7 +88,6 @@ public final class WardrobeStore {
         this.root = root;
     }
 
-    /** Opens the wardrobe in this folder. An index that cannot be read is kept aside and a new one starts. */
     public static WardrobeStore open(Path root) throws IOException {
         WardrobeStore store = new WardrobeStore(root);
         Files.createDirectories(root.resolve("skins"));
@@ -119,7 +107,6 @@ public final class WardrobeStore {
         return store;
     }
 
-    /** Drops entries a hand-edited or damaged index could not support, so the rest of the code can trust the data. */
     private void tidy() {
         data.skins.removeIf(s -> s == null || !ID.matcher(s.id).matches() || !Files.isRegularFile(root.resolve("skins").resolve(s.id + ".png")));
         data.skins.forEach(s -> {
@@ -157,8 +144,6 @@ public final class WardrobeStore {
         return root;
     }
 
-    // ------------------------------------------------------------------ skins
-
     public synchronized List<Skin> skins() {
         return List.copyOf(data.skins);
     }
@@ -167,10 +152,6 @@ public final class WardrobeStore {
         return data.skins.stream().filter(s -> s.id.equals(id)).findFirst().orElse(null);
     }
 
-    /**
-     * Saves a skin file. The same image twice is kept once: the saved one is returned. Throws a readable reason when the
-     * file is not a skin or the wardrobe is full.
-     */
     public synchronized Skin addSkin(byte[] png, String name, String from) throws IOException {
         SkinImage.Report report = SkinImage.check(png);
         String sha = sha1(png);
@@ -211,7 +192,6 @@ public final class WardrobeStore {
         }
     }
 
-    /** The detected arm model is a guess from the pixels. The player has the last word. */
     public synchronized void setSlim(String id, boolean slim) throws IOException {
         require(id).slim = slim;
         save();
@@ -242,7 +222,6 @@ public final class WardrobeStore {
         }
     }
 
-    /** Replaces a skin's image, for Fix. The name, folder and tags stay. */
     public synchronized void replaceImage(String id, byte[] png) throws IOException {
         Skin s = require(id);
         SkinImage.Report report = SkinImage.check(png);
@@ -252,7 +231,6 @@ public final class WardrobeStore {
         save();
     }
 
-    /** Deletes a skin, and the outfits that use it and the rules that use those outfits. */
     public synchronized void deleteSkin(String id) throws IOException {
         Skin s = require(id);
         data.skins.remove(s);
@@ -272,7 +250,6 @@ public final class WardrobeStore {
         save();
     }
 
-    /** Skins whose name, tag or source holds the text, in this folder ("" is every folder), newest first. */
     public synchronized List<Skin> find(String text, String folder) {
         String q = text == null ? "" : text.strip().toLowerCase(Locale.ROOT);
         List<Skin> out = new ArrayList<>();
@@ -289,8 +266,6 @@ public final class WardrobeStore {
         return out;
     }
 
-    // ------------------------------------------------------------------ folders
-
     public synchronized List<String> folders() {
         List<String> out = new ArrayList<>(data.folders);
         Collections.sort(out, String.CASE_INSENSITIVE_ORDER);
@@ -305,15 +280,12 @@ public final class WardrobeStore {
         }
     }
 
-    /** Removes a folder. Its skins stay, with no folder. */
     public synchronized void removeFolder(String name) throws IOException {
         if (data.folders.remove(name)) {
             data.skins.stream().filter(s -> s.folder.equals(name)).forEach(s -> s.folder = "");
             save();
         }
     }
-
-    // ------------------------------------------------------------------ outfits and rules
 
     public synchronized List<Outfit> outfits() {
         return List.copyOf(data.outfits);
@@ -382,10 +354,6 @@ public final class WardrobeStore {
         }
     }
 
-    /**
-     * The rule for a place: kind "server" matches when the address or name holds the rule's text, kind "world" when the
-     * world name is the rule's text, ignoring case. The longest matching text wins.
-     */
     public synchronized Rule match(String kind, String text) {
         if (text == null || text.isBlank()) {
             return null;
@@ -405,7 +373,6 @@ public final class WardrobeStore {
         return best;
     }
 
-    /** The outfit the rules last put on, so joining the same place twice does not upload twice. */
     public synchronized String lastOutfit() {
         return data.lastOutfit;
     }
@@ -415,13 +382,10 @@ public final class WardrobeStore {
         save();
     }
 
-    // ------------------------------------------------------------------ history
-
     public synchronized List<Past> history() {
         return List.copyOf(data.history);
     }
 
-    /** Keeps a skin that is about to be replaced. The newest is first, the same skin twice is kept once, ten at most. */
     public synchronized void remember(byte[] png, boolean slim, String capeId, String name) throws IOException {
         SkinApi.checkSkin(png);
         String sha = sha1(png);
@@ -451,9 +415,6 @@ public final class WardrobeStore {
         return Files.readAllBytes(root.resolve("history").resolve(p.sha1 + ".png"));
     }
 
-    // ------------------------------------------------------------------ export and import
-
-    /** Packs the whole wardrobe into one zip: the index and every skin. History is not included. */
     public synchronized void exportTo(Path zip) throws IOException {
         Data copy = new Data();
         copy.skins = data.skins;
@@ -472,10 +433,6 @@ public final class WardrobeStore {
         }
     }
 
-    /**
-     * Adds what an exported zip holds. Each skin is checked like any other, a skin already here is not added twice,
-     * and outfits and rules follow their skins. Returns how many skins were new.
-     */
     public synchronized int importFrom(Path zip) throws IOException {
         if (Files.size(zip) > 200L * 1024 * 1024) {
             throw new IOException("That file is too big to be a wardrobe");
@@ -547,7 +504,6 @@ public final class WardrobeStore {
                 String skinId = newIds.get(o.skinId);
                 String name = clean(o.name, 40);
                 String cape = o.capeId == null ? "" : clean(o.capeId, 64);
-                // The same outfit twice is kept once, so importing a file again adds nothing.
                 Outfit same = data.outfits.stream()
                         .filter(x -> x.skinId.equals(skinId) && x.name.equals(name) && x.capeId.equals(cape)).findFirst().orElse(null);
                 if (same != null) {
@@ -570,15 +526,12 @@ public final class WardrobeStore {
                 try {
                     addRule(r.kind, match, outfitId);
                 } catch (IOException e) {
-                    // A rule that does not hold up is left out.
                 }
             }
         }
         save();
         return added;
     }
-
-    // ------------------------------------------------------------------ small helpers
 
     private Skin require(String id) throws IOException {
         Skin s = skin(id);
@@ -598,7 +551,6 @@ public final class WardrobeStore {
         return id;
     }
 
-    /** Text from the player or a file, safe to store and draw: no control or formatting characters, and not too long. */
     static String clean(String s, int max) {
         if (s == null) {
             return "";
@@ -615,7 +567,6 @@ public final class WardrobeStore {
         }
     }
 
-    /** Skin files left over from a crash, for a tidy-up: files in skins/ that no skin points at. */
     public synchronized int sweep() throws IOException {
         Set<String> keep = new HashSet<>();
         data.skins.forEach(s -> keep.add(s.id + ".png"));

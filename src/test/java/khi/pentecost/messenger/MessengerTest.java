@@ -28,7 +28,6 @@ class MessengerTest {
         }
     }
 
-    /** Pumps a lane on this thread until the condition holds or two seconds pass. */
     private static void pumpUntil(Messenger m, Lane lane, java.util.function.BooleanSupplier ok) throws InterruptedException {
         long end = System.currentTimeMillis() + 2000;
         while (!ok.getAsBoolean() && System.currentTimeMillis() < end) {
@@ -172,7 +171,6 @@ class MessengerTest {
         AtomicReference<String> path = new AtomicReference<>();
         m.ask("bad", "r", Lane.WORKER, () -> "x", Lane.SERVER, path::set, () -> path.set("old"), 1000);
         assertEquals("old", path.get());
-        // Another sender is not touched.
         m.ask("good", "r", Lane.WORKER, () -> "new", Lane.SERVER, path::set, () -> path.set("old"), 1000);
         pumpUntil(m, Lane.SERVER, () -> "new".equals(path.get()));
         assertEquals("new", path.get());

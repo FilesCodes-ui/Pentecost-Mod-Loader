@@ -13,10 +13,6 @@ import java.util.function.IntSupplier;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
-/**
- * Forge can show its own early loading window. Pentecost skips it and opens the game window the vanilla way.
- * Forge's game patches still ask this provider for the window and the loading overlay, so it supplies both.
- */
 public final class PlainWindow implements ImmediateWindowProvider {
     @Override
     public String name() {

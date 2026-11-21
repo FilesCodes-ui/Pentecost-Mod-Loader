@@ -2,7 +2,6 @@ package net.fabricmc.loader.api;
 
 import java.util.function.BiConsumer;
 
-/** Pentecost's own copy of this Fabric Loader API type. Calls land in Pentecost. No Fabric Loader code runs. */
 public interface ObjectShare {
     Object get(String key);
 

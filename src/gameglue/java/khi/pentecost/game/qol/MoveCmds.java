@@ -38,7 +38,6 @@ import java.util.Random;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
-/** Teleporting and moving around. Everything that takes a place takes a Where, so players can stand in for coordinates. */
 final class MoveCmds {
     private static final String C = "Move";
     private static final Pattern NAME = Pattern.compile("[A-Za-z0-9_-]{1,24}");
@@ -72,17 +71,10 @@ final class MoveCmds {
         return v;
     }
 
-    /** The height to stand at for this column. Worlds with a roof (the Nether) get the highest open spot under it. */
     private static final SuggestionProvider<CommandSourceStack> BIOMES = (c, b) -> SharedSuggestionProvider.suggest(
             c.getSource().registryAccess().registryOrThrow(Registries.BIOME).keySet().stream()
                     .map(ResourceLocation::getPath).distinct().sorted(), b);
 
-    /**
-     * A random trip onto dry land. It reads the world's biome map first, which costs nothing, to skip oceans and rivers
-     * (or to find the biome asked for), and loads only the few places that pass. The ground there is checked for water,
-     * lava, fire, cacti and other things that hurt before the player is sent. The pick is even over the ring between
-     * the minimum distance and the radius.
-     */
     private static int rtp(CommandContext<CommandSourceStack> c, int radius, int min, String biomeName) throws CommandSyntaxException {
         ServerPlayer p = Qol.me(c);
         ServerLevel l = p.serverLevel();
@@ -142,12 +134,10 @@ final class MoveCmds {
                 : "No dry land turned up. Try again, or a different radius.");
     }
 
-    /** Where to stand at x z: the ground under any trees in the open, the first floor under the roof elsewhere. */
     private static int groundY(ServerLevel l, int x, int z) {
         return l.dimensionType().hasCeiling() ? safeY(l, x, z) : l.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
     }
 
-    /** True when a player can stand with feet at y: ground under, room above, no water, lava, fire or thorns. */
     private static boolean standable(ServerLevel l, int x, int y, int z) {
         if (y <= l.getMinBuildHeight() + 1 || y >= l.getMaxBuildHeight() - 2) {
             return false;
@@ -183,7 +173,6 @@ final class MoveCmds {
         }).orElse("");
     }
 
-    /** The way from the start to the new place, in words. North is toward lower z, east toward higher x. */
     private static String compass(int dx, int dz) {
         String[] names = {"north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"};
         double deg = (Math.toDegrees(Math.atan2(dx, -dz)) + 360.0) % 360.0;
@@ -306,7 +295,6 @@ final class MoveCmds {
         shortcut("bed", "bed", "Go to your bed or respawn anchor", 2);
         shortcut("death", "death", "Go to where you last died", 2);
 
-        // ---- homes
         Qol.word(C, "home", 0, "[name]", "Go to a home (the one called home when no name is given)", true, HOMES, (c, n) -> {
             ServerPlayer p = Qol.me(c);
             String key = checked(n, "home");
@@ -344,7 +332,6 @@ final class MoveCmds {
             return names.size();
         });
 
-        // ---- warps, shared by everyone on the server
         Qol.word(C, "warp", 0, "<name>", "Go to a warp the server has set", false, WARPS, (c, n) -> {
             Where.Spot s = Store.warp(n);
             if (s == null) {
@@ -376,7 +363,6 @@ final class MoveCmds {
             return names.size();
         });
 
-        // ---- asking to teleport
         Qol.playerReq(C, "tpa", 0, "Ask a player if you may teleport to them", (c, t) -> {
             ServerPlayer me = Qol.me(c);
             if (t == me) {
@@ -451,7 +437,6 @@ final class MoveCmds {
             }
             return Qol.ok(c, off ? "You are not taking teleport requests." : "You take teleport requests again.");
         });
-        // ---- far trips
         Qol.custom(C, "rtp", 2, "[radius] [min] | biome <name> [radius]",
                 "Teleport to a random safe spot on dry land, at least a minimum distance away, or in a biome you pick",
                 Qol.lit("rtp", 2)
@@ -506,7 +491,6 @@ final class MoveCmds {
                     return Qol.ok(c, "Moved to " + Where.describe(s) + ".");
                 });
 
-        // ---- pushes and looking
         Qol.integer(C, "launch", 2, "[power 1-20]", "Fling yourself upward", 1, 20, true, (c, n) -> {
             ServerPlayer p = Qol.me(c);
             p.setDeltaMovement(p.getDeltaMovement().add(0.0, (n == null ? 5 : n) * 0.3, 0.0));

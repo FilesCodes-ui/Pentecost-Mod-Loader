@@ -25,11 +25,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
-/**
- * Gets the menu world ready, off the render thread: generates a seed if it has to, scans for places, reads the land
- * the camera needs. It reads the profile and changes nothing in it. The caller applies {@link Ready#scanned} to the
- * profile on its own thread, so the settings screen never sees a list change under it.
- */
 public final class MenuPrep {
     private MenuPrep() {}
 
@@ -37,24 +32,18 @@ public final class MenuPrep {
 
     public record Progress(Phase phase, String text, int done, int total) {}
 
-    /** The seed is not cached yet and the player has not agreed to the Mojang EULA that generating needs. */
     public static final class NeedsEula extends Exception {
         public NeedsEula() {
             super("Generating a seed needs your agreement to the Minecraft EULA.");
         }
     }
 
-    /** Something the player can fix. The message is one plain sentence for the settings screen. */
     public static final class Failed extends Exception {
         public Failed(String message) {
             super(message);
         }
     }
 
-    /**
-     * @param scanned the places found, or null when the world was not scanned again (nothing changed since last time)
-     * @param box     {minCx, minCz, maxCx, maxCz}: the chunks the menu world may show
-     */
     public record Ready(WorldSource source, Path regionDir, int spawnX, int spawnZ, int centerX, int centerZ, int[] box,
                         CacheTerrain terrain, List<Poi> scanned, String scanKey, RegistryAccess.Frozen access) {}
 
@@ -74,7 +63,7 @@ public final class MenuPrep {
             SeedPregen.Area area = new SeedPregen.Area(profile.seed, spawn ? SeedPregen.Area.SPAWN : profile.centerX,
                     spawn ? SeedPregen.Area.SPAWN : profile.centerZ, profile.radiusChunks);
             if (!SeedPregen.isComplete(dir, area)) {
-                SeedBundle.install(home, dir, area); // a packed copy of this seed skips generating (and the EULA step)
+                SeedBundle.install(home, dir, area);
             }
             if (!SeedPregen.isComplete(dir, area)) {
                 if (!profile.eulaAccepted) throw new NeedsEula();
@@ -149,7 +138,6 @@ public final class MenuPrep {
         return p.stage();
     }
 
-    /** The first line and the last line of an error that carries the server's log, so the reason is in it. */
     private static String summary(String s) {
         if (s == null) return "unknown error";
         String[] lines = s.split("\\R");

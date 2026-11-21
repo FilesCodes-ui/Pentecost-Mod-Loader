@@ -39,18 +39,11 @@ import java.util.function.IntConsumer;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
-/**
- * Pentecost's settings, in three columns.
- * Left: pages. Middle: the page's folders as tabs, then that folder's settings.
- * Right: details for the setting under the pointer, and the page's shortcuts.
- * Video holds Embeddium's options and Shaders drives Oculus, when those mods are installed.
- */
 public final class PentecostSettingsScreen extends Screen {
     private enum Kind { INFO, BUTTON, SWITCH, CHOICE, SLIDER, PICK, SKIN, KEY, HEADER }
 
     private record Slider(int min, int max, int step, IntSupplier value, IntConsumer set, Supplier<String> text) {}
 
-    /** One setting. note: one line under the title. about: the full text for the details panel. */
     private record Row(Kind kind, String title, String note, String about, String when, Supplier<String> value,
                        BooleanSupplier on, Runnable action, Slider slider, BooleanSupplier enabled) {
         static Row info(String title, String value) {
@@ -77,12 +70,10 @@ public final class PentecostSettingsScreen extends Screen {
             return new Row(Kind.PICK, title, note, note, "Now", null, on, action, null, () -> true);
         }
 
-        /** A line whose value changes while the screen is open. */
         static Row live(String title, String note, Supplier<String> value) {
             return new Row(Kind.INFO, title, note, note, "", value, null, null, null, () -> true);
         }
 
-        /** A button with its own label that can switch itself off. */
         static Row act(String title, String note, String label, BooleanSupplier enabled, Runnable action) {
             return new Row(Kind.BUTTON, title, note, note, "", () -> label, null, action, null, enabled);
         }
@@ -105,6 +96,7 @@ public final class PentecostSettingsScreen extends Screen {
     private final List<Hit> hits = new ArrayList<>();
     private final Map<String, SliderSpot> sliderSpots = new HashMap<>();
     private int page = 1;
+    private ScreenHarvest harvested;
     private final Scrollbar bar = new Scrollbar();
     private String search = "";
     private boolean searchFocus;
@@ -116,12 +108,10 @@ public final class PentecostSettingsScreen extends Screen {
     private double lastMouseX;
     private String dragKey;
     private Row hovered;
-    /** A choice waiting for the arrow to land. It applies after the glide, so the reload never freezes the arrow. */
     private Row pickPending;
     private int pickPage = -1;
     private long pickSince;
     private boolean pickReady;
-    /** Embeddium's screen, built but not shown: holds its option pages and its apply step. */
     private Object embeddium;
 
     public PentecostSettingsScreen(Screen parent) {
@@ -145,7 +135,11 @@ public final class PentecostSettingsScreen extends Screen {
                                 Row.act("Check now", "Ask GitHub for the newest release.", "Check",
                                         () -> !Updater.busy(), () -> Updater.check(true)),
                                 Row.act("Install the update", "Downloads the new installer, checks it, then closes the game so it can install.",
-                                        "Update", Updater::available, () -> Updater.ask(this))))),
+                                        "Update", Updater::available, () -> Updater.ask(this)))),
+                        new Folder("Privacy", List.of(
+                                Row.toggle("Show Pentecost in Discord", "Your Discord profile shows that you play Pentecost, what you are doing "
+                                        + "and for how long. Server addresses and world names are never shown.", "Now",
+                                        () -> Settings.on(DiscordStatus.KEY), () -> Settings.toggle(DiscordStatus.KEY))))),
                 List.of(),
                 () -> List.of(
                         new Shortcut("Game folder", () -> Util.getPlatform().openFile(mc.gameDirectory)),
@@ -189,6 +183,11 @@ public final class PentecostSettingsScreen extends Screen {
                                         () -> "orbit".equals(Settings.get(Settings.PAUSE_CAMERA_STYLE)) ? "Orbit only" : "Cinematic",
                                         () -> Settings.set(Settings.PAUSE_CAMERA_STYLE,
                                                 "orbit".equals(Settings.get(Settings.PAUSE_CAMERA_STYLE)) ? "cinematic" : "orbit")))),
+                        new Folder("Pentecost cape", List.of(
+                                Row.toggle("Animated Pentecost cape", "The moving cape with the gas giant, the cloud sea and the "
+                                        + "boat that rides it. Other Pentecost players see it on you, and you see it on them. "
+                                        + "Off shows the game's own capes.", "Now",
+                                        () -> Settings.on(PentecostCape.SETTING), () -> Settings.toggle(PentecostCape.SETTING)))),
                         new Folder("Name tags", List.of(
                                 Row.choice("Name tag style", "Pentecost draws the name in plain letters with a hairline under it. "
                                         + "Game keeps the usual black box.", "Now",
@@ -220,7 +219,7 @@ public final class PentecostSettingsScreen extends Screen {
                 this::controlFolders, List.of(), this::controlShortcuts));
         pages.add(new Page("Skin", "Your skin and which layers show. The skin comes from your account.",
                 this::skinFolders, List.of(),
-                () -> List.of(new Shortcut("Open wardrobe", () -> minecraft.setScreen(new WardrobeScreen(this))))));
+                List::of));
         pages.add(new Page("Resource packs", "Turn packs on or off. Shift-click a pack in use to give it more priority. "
                 + "Changes apply when you press Done.",
                 this::resourcePackFolders, List.of(), this::resourcePackShortcuts));
@@ -237,7 +236,19 @@ public final class PentecostSettingsScreen extends Screen {
         pages.add(new Page("Java", "Memory, garbage collector and extra flags for the next launch. "
                 + "Pentecost reads them each time it starts the game.",
                 this::javaFolders, List.of(), this::javaShortcuts));
-        pages.add(new Page("Gameplay", "Mob thinking, movement and the stall warning.",
+        pages.add(new Page("Mods", "Settings of the mods in this pack, as Pentecost rows. Pick a mod.",
+                this::modsFolders, List.of(), List::of));
+        if (startPage.startsWith("mod:")) {
+            Page p = modPage(startPage.substring(4));
+            if (p != null) {
+                pages.add(p);
+                startPage = p.name();
+            }
+        }
+        pages.add(new Page("Mod loading", "Mods made for more than one loader in a single jar. Pick which side "
+                + "Pentecost loads. Applies at the next launch.",
+                this::modLoadingFolders, List.of(), List::of));
+        pages.add(new Page("Gameplay", "The F5 camera, mob thinking, movement and the stall warning.",
                 this::gameplayFolders, List.of(), List::of));
         pages.add(new Page("Building", "How the block you look at is marked.",
                 this::buildingFolders, List.of(), List::of));
@@ -261,7 +272,6 @@ public final class PentecostSettingsScreen extends Screen {
         }
     }
 
-    /** The main menus mods bring. Picking one makes it the main menu. */
     private List<Row> menuModRows() {
         List<Row> rows = new ArrayList<>();
         List<MenuMods.Entry> entries = MenuMods.entries();
@@ -277,9 +287,6 @@ public final class PentecostSettingsScreen extends Screen {
         return rows;
     }
 
-    // ---------------------------------------------------------------- menu world
-
-    /** Set by a menu world slider while it is dragged. It runs once, when the mouse is let go. */
     private Runnable menuAfter;
     private int placeDx, placeDz;
 
@@ -383,7 +390,7 @@ public final class PentecostSettingsScreen extends Screen {
             if (moveOn(x)) now.add(x.name());
         }
         if (moveOn(t)) {
-            if (now.size() > 1) now.remove(t.name()); // at least one move stays on
+            if (now.size() > 1) now.remove(t.name());
         } else {
             now.add(t.name());
         }
@@ -556,7 +563,6 @@ public final class PentecostSettingsScreen extends Screen {
                 () -> Util.getPlatform().openFile(Dirs.mk(Dirs.config().resolve("pentecost").resolve("menu_world")).toFile())));
     }
 
-    /** Text for the world rows. Kept apart so the rows read the profile fresh at every draw. */
     private static final class MenuHostLabels {
         static String seed() {
             return seedLabel();
@@ -581,8 +587,6 @@ public final class PentecostSettingsScreen extends Screen {
         }
         return built.computeIfAbsent(index, i -> pages.get(i).build().get());
     }
-
-    // ---------------------------------------------------------------- controls
 
     private KeyMapping listening;
 
@@ -686,7 +690,6 @@ public final class PentecostSettingsScreen extends Screen {
         }));
     }
 
-    /** A key bind on one short line: the action on the left, the key in a box on the right. */
     private int keyRowDraw(GuiGraphics g, Row r, int x, int y, int w, int mx, int my, int top, int bottom) {
         int h = 22;
         boolean visible = y + h > top && y < bottom;
@@ -721,8 +724,6 @@ public final class PentecostSettingsScreen extends Screen {
         return y + h + 1;
     }
 
-    // ---------------------------------------------------------------- skin
-
     private List<Folder> skinFolders() {
         Options o = minecraft.options;
         List<Row> layers = new ArrayList<>();
@@ -744,7 +745,6 @@ public final class PentecostSettingsScreen extends Screen {
         return List.of(new Folder("Preview", List.of(preview)), new Folder("Layers", layers));
     }
 
-    /** The front of the skin, drawn from the texture: head, body, arms and legs, with the outer layer on top. */
     private int skinRow(GuiGraphics g, int x, int y, int w) {
         ResourceLocation skin = AccountSkin.location();
         if (skin == null) {
@@ -755,7 +755,6 @@ public final class PentecostSettingsScreen extends Screen {
         RenderSystem.enableBlend();
         for (int layer = 0; layer < 2; layer++) {
             int dx = layer == 0 ? 0 : 0;
-            // head, body, right arm, left arm, right leg, left leg: target x, y, size, then texture u, v
             int[][] parts = layer == 0
                     ? new int[][] {{0, 0, 8, 8, 8, 8}, {0, 8, 8, 12, 20, 20}, {-4, 8, 4, 12, 44, 20}, {8, 8, 4, 12, 36, 52},
                             {0, 20, 4, 12, 4, 20}, {4, 20, 4, 12, 20, 52}}
@@ -770,8 +769,6 @@ public final class PentecostSettingsScreen extends Screen {
         g.drawString(font, name, x + w / 2 - font.width(name) / 2, y + 8 + 32 * s + 8, Ui.TEXT, false);
         return y + 8 + 32 * s + 28;
     }
-
-    // ---------------------------------------------------------------- resource packs
 
     private net.minecraft.client.gui.screens.packs.PackSelectionModel packModel;
     private final Map<String, ResourceLocation> packIcons = new HashMap<>();
@@ -809,7 +806,6 @@ public final class PentecostSettingsScreen extends Screen {
         return List.of(new Folder("Packs", List.of()));
     }
 
-    /** Packs the loaders add for each mod's own files. They cannot be turned off, so they stay out of the way. */
     private boolean modPack(net.minecraft.client.gui.screens.packs.PackSelectionModel.Entry e) {
         String id = e.getId();
         return id.startsWith("pentecost/") || id.startsWith("mod:") || (e.isRequired() && !id.equals("vanilla"));
@@ -841,7 +837,6 @@ public final class PentecostSettingsScreen extends Screen {
         packModel.commit();
     }
 
-    /** Two columns like the game's own screen: packs you can add on the left, packs in use on the right. */
     private int packColumns(GuiGraphics g, int x, int y, int w, int mx, int my, int top, int bottom) {
         var model = packModel();
         int gap = 16;
@@ -907,7 +902,6 @@ public final class PentecostSettingsScreen extends Screen {
         if (inUse) {
             int bx = x + w - 18;
             if (packButton(g, "x", bx, y + 5, mx, my, e.canUnselect(), visible && inside, top, bottom, e::unselect)) {
-                // drawn
             }
             packButton(g, "v", bx - 16, y + 5, mx, my, e.canMoveDown(), visible && inside, top, bottom, e::moveDown);
             packButton(g, "^", bx - 32, y + 5, mx, my, e.canMoveUp(), visible && inside, top, bottom, e::moveUp);
@@ -935,8 +929,6 @@ public final class PentecostSettingsScreen extends Screen {
         return enabled;
     }
 
-    // ---------------------------------------------------------------- video and shaders
-
     private List<Folder> videoFolders() {
         List<Folder> out = new ArrayList<>();
         if (!ExternalOptions.hasEmbeddium()) {
@@ -949,7 +941,6 @@ public final class PentecostSettingsScreen extends Screen {
             for (ExternalOptions.VideoOption v : vp.options()) {
                 rows.add(videoRow(v));
             }
-            // Pages without options (Oculus's "Shader Packs" link) are left out: Shaders has its own page here.
             if (!rows.isEmpty()) {
                 out.add(new Folder(vp.name(), rows));
             }
@@ -957,7 +948,6 @@ public final class PentecostSettingsScreen extends Screen {
         return out;
     }
 
-    /** Windowed, Borderless or Fullscreen. The same setting as Interface > Window, here where people look for it. */
     private Folder windowFolder() {
         return new Folder("Window", List.of(
                 Row.choice("Window", "Windowed, Borderless or Fullscreen. Borderless covers the screen with no frame, so switching apps stays instant.", "Now",
@@ -973,11 +963,8 @@ public final class PentecostSettingsScreen extends Screen {
                                 + "Pentecost downloads it from Modrinth into your mods folder. Restart Pentecost afterwards.")));
     }
 
-    // ---------------------------------------------------------------- video without Embeddium
-
     private static final String NOT_SODIUM = "Pentecost is not compatible with Sodium or Iris. Use Embeddium and Oculus.";
 
-    /** Pentecost's own video options, drawn from the game's settings. They need no other mod. */
     private List<Folder> nativeVideoFolders() {
         Options o = minecraft.options;
         int maxDistance = minecraft.is64Bit() ? 32 : 16;
@@ -1062,7 +1049,6 @@ public final class PentecostSettingsScreen extends Screen {
                 }, shown), () -> true);
     }
 
-    /** Asks before downloading a mod, then starts the download. */
     private void askInstall(String slug, String name, String text) {
         minecraft.setScreen(new net.minecraft.client.gui.screens.ConfirmScreen(yes -> {
             if (yes) {
@@ -1121,7 +1107,11 @@ public final class PentecostSettingsScreen extends Screen {
                     () -> ExternalOptions.shadersOn() && pack.equals(ExternalOptions.currentPack()),
                     () -> ExternalOptions.usePack(pack)));
         }
-        return List.of(new Folder("Packs", rows));
+        Row portals = Row.toggle("Skip shadows in dark portal views",
+                "When a portal shows a place where the sun reaches nothing, such as a closed Backrooms room, Pentecost skips "
+                        + "the shader pack's shadow pass for that view. Turn it off to compare frame times.", "Now",
+                () -> Settings.on("render.portalShadow"), () -> Settings.toggle("render.portalShadow"));
+        return List.of(new Folder("Packs", rows), new Folder("Portals", List.of(portals)));
     }
 
     private void openPage(String name) {
@@ -1139,15 +1129,11 @@ public final class PentecostSettingsScreen extends Screen {
         }
     }
 
-    /** Last profile picked on the Shader pack page, shown until the pack changes. */
     private String shaderProfile = "Pick one";
 
-    /** The shader pack's groups, read when the page is built. */
     private List<ExternalOptions.ShaderScreen> packScreens = List.of();
-    /** Where the player is in the pack's groups, like folders on a computer. First entry: the main group. */
     private final List<Integer> packPath = new ArrayList<>(List.of(0));
 
-    /** The names along the path, for the line at the top of the page. */
     private List<String> packCrumbs() {
         List<String> out = new ArrayList<>();
         for (int i : packPath) {
@@ -1158,7 +1144,6 @@ public final class PentecostSettingsScreen extends Screen {
         return out;
     }
 
-    /** Goes to a group on the path (depth 0 is the main group). */
     private void packGoTo(int depth) {
         while (packPath.size() > depth + 1) {
             packPath.remove(packPath.size() - 1);
@@ -1189,7 +1174,6 @@ public final class PentecostSettingsScreen extends Screen {
             packPath.add(0);
         }
         ExternalOptions.ShaderScreen sc = packScreens.get(packPath.get(packPath.size() - 1));
-        // Groups first, like folders above files, then the options in the pack's own order.
         List<Row> groups = new ArrayList<>();
         List<Row> rows = new ArrayList<>();
         for (ExternalOptions.ShaderEntry en : sc.entries()) {
@@ -1302,8 +1286,6 @@ public final class PentecostSettingsScreen extends Screen {
                 new Shortcut("Refresh list", () -> built.remove(page)));
     }
 
-    // ---------------------------------------------------------------- shared row helpers
-
     private boolean optionsDirty;
 
     private Row numberOption(String title, String note, net.minecraft.client.OptionInstance<Double> option,
@@ -1347,6 +1329,123 @@ public final class PentecostSettingsScreen extends Screen {
                 new Slider(min, max, step, value, n -> Settings.set(key, String.valueOf(n)), text), () -> true);
     }
 
+    private Row scaledSlider(String title, String note, String key, int def, int min, int max, int step, int scale, String unit) {
+        IntSupplier value = () -> Settings.num(key, def);
+        Supplier<String> text = () -> {
+            double v = value.getAsInt() / (double) scale;
+            String n = scale == 100 ? String.format(java.util.Locale.ROOT, "%.2f", v) : String.format(java.util.Locale.ROOT, "%.1f", v);
+            return n + unit;
+        };
+        return new Row(Kind.SLIDER, title, note, note, "Now", text, null, null,
+                new Slider(min, max, step, value, n -> Settings.set(key, String.valueOf(n)), text), () -> true);
+    }
+
+    private List<Folder> cameraFolders() {
+        String c = "camera.";
+        return List.of(
+                new Folder("F5 camera", List.of(
+                        settingToggle("Pentecost F5 camera", "F5 cycles Wide, Follow and Close, and the mouse swings the camera "
+                                + "all the way around you. Off: the game's own F5.", "Now", OrbitCamera.SETTING),
+                        Row.choice("Style", "Classic feels close to the game's own F5. Modern is the full Pentecost camera. "
+                                + "Cinematic is soft, slow and wide. Picking one sets every camera setting below.", "Now",
+                                OrbitCamera::presetLabel,
+                                () -> OrbitCamera.preset(switch (OrbitCamera.presetLabel()) {
+                                    case "Modern" -> "cinematic";
+                                    case "Cinematic" -> "classic";
+                                    default -> "modern";
+                                })),
+                        settingToggle("Wide in the cycle", "Include the far camera when you press F5.", "Now", c + "useWide"),
+                        settingToggle("Follow in the cycle", "Include the middle camera when you press F5.", "Now", c + "useFollow"),
+                        settingToggle("Close in the cycle", "Include the over-the-shoulder camera when you press F5.", "Now", c + "useClose"),
+                        settingSlider("Hold F5 for first person", "Hold F5 this long to glide straight back to first person.", "Now",
+                                c + "hold", 500, 150, 2000, 50, " ms", null),
+                        Row.act("Reset the F5 camera", "Every F5 camera setting back to how Pentecost ships it.", "Reset",
+                                () -> true, OrbitCamera::resetAll))),
+                new Folder("F5 camera: distance", List.of(
+                        scaledSlider("Wide distance", "How far the Wide camera sits from your head.", c + "wide", 90, 30, 250, 5, 10, " blocks"),
+                        scaledSlider("Wide height", "How far above your head the Wide camera sits.", c + "wideHeight", 15, 0, 60, 1, 10, " blocks"),
+                        scaledSlider("Follow distance", "How far the Follow camera sits from your head.", c + "follow", 50, 20, 150, 1, 10, " blocks"),
+                        scaledSlider("Follow height", "How far above your head the Follow camera sits.", c + "followHeight", 8, 0, 40, 1, 10, " blocks"),
+                        scaledSlider("Close distance", "How far the Close camera sits from your head.", c + "close", 16, 6, 60, 1, 10, " blocks"),
+                        scaledSlider("Close height", "How far above your head the Close camera sits.", c + "closeHeight", 3, 0, 20, 1, 10, " blocks"),
+                        scaledSlider("Shoulder offset", "How far to the side the Close camera sits.", c + "shoulder", 8, 0, 20, 1, 10, " blocks"),
+                        Row.choice("Shoulder side", "Which shoulder the Close camera looks over.", "Now",
+                                () -> "left".equals(Settings.get(c + "shoulderSide")) ? "Left" : "Right",
+                                () -> Settings.set(c + "shoulderSide", "left".equals(Settings.get(c + "shoulderSide")) ? "right" : "left")),
+                        settingToggle("Left Alt swaps shoulder", "Tap Left Alt to move the Close camera to your other shoulder.", "Now", c + "shoulderKey"),
+                        settingToggle("Auto shoulder swap", "When a wall is on your shoulder side, the camera moves to the open "
+                                + "side on its own, and back when the wall is gone.", "Now", c + "autoShoulder"),
+                        Row.info("Fine-tune with the mouse", "Hold F5 and scroll to move the current camera closer or farther."))),
+                new Folder("F8 cinematic camera", List.of(
+                        Row.info("What it does", "F8 turns on a cinematic third-person camera, like Better Third Person. "
+                                + "Your head never follows the camera. WASD move you relative to the camera and your "
+                                + "character turns to run where you steer. Attacking or using an item turns you to the "
+                                + "camera's aim. F8 again goes back to the camera you had. F5 or holding F5 leaves it too."),
+                        scaledSlider("Distance", "How far the cinematic camera sits from your head.", c + "cineDist", 40, 15, 150, 1, 10, " blocks"),
+                        scaledSlider("Height", "How far above your head it sits.", c + "cineHeight", 6, 0, 40, 1, 10, " blocks"),
+                        settingSlider("Camera smoothing", "How softly the camera glides after the mouse in this mode.", "Now",
+                                c + "cineSmoothing", 120, 0, 400, 10, " ms", "Off"))),
+                new Folder("F5 camera: keys and free camera", List.of(
+                        Row.info("Lock-on", "Side mouse button"),
+                        Row.info("Shoulder swap", "Left Alt"),
+                        Row.info("Cinematic camera", "F8"),
+                        Row.info("Free camera", "F7: fly the camera on its own to film. WASD moves, jump and sneak go up "
+                                + "and down, sprint is faster, scroll zooms. It bumps into blocks and into you. Your character "
+                                + "stays still. F7 again to return."),
+                        Row.info("Clean shot", "F1 while in F7 hides the HUD and every name tag, yours included."),
+                        Row.info("Change a key", "Controls page, Pentecost group. The game marks keys that clash in red."))),
+                new Folder("F5 camera: walking", List.of(
+                        settingToggle("Over the head while walking", "After you walk a moment, the camera moves from your shoulder "
+                                + "to above your head, so you see where you are going.", "Now", c + "overHead"),
+                        settingSlider("Walk time before it moves", "How long you walk before the camera goes over your head.", "Now",
+                                c + "overHeadDelay", 500, 0, 3000, 50, " ms", null),
+                        settingSlider("Stand time before it returns", "How long you stand still before it goes back to your shoulder.", "Now",
+                                c + "overHeadBack", 800, 0, 3000, 50, " ms", null),
+                        scaledSlider("Height over the head", "How far above your head it sits while you walk.", c + "overHeadLift", 55, 0, 200, 5, 100, " blocks"),
+                        settingSlider("Body turn smoothing", "How softly your body turns toward the camera when you walk. "
+                                + "Lower turns faster.", "Now", c + "walkTurn", 120, 10, 600, 10, " ms", null),
+                        settingSlider("Body turn speed limit", "Your body never turns faster than this.", "Now",
+                                c + "turnSpeed", 720, 90, 2000, 30, " degrees a second", null))),
+                new Folder("F5 camera: smart", List.of(
+                        settingToggle("Cave sense", "In tunnels and tight rooms the camera moves in before it hits a wall, "
+                                + "and back out in the open.", "Now", c + "smartCave"),
+                        settingToggle("Low ceilings", "Under a low roof the camera drops instead of pressing into it.", "Now", c + "smartCeiling"),
+                        settingToggle("Speed distance", "The faster you go on a horse, elytra or minecart, the farther back "
+                                + "the camera sits, up to 4 blocks.", "Now", c + "smartSpeed"),
+                        settingToggle("Look-ahead", "When you move fast the camera leans toward where you are going.", "Now", c + "smartLook"),
+                        settingToggle("Combat pull-back", "With hostile mobs near you, Wide and Follow ease out and up so "
+                                + "you see more around you.", "Now", c + "smartCombat"),
+                        settingToggle("Lock-on", "Press the lock-on key (side mouse button) while the camera looks at a mob "
+                                + "to keep you and it in view. Press again, move the mouse far, or let the mob leave to let go.",
+                                "Now", c + "lockOn"),
+                        settingToggle("Bow aiming", "Drawing a bow, crossbow or trident moves the camera over your shoulder "
+                                + "for the shot, then back.", "Now", c + "bowZoom"),
+                        settingToggle("See-through blocks", "Glass, leaves, fences and other blocks you can see through "
+                                + "don't push the camera in.", "Now", c + "seeThrough"),
+                        settingToggle("Comfort mode", "For motion sickness. Turns off speed distance, look-ahead, combat "
+                                + "pull-back and all smoothing. The camera only moves when you move the mouse or walk.",
+                                "Now", c + "comfort"))),
+                new Folder("F5 camera: aim and feel", List.of(
+                        settingSlider("Mouse smoothing", "The camera glides after the mouse for a softer, filmic feel. "
+                                + "0 follows the mouse exactly.", "Now", c + "smoothing", 30, 0, 200, 5, " ms", "Off"),
+                        settingSlider("Step and jump smoothing", "The camera rides softly up stairs and jumps instead of "
+                                + "bouncing with your head.", "Now", c + "bumpSmoothing", 70, 0, 300, 5, " ms", "Off"),
+                        settingSlider("Neck range", "How far your head turns to follow the camera before the camera moves on "
+                                + "around you on its own.", "Now", c + "neck", 70, 20, 150, 5, " degrees", null),
+                        settingSlider("Aim smoothing", "How softly your aim follows the camera. Lower is snappier.", "Now",
+                                c + "aimSmooth", 50, 5, 400, 5, " ms", null),
+                        settingSlider("Camera sensitivity", "How fast the mouse swings the camera around you.", "Now",
+                                c + "sensitivity", 100, 20, 300, 5, "%", null),
+                        settingSlider("Glide time", "How long the camera takes to move between Wide, Follow, Close and first person.", "Now",
+                                c + "glide", 450, 50, 1500, 25, " ms", null),
+                        settingSlider("Wall ease-out", "How slowly the camera moves back out after a wall pushed it in.", "Now",
+                                c + "wallEase", 400, 20, 1500, 20, " ms", null),
+                        settingToggle("Crosshair", "Marks the exact spot your character aims at, wherever it is on screen.", "Now", c + "crosshair"),
+                        settingToggle("Crosshair in Wide", "Show the crosshair in the far camera too.", "Now", c + "crosshairWide"),
+                        settingToggle("See-through body up close", "Your body fades when the camera comes close to it.", "Now", c + "ghost"),
+                        scaledSlider("Fade starts at", "How close the camera gets to your body before it starts to fade.", c + "ghostStart", 10, 4, 30, 1, 10, " blocks"))));
+    }
+
     private Row settingToggle(String title, String note, String when, String key) {
         return Row.toggle(title, note, when, () -> Settings.on(key), () -> Settings.toggle(key));
     }
@@ -1354,8 +1453,6 @@ public final class PentecostSettingsScreen extends Screen {
     private static String nice(String s) {
         return s.isEmpty() ? s : Character.toUpperCase(s.charAt(0)) + s.substring(1);
     }
-
-    // ---------------------------------------------------------------- sound
 
     private List<Folder> soundFolders() {
         Options o = minecraft.options;
@@ -1411,8 +1508,6 @@ public final class PentecostSettingsScreen extends Screen {
                     Settings.set(Settings.SOUND_MUTED, "");
                 }));
     }
-
-    // ---------------------------------------------------------------- chat, accessibility, language
 
     private List<Folder> chatFolders() {
         Options o = minecraft.options;
@@ -1495,8 +1590,6 @@ public final class PentecostSettingsScreen extends Screen {
         return List.of(new Folder("Languages", rows));
     }
 
-    // ---------------------------------------------------------------- java
-
     private static int machineGigabytes() {
         try {
             java.lang.management.OperatingSystemMXBean os = java.lang.management.ManagementFactory.getOperatingSystemMXBean();
@@ -1504,7 +1597,6 @@ public final class PentecostSettingsScreen extends Screen {
                 return (int) (big.getTotalMemorySize() >> 30);
             }
         } catch (RuntimeException | LinkageError e) {
-            // fall through to a safe default
         }
         return 16;
     }
@@ -1513,6 +1605,99 @@ public final class PentecostSettingsScreen extends Screen {
             {"g1", "G1", "The default. Balanced pauses and speed."},
             {"zgc", "Generational ZGC", "Very short pauses. Uses more memory and a little more CPU."},
             {"parallel", "Parallel", "Highest raw speed, longer pauses. Fine for short sessions."}};
+
+    private List<Folder> modsFolders() {
+        List<Row> rows = new ArrayList<>();
+        for (khi.pentecost.mods.ModInfo m : ModConfigs.withSettings()) {
+            boolean files = ModConfigs.hasFiles(m.id());
+            boolean screen = ModConfigs.screenFor(m).isPresent();
+            String has = files && screen ? "Config files and its own screen" : files ? "Config files" : "Its own screen";
+            rows.add(Row.button(m.name(), has + ".", () -> minecraft.setScreen(new PentecostSettingsScreen(this, "mod:" + m.id()))));
+        }
+        if (rows.isEmpty()) {
+            rows.add(Row.info("No mod in this pack has settings", ""));
+        }
+        return List.of(new Folder("Mods with settings", rows));
+    }
+
+    private Page modPage(String id) {
+        khi.pentecost.mods.ModInfo m = ModConfigs.byId(id);
+        if (m == null) {
+            return null;
+        }
+        java.util.Optional<java.util.function.Function<Screen, Screen>> own = ModConfigs.screenFor(m);
+        Screen settings = this;
+        return new Page(m.name(), "Settings of " + m.name() + ", read from its config files and its own settings screen. "
+                + "Changes go through the mod's own code and save the way the mod saves.", () -> {
+            List<Folder> out = new ArrayList<>();
+            java.util.LinkedHashMap<String, List<Row>> groups = new java.util.LinkedHashMap<>();
+            for (khi.pentecost.core.SettingItem it : ModConfigs.fileItems(id)) {
+                groups.computeIfAbsent(it.group(), k -> new ArrayList<>()).add(rowOf(it));
+            }
+            if (own.isPresent() && harvested == null) {
+                try {
+                    Screen s = own.get().apply(settings);
+                    if (s != null && s != settings) {
+                        harvested = ScreenHarvest.of(s);
+                    }
+                } catch (RuntimeException | LinkageError e) {
+                    khi.pentecost.boot.Log.warn("Could not build the settings screen of " + id + ": " + e);
+                }
+            }
+            if (harvested != null) {
+                for (khi.pentecost.core.SettingItem it : harvested.items()) {
+                    groups.computeIfAbsent("Screen: " + it.group(), k -> new ArrayList<>()).add(rowOf(it));
+                }
+            }
+            for (var e : groups.entrySet()) {
+                out.add(new Folder(e.getKey(), e.getValue()));
+            }
+            List<Row> open = new ArrayList<>();
+            own.ifPresent(f -> open.add(Row.button("Open " + m.name() + "'s own screen",
+                    "The screen as the mod made it, for anything the rows above do not cover.",
+                    () -> minecraft.setScreen(f.apply(settings)))));
+            if (open.isEmpty() && out.isEmpty()) {
+                open.add(Row.info("Nothing to show", "This mod's settings load with a world. Open one first."));
+            }
+            out.add(new Folder("The mod's own screen", open));
+            return out;
+        }, List.of(), List::of);
+    }
+
+    private Row rowOf(khi.pentecost.core.SettingItem it) {
+        String note = it.note() == null ? "" : it.note();
+        return switch (it.kind()) {
+            case TOGGLE -> Row.toggle(it.title(), note, "Now", it.on(), it.action());
+            case CHOICE -> Row.choice(it.title(), note, "Now", it.value(), it.action());
+            case SLIDER -> new Row(Kind.SLIDER, it.title(), note, note, "Now", it.value(), null, null,
+                    new Slider(it.min(), it.max(), it.step(), it.get(), it.set(), it.value()), () -> true);
+            case BUTTON -> Row.act(it.title(), note, it.value() == null ? "Press" : it.value().get(), () -> true, it.action());
+            case INFO -> Row.live(it.title(), note, it.value());
+        };
+    }
+
+    private List<Folder> modLoadingFolders() {
+        List<Row> rows = new java.util.ArrayList<>();
+        for (khi.pentecost.mods.ModDiscovery.TwoSided t : khi.pentecost.mods.ModDiscovery.TWO_SIDED.values()) {
+            String setting = khi.pentecost.mods.ModDiscovery.sideSetting(t.key());
+            rows.add(Row.choice(t.file(), "Has " + String.join(", ", t.sides()) + ". Loaded this launch as "
+                            + t.chosen() + (t.auto() ? " (Pentecost's pick)." : " (your pick)."), "Restart",
+                    () -> {
+                        String v = Settings.get(setting);
+                        return v.isEmpty() ? "Auto" : Character.toUpperCase(v.charAt(0)) + v.substring(1);
+                    },
+                    () -> {
+                        String v = Settings.get(setting);
+                        int i = t.sides().indexOf(v);
+                        String next = i + 1 < t.sides().size() ? t.sides().get(i + 1) : "";
+                        Settings.set(setting, next);
+                    }));
+        }
+        if (rows.isEmpty()) {
+            rows.add(Row.info("No mod in this pack has more than one side", ""));
+        }
+        return List.of(new Folder("Which side loads", rows));
+    }
 
     private List<Folder> javaFolders() {
         int machine = machineGigabytes();
@@ -1574,10 +1759,14 @@ public final class PentecostSettingsScreen extends Screen {
         }));
     }
 
-    // ---------------------------------------------------------------- gameplay, building, server
-
     private List<Folder> gameplayFolders() {
         Options o = minecraft.options;
+        List<Folder> out = new ArrayList<>(cameraFolders());
+        out.addAll(gameplayBaseFolders(o));
+        return out;
+    }
+
+    private List<Folder> gameplayBaseFolders(Options o) {
         return List.of(
                 new Folder("Mobs", List.of(
                         settingToggle("Far mob throttle", "Mobs far from every player think less often. "
@@ -1617,7 +1806,9 @@ public final class PentecostSettingsScreen extends Screen {
                         }),
                 settingSlider("Strength", "How solid the box is. The game's own is 40 percent. "
                         + "Raise it to see blocks in dark caves and bright snow.", "Now",
-                        Settings.OUTLINE_ALPHA, 40, 0, 100, 5, "%", null))),
+                        Settings.OUTLINE_ALPHA, 40, 0, 100, 5, "%", null),
+                settingToggle("Follow the shape", "The outline follows the block's real model: plants by their leaves, "
+                        + "machines with every part. Off: the game's plain box.", "Now", Settings.OUTLINE_SHAPE))),
                 new Folder("Creative inventory", List.of(
                         optionToggle("Operator items tab", "Show the Operator Items tab in the creative inventory: command blocks, structure blocks, barriers and light blocks. You need to be an operator and in creative mode.",
                                 minecraft.options.operatorItemsTab()))));
@@ -1636,21 +1827,40 @@ public final class PentecostSettingsScreen extends Screen {
                                 o.entityDistanceScaling(), 100, 50, 500, "%"))),
                 new Folder("Server tick", List.of(
                         settingToggle("Spread chunk saving", "Chunks you leave unload a few at a time.", "Restart", Settings.SPREAD_UNLOADS),
-                        settingToggle("Far mob throttle", "Mobs far from every player think less often.", "Now", Settings.FAR_MOBS))),
+                        settingToggle("Far mob throttle", "Mobs far from every player think less often.", "Now", Settings.FAR_MOBS),
+                        settingToggle("Parallel world generation", "New chunks get their surface and caves on all the world "
+                                + "generation threads at once, not one chunk at a time. Land appears faster when you fly or "
+                                + "explore. Turns itself off if it ever fails.", "Now", Settings.PARALLEL_GEN),
+                        settingToggle("Lookahead", "While you move fast (flying, gliding, riding, sailing), Pentecost "
+                                + "follows your path and makes the land you will see before you get there, soonest first. "
+                                + "It backs off when the game is busy. Single player and worlds opened to friends; a "
+                                + "dedicated server uses /pentecost pregen follow on.", "Now", Settings.FOLLOW_SOLO),
+                        settingToggle("Spread new water over ticks", "Water and lava in brand-new chunks start flowing "
+                                + "over the next half second instead of all in one tick, so new land does not stall the "
+                                + "server. The water ends up the same.", "Now", Settings.SPREAD_WATER))),
                 new Folder("Threads (prototype)", List.of(
                         settingToggle("Messenger thread", "A thread that only moves work between threads, and a worker pool. "
                                 + "Anything that fails falls back to the old way and is written to logs/pentecost-messenger.txt. "
                                 + "Press F6 to see what it does.", "Now", Settings.MESSENGER),
                         settingToggle("Pathfinding on workers", "Mobs search for paths on the workers while the messenger is on. "
                                 + "A mob type that fails goes back to the old way by itself.", "Now", Settings.ASYNC_PATHS),
-                        settingToggle("Hide mobs behind walls", "Workers check which mobs are fully behind solid blocks, and the game "
-                                + "skips drawing them. Players, named and glowing mobs always show. Needs the messenger on.", "Now", Settings.CULL_ENTITIES),
+                        settingToggle("Hide mobs and machines behind walls", "Workers check which mobs, machines and chests are fully behind "
+                                + "solid blocks, and the game skips drawing them. Players, named and glowing mobs always show. "
+                                + "Needs the messenger on.", "Now", Settings.CULL_ENTITIES),
                         settingToggle("Mods' mobs on mod threads", "Each mod's mobs tick on that mod's own thread, at the same time as "
                                 + "other mods' mobs. Their world changes land on the server thread in order. A mod whose mob fails "
                                 + "goes back to the old way by itself. Needs the messenger on. Test on a copy of your world.", "Now", Settings.MOB_THREADS),
                         settingToggle("Minecraft's mobs too", "Minecraft's own mobs join the mod threads the same way. Villagers, "
                                 + "traders, piglins, wardens and allays stay on the server thread, since they share village and "
                                 + "memory data. Needs the switch above. Test on a copy of your world.", "Now", Settings.VANILLA_MOB_THREADS),
+                        settingToggle("Mods' machines on mod threads", "Mods' machines, like Create's shafts, belts and mixers, "
+                                + "tick on mod threads in groups by place, so a whole contraption stays on one thread. Block "
+                                + "changes land on the server thread in order. Minecraft's own machines stay home. A mod whose "
+                                + "machine fails goes back by itself. Needs the messenger on. Test on a copy of your world.", "Now", Settings.BLOCK_THREADS),
+                        settingToggle("Mods' tick work on mod threads", "Each mod's every-tick work runs on its own mod thread, "
+                                + "sorted by the mod thread plan: addons share their parent's thread. Groups run at the same "
+                                + "time and their world changes land in order. A mod that fails goes back to the old way. "
+                                + "Needs the messenger on. Test on a copy of your world.", "Now", Settings.MOD_TICKS),
                         Row.button("Open messenger report", "The file with every failure: which mod or mob, what it was doing, and the stack trace.",
                                 () -> {
                                     java.io.File f = khi.pentecost.boot.Dirs.run().resolve("logs").resolve("pentecost-messenger.txt").toFile();
@@ -1669,8 +1879,6 @@ public final class PentecostSettingsScreen extends Screen {
                         Row.button("playit.gg helper", "Steps and links for homes where friends cannot connect directly, and a box to join by address.",
                                 () -> minecraft.setScreen(new PlayitScreen(this))))));
     }
-
-    // ---------------------------------------------------------------- profiles
 
     private List<Folder> profileFolders() {
         List<String> names = Profiles.names();
@@ -1711,23 +1919,24 @@ public final class PentecostSettingsScreen extends Screen {
                 new Shortcut("Refresh", () -> built.remove(page)));
     }
 
-    // ---------------------------------------------------------------- drawing
-
     @Override
     public void onClose() {
+        if (harvested != null) {
+            ScreenHarvest h = harvested;
+            harvested = null;
+            h.leave();
+        }
         runPendingPick();
         if (optionsDirty) {
             optionsDirty = false;
             minecraft.options.save();
         }
         applyPacks();
-        // A new main menu pick shows at once: the main menu opens again and the pick takes its place.
         boolean menuPicked = MenuMods.takeChanged();
         minecraft.setScreen(menuPicked && parent instanceof net.minecraft.client.gui.screens.TitleScreen
                 ? new net.minecraft.client.gui.screens.TitleScreen() : parent);
     }
 
-    /** Marks a choice. The arrow moves now, the choice applies a frame after the arrow settles. */
     private void choosePick(Row r) {
         pickPending = r;
         pickPage = page;
@@ -1745,13 +1954,29 @@ public final class PentecostSettingsScreen extends Screen {
         }
     }
 
+    List<String> pageNames() {
+        List<String> out = new ArrayList<>();
+        for (Page p : pages) {
+            out.add(p.name());
+        }
+        return out;
+    }
+
+    void openPage(net.minecraft.client.Minecraft mc, int index) {
+        page = Math.max(0, Math.min(pages.size() - 1, index));
+        scroll = 0;
+        search = "";
+        searchFocus = false;
+        mc.setScreen(this);
+    }
+
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         if (pickPending != null && (pickReady || pickPage != page
                 || System.nanoTime() - pickSince > 600_000_000L)) {
             runPendingPick();
         }
-        g.fill(0, 0, width, height, minecraft.level == null ? 0xFF0A0A0B : 0xD80A0A0B);
+        g.fill(0, 0, width, height, Ui.back(minecraft));
         Ui.dither(g, width, height);
         float ui = Ui.scale(minecraft);
         int vw = (int) (width / ui);
@@ -1775,7 +2000,6 @@ public final class PentecostSettingsScreen extends Screen {
         int top = y + 16;
         int bottom = vh - 44;
 
-        // Left: pages.
         int sideW = 118;
         int sy = top;
         for (int i = 0; i < pages.size(); i++) {
@@ -1786,7 +2010,6 @@ public final class PentecostSettingsScreen extends Screen {
             }
             sy += 20;
         }
-        // The chosen page's bar glides between pages.
         float barY = Ui.ease("settings:pagebar", top + page * 20, 16f);
         g.fill(margin - 6, Math.round(barY), margin - 6 + sideW, Math.round(barY) + 18, Ui.TEXT);
         sy = top;
@@ -1797,6 +2020,10 @@ public final class PentecostSettingsScreen extends Screen {
                     under ? Ui.BLACK : Ui.over(mx, my, margin - 6, sy, sideW, 18) ? Ui.TEXT : Ui.MUTED, false);
             int index = i;
             hits.add(new Hit(margin - 6, sy, sideW, 18, () -> {
+                if ("Skin".equals(pages.get(index).name())) {
+                    minecraft.setScreen(new WardrobeScreen(this, this));
+                    return;
+                }
                 page = index;
                 scroll = 0;
                 search = "";
@@ -1805,13 +2032,11 @@ public final class PentecostSettingsScreen extends Screen {
             sy += 20;
         }
 
-        // Right: details and shortcuts, when there is room.
         int rightW = vw >= 820 ? 220 : 0;
         int rx = vw - margin - rightW;
         int cx = margin + sideW + 22;
         int cw = (rightW > 0 ? rx - 22 : vw - margin) - cx;
 
-        // Middle: folders as tabs, then rows.
         Page p = pages.get(page);
         List<Folder> folders = folders(page);
         boolean searching = !search.isBlank();
@@ -1848,7 +2073,6 @@ public final class PentecostSettingsScreen extends Screen {
                 }));
                 tx += w + 16;
             }
-            // The underline glides to the chosen folder.
             float ux = Ui.ease("settings:tabx:" + page, pickedX, 16f);
             float uw = Ui.ease("settings:tabw:" + page, pickedW, 16f);
             float uy = Ui.ease("settings:taby:" + page, pickedY, 16f);
@@ -1906,7 +2130,6 @@ public final class PentecostSettingsScreen extends Screen {
             }
         }
         if (picks && pickTarget >= 0) {
-            // The arrow glides to the chosen button.
             float eased = Ui.ease("settings:pick:" + page, pickTarget + (int) scroll, 14f);
             float ay = eased - (int) scroll;
             arrow(g, cx + 10, Math.round(ay) + 12, Ui.TEXT);
@@ -1928,7 +2151,6 @@ public final class PentecostSettingsScreen extends Screen {
         scroll = Math.max(0, Math.min(scrollMax, scroll));
         bar.draw(g, cx + cw + 6, rowsTop, bottom, scroll, scrollMax, mx, my);
 
-        // Search box, top right.
         int sw = 200;
         int sx = vw - margin - sw;
         int sy0 = 18;
@@ -1956,7 +2178,6 @@ public final class PentecostSettingsScreen extends Screen {
             details(g, p, rx, top, rightW, bottom, mx, my);
         }
 
-        // Done, bottom right.
         String done = "Done";
         int dw = font.width(done) + 24;
         int dx = vw - margin - dw;
@@ -1972,7 +2193,6 @@ public final class PentecostSettingsScreen extends Screen {
         g.pose().popPose();
     }
 
-    /** A small pixel arrow pointing right. */
     private static void arrow(GuiGraphics g, int x, int y, int color) {
         for (int r = 0; r < 7; r++) {
             int w = r <= 3 ? r + 1 : 7 - r;
@@ -1980,7 +2200,6 @@ public final class PentecostSettingsScreen extends Screen {
         }
     }
 
-    /** Right column: what the hovered setting does, then the page's shortcuts. */
     private void details(GuiGraphics g, Page p, int x, int y, int w, int bottom, int mx, int my) {
         g.fill(x, y, x + w, bottom, 0x660A0A0B);
         Ui.outline(g, x, y, x + w, bottom, Ui.LINE);
@@ -2039,7 +2258,6 @@ public final class PentecostSettingsScreen extends Screen {
         }
     }
 
-    /** A choice drawn as a button. The arrow marks the one in use. */
     private int pick(GuiGraphics g, Row r, int x, int y, int w, int mx, int my, int top, int bottom) {
         boolean visible = y + 24 > top && y < bottom;
         boolean inside = my >= top && my < bottom;
@@ -2062,10 +2280,6 @@ public final class PentecostSettingsScreen extends Screen {
         return y + 28;
     }
 
-    /**
-     * One setting row. The title and the control share the top line; the description wraps across
-     * the whole row under them, and the row grows to fit it.
-     */
     private int row(GuiGraphics g, Row r, int x, int y, int w, int mx, int my, int top, int bottom) {
         if (r.kind() == Kind.SKIN) {
             return skinRow(g, x, y, w);
@@ -2165,8 +2379,6 @@ public final class PentecostSettingsScreen extends Screen {
         return y + h + 1;
     }
 
-    // ---------------------------------------------------------------- input
-
     private void slide(SliderSpot spot) {
         if (spot == null) {
             return;
@@ -2264,7 +2476,6 @@ public final class PentecostSettingsScreen extends Screen {
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         bar.release();
         if (dragKey != null) {
-            // Sliders apply once, when let go, so a long drag does not reload chunks at every step.
             if (embeddium != null) {
                 ExternalOptions.apply(embeddium);
             }
@@ -2289,7 +2500,6 @@ public final class PentecostSettingsScreen extends Screen {
         return super.charTyped(c, modifiers);
     }
 
-    /** Every setting that matches the search, grouped under the page and folder it lives in. */
     private List<Row> searchRows() {
         String q = search.toLowerCase(Locale.ROOT).trim();
         if (q.equals(searchBuilt)) {

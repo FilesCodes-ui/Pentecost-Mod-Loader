@@ -25,7 +25,6 @@ import net.minecraft.world.phys.Vec3;
 
 import java.util.Random;
 
-/** What a player is: health, food, flight, game mode, effects, riding, and a few loud ways to get attention. */
 final class PlayerCmds {
     private static final String C = "Player";
     private static final Random RANDOM = new Random();
@@ -36,7 +35,6 @@ final class PlayerCmds {
         return p.getGameProfile().getName();
     }
 
-    /** Switches an effect on or off. It lasts until switched off, with no particles. */
     private static boolean toggle(ServerPlayer p, MobEffect effect, int amplifier) {
         if (p.hasEffect(effect)) {
             p.removeEffect(effect);
@@ -47,7 +45,6 @@ final class PlayerCmds {
     }
 
     static void effect(String command, String desc, MobEffect effect) {
-        // /name  /name <level 1-10>  /name <level> <player>
         LiteralArgumentBuilder<CommandSourceStack> b = Qol.lit(command, 2)
                 .executes(Qol.guard(c -> {
                     ServerPlayer p = Qol.me(c);

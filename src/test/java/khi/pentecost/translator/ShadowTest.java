@@ -21,7 +21,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ShadowTest {
-    /** An empty class, or one whose method calls the given static methods. */
     private static byte[] cls(String name, String... calls) {
         ClassWriter w = new ClassWriter(ClassWriter.COMPUTE_MAXS);
         w.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, name, null, "java/lang/Object", null);
@@ -55,11 +54,9 @@ class ShadowTest {
 
     @Test
     void findsTheParentTheGapAndTheBestStandIn(@TempDir Path dir) throws IOException {
-        // The parent, built for Forge: its helper lives in a forge package.
         Path base = jar(dir, "create.jar", Map.of(
                 "com/sim/create/Base", cls("com/sim/create/Base"),
                 "com/sim/create/foundation/forge/RenderHelper", cls("com/sim/create/foundation/forge/RenderHelper")));
-        // The addon, built for the Fabric build: it asks for the helper in a fabric package, and for Base.
         Path addon = jar(dir, "copycats.jar", Map.of(
                 "com/copy/Addon", cls("com/copy/Addon", "com/sim/create/Base", "com/sim/create/foundation/fabric/RenderHelper",
                         "net/minecraft/world/Thing", "com/nowhere/Gone")));

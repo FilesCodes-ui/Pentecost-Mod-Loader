@@ -26,30 +26,18 @@ import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
-/**
- * Packs a setup into one zip to share or back up: the list of mods, the player's choices,
- * and every config file. Mod jars stay out. The list names each file and its checksum,
- * so the same jars can be fetched again.
- *
- * Config files are copied as they are, and some mods keep keys, passwords or webhook addresses in them.
- * So the export also looks for files that seem to hold one and lists them, in README.txt inside the zip and in
- * lastFlagged for the screen to show. It never reads a value out, and it never changes or drops a file.
- */
 public final class PackExport {
     private static final long MAX_CONFIG_FILE = 4L * 1024 * 1024;
 
-    /** A line that sets something called token, secret, password, key or webhook to a value of six or more characters. */
     private static final Pattern SECRET = Pattern.compile(
             "(?im)(token|secret|passw|api[_-]?key|webhook|credential|private[_-]?key|access[_-]?key|authorization)"
                     + "[\\w.-]*[ \\t]*[=:][ \\t]*[\"']?[^\\s\"',]{6,}");
     private static final Pattern LAST_SERVER = Pattern.compile("(?m)^lastServer:[ \\t]*\\S+");
 
-    /** Files of the last export that look like they hold keys or addresses. Empty when nothing was found. */
     public static volatile List<String> lastFlagged = List.of();
 
     private PackExport() {}
 
-    /** Writes the zip and returns where it went. */
     public static Path export() throws IOException {
         String stamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
         Path out = Dirs.mk(Dirs.home().resolve("exports")).resolve("pentecost-pack-" + stamp + ".zip");
@@ -64,7 +52,6 @@ public final class PackExport {
         JsonArray mods = new JsonArray();
         Set<Path> seen = new HashSet<>();
         for (ModInfo m : all) {
-            // Jars nested inside another mod come with that mod. Only files the player installed are listed.
             Path jar = m.jar();
             if (m.loader() == LoaderKind.LIBRARY || jar.toString().contains("nested") || jar.toString().contains("bridge")) {
                 continue;
@@ -139,7 +126,6 @@ public final class PackExport {
         return out;
     }
 
-    /** True when the text file has a line that matches. Binary files and files that cannot be read never match. */
     private static boolean matches(Path file, Pattern pattern) {
         try {
             byte[] data = Files.readAllBytes(file);

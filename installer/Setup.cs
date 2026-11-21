@@ -12,7 +12,6 @@ public sealed record Progress(string Step, string Detail, double Fraction);
 
 public sealed record InstallResult(string Version, int WorldsFailed, int ModsFailed = 0);
 
-/// <summary>An error whose message is meant for the person running the installer.</summary>
 public sealed class SetupException : Exception
 {
     public SetupException(string message) : base(message) { }
@@ -26,7 +25,7 @@ public static class Log
     public static void Write(string line)
     {
         try { File.AppendAllText(File_, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {line}{Environment.NewLine}"); }
-        catch { /* logging must never break the install */ }
+        catch { }
     }
 }
 
@@ -67,7 +66,6 @@ public static class Setup
 
     public static bool LauncherRunning(string mc)
     {
-        // Only the real launcher folder is protected. A test folder somewhere else is not.
         var a = Path.GetFullPath(mc).TrimEnd('\\');
         var b = Path.GetFullPath(DefaultMinecraftDir).TrimEnd('\\');
         if (!string.Equals(a, b, StringComparison.OrdinalIgnoreCase)) return false;
@@ -85,8 +83,6 @@ public static class Setup
         if (LauncherRunning(mc))
             throw new SetupException("The Minecraft Launcher is open.\n\nClose it completely, also from the system tray, then press Retry. The launcher rewrites its profile file when it closes.");
     }
-
-    // ---------------------------------------------------------------- install
 
     public static async Task<InstallResult> InstallAsync(string mc, bool downloadWorlds, bool installVideoMods, IProgress<Progress> progress, CancellationToken ct)
     {
@@ -153,8 +149,6 @@ public static class Setup
     static void CopyPayload(string home, string version)
     {
         Directory.CreateDirectory(home);
-        // Only files that differ from the installer's copy are written. Nothing in the Pentecost folder is deleted
-        // except old jars in lib\ (see below), so worlds, mods, settings, downloads and edits to shaderpack\ all stay.
         var wanted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var written = 0;
         using (var zip = new ZipArchive(OpenPayload(), ZipArchiveMode.Read))
@@ -171,8 +165,6 @@ public static class Setup
                 if (ExtractTo(e, home, rel)) written++;
             }
         }
-        // The launcher loads lib\* as one class path, so a jar from an older version would be loaded next to the new one.
-        // Jars the new version does not ship are the only thing removed.
         var removed = 0;
         var lib = Path.Combine(home, "lib");
         if (Directory.Exists(lib))
@@ -185,7 +177,6 @@ public static class Setup
                 removed++;
             }
         }
-        // version.txt goes last, so an install that stopped halfway still counts as the old version and can be run again.
         File.WriteAllText(Path.Combine(home, "version.txt"), version, Encoding.ASCII);
         Directory.CreateDirectory(Path.Combine(home, "run", "mods"));
         Log.Write($"files: {written} written, {wanted.Count - written} already current, {removed} old jars removed");
@@ -195,8 +186,6 @@ public static class Setup
 
     static void WriteLauncherVersion(string mc, string home, string version, string versionId)
     {
-        // The launcher version builds on vanilla 1.20.1 for the launcher's own bookkeeping, then replaces the main class
-        // and the class path. The launcher puts its own -cp first and Java uses the LAST -cp, so this one wins.
         var lib = Path.Combine(home, "lib");
         var now = Now();
         var jvm = new JsonArray
@@ -252,7 +241,6 @@ public static class Setup
 
     static int MachineGb() => (int)(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / (1L << 30));
 
-    /// <summary>The backup for a heap of this size: 2 GB on a big PC, less on a small one, and 2 GB always stay free.</summary>
     static int ReserveFor(int heap)
     {
         var gb = MachineGb();
@@ -260,8 +248,6 @@ public static class Setup
         return Math.Max(0, Math.Min(tier, gb - 2 - heap));
     }
 
-    /// <summary>The working size, the new objects area and the backup above the working size. The game stays near the
-    /// working size and reaches into the backup only when it spikes.</summary>
     static (int heap, int young, int reserve) MemoryTier()
     {
         var gb = MachineGb();
@@ -280,10 +266,7 @@ public static class Setup
         var now = Now();
         if (profiles[ProfileKey] is JsonObject existing)
         {
-            // An update only points the profile at the new version. Its name, icon, Java arguments and last-used time
-            // stay as the player has them, and the launcher's file is not written at all when nothing would change.
             var changed = false;
-            // A profile that still has the installer's old fixed heap gets a backup above it. Any other Java arguments are the player's own and stay.
             var oldArgs = System.Text.RegularExpressions.Regex.Match(existing["javaArgs"]?.ToString() ?? "",
                 @"^-Xms(\d+)G -Xmx(\d+)G -Xmn(\d+)G -XX:-DontCompileHugeMethods$");
             if (oldArgs.Success && oldArgs.Groups[1].Value == oldArgs.Groups[2].Value && int.Parse(oldArgs.Groups[1].Value) is var oldHeap && ReserveFor(oldHeap) > 0)
@@ -323,8 +306,6 @@ public static class Setup
         Log.Write($"profile added, heap {heap} G, backup {reserve} G");
         SaveProfiles(mc, root);
     }
-
-    // -------------------------------------------------------------- uninstall
 
     public static void Uninstall(string mc, bool removeData, IProgress<Progress> progress)
     {

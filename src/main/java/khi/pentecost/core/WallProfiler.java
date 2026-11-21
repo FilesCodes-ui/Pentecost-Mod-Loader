@@ -9,17 +9,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
-/**
- * A wall-clock sampler for the main thread. It is off unless PENTECOST_WALL is set.
- * Java Flight Recorder only sees code that runs. This also sees a thread that waits or is blocked,
- * so it shows where launch time goes when the CPU is idle.
- * It writes run\wallclock.txt every 10 seconds: for each 5 second slice, the top places the main thread stood.
- */
 public final class WallProfiler {
     private static final int EVERY_MS = 50;
     private static final int SLICE_S = 5;
     private static final int LIMIT_S = 150;
-    /** Seconds since the process started at which every busy thread is written to wallclock-threads.txt. */
     private static final double[] DUMPS = {7, 12, 17, 22, 32, 52, 60};
     private static int nextDump;
     private static final StringBuilder DUMP_TEXT = new StringBuilder();
@@ -56,11 +49,9 @@ public final class WallProfiler {
             }
             write(slices);
         } catch (Throwable ignored) {
-            // A profiler must never take the game down.
         }
     }
 
-    /** Writes every thread that is not an idle pool thread, with its top frames. Shows what the main thread waits for. */
     private static void dumpThreads(double at) throws Exception {
         DUMP_TEXT.append(String.format(java.util.Locale.ROOT, "%n######## At about %.0f s%n", at));
         for (Map.Entry<Thread, StackTraceElement[]> e : Thread.getAllStackTraces().entrySet()) {
@@ -81,7 +72,6 @@ public final class WallProfiler {
         Files.writeString(Dirs.run().resolve("wallclock-threads.txt"), DUMP_TEXT.toString());
     }
 
-    /** The first frame that is not Java's own, with the frame above it. */
     private static String where(StackTraceElement[] stack) {
         if (stack.length == 0) {
             return "(no stack)";

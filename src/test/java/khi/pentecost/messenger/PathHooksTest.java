@@ -19,10 +19,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * Applies the path patch to the real PathNavigation from the game jar and makes the JVM load and verify it.
- * A wrong stack size or frame would fail here, not in the player's game. Skipped when the game jar is not in cache.
- */
 class PathHooksTest {
     private static final String NAME = "net.minecraft.world.entity.ai.navigation.PathNavigation";
 
@@ -85,7 +81,6 @@ class PathHooksTest {
             }
         }) {
             Class<?> nav = Class.forName(NAME, false, cl);
-            // Verification runs when the class links. Asking for a method handle on a patched method forces it.
             Method settled = nav.getMethod("pentecost$settled");
             assertEquals(void.class, settled.getReturnType());
             java.lang.invoke.MethodHandles.privateLookupIn(nav, java.lang.invoke.MethodHandles.lookup()).ensureInitialized(nav);
@@ -109,7 +104,6 @@ class PathHooksTest {
             assertNotSame(original, patched, cls + " was not patched");
             org.objectweb.asm.ClassReader r = new org.objectweb.asm.ClassReader(patched);
             java.io.StringWriter out = new java.io.StringWriter();
-            // Checks every method's stack and types without loading the game.
             List<URL> urls = new ArrayList<>();
             urls.add(jar.toUri().toURL());
             try (Stream<Path> s = Files.list(jar.getParent())) {

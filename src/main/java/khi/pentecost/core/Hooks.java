@@ -11,21 +11,13 @@ import org.objectweb.asm.Opcodes;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * Points inside the game where Pentecost takes control.
- * Mods start inside the Minecraft constructor, right before the game records its main thread.
- * At that point the game instance, the folders, and the user exist, and the options do not yet.
- * Fabric starts mods at the same point, so mods see the state they expect.
- */
 public final class Hooks {
-    /** Mods that failed to start. Their event hooks return at once. */
     private static final java.util.Set<String> FAILED = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     public static void markFailed(String modId) {
         FAILED.add(modId);
     }
 
-    /** Called at the top of every mod event hook. True when that mod failed to start. */
     public static boolean modFailed(String modId) {
         return !FAILED.isEmpty() && FAILED.contains(modId);
     }
@@ -34,28 +26,17 @@ public final class Hooks {
     private static final AtomicBoolean STARTED = new AtomicBoolean();
     private static final String SCREEN = "net/minecraft/client/gui/screens/Screen";
 
-    /** Set by the game glue. Gets each screen the game is about to show and returns the one to show. */
     public static volatile java.util.function.UnaryOperator<Object> screenRouter;
 
-    /** Set by the game glue. Gets the screen asked for and the screen about to show, returns the one to show. */
     public static volatile java.util.function.BinaryOperator<Object> screenFinalizer;
 
     private static Object asked;
 
-    /** Set by the game glue. Gets the pack sources of a new pack list and returns the ones to use. */
     public static volatile java.util.function.UnaryOperator<Object> packSources;
 
     private static final AtomicBoolean FABRIC_SIDE = new AtomicBoolean();
     private static String forgeStep = "";
 
-    /**
-     * Called by Forge's mod loader at the start of each of its loading steps.
-     * The step after the registry fill is where Pentecost starts the Fabric and Quilt mods:
-     * every Forge mod and every Forge registry entry exists, as the game's own content does on Fabric.
-     * Fabric mods reach Forge's entries through the game's code (Forge's swim speed attribute, for one),
-     * and Fabric addons for Forge mods need the Forge mod's blocks and items in place.
-     * Set PENTECOST_FABRIC_EARLY=1 to start them before the registry fill instead.
-     */
     public static void forgeState(Object state) {
         String name;
         try {
@@ -64,8 +45,6 @@ public final class Hooks {
             return;
         }
         boolean early = "1".equals(System.getenv("PENTECOST_FABRIC_EARLY"));
-        // Fallback point: the first step after the registry fill. On the client the start comes
-        // earlier, from the top of Forge's client hooks setup (see forgeClientHooks).
         boolean ready = early ? "CONSTRUCT".equals(forgeStep) : "LOAD_REGISTRIES".equals(forgeStep);
         forgeStep = name;
         if (ready) {
@@ -73,12 +52,6 @@ public final class Hooks {
         }
     }
 
-    /**
-     * Called when Forge's first client loading phase ends (ClientModLoader.begin), and again at the top
-     * of Forge's client hooks setup as a fallback. Forge has filled its registries by then. The game has not
-     * yet built its item models, colors and renderers, and Forge has not yet asked for model layers.
-     * On Fabric, mods start before all of that too, so Fabric mods start here. Only the first call starts them.
-     */
     public static void forgeClientHooks() {
         if (!"1".equals(System.getenv("PENTECOST_FABRIC_EARLY"))) {
             startFabricSide();
@@ -105,7 +78,6 @@ public final class Hooks {
         Timeline.mark("Fabric and Quilt mods started");
     }
 
-    /** Runs Forge's registration step again for the Fabric API bridge (see LateRegistry.replayBridgeRegistration). */
     private static void replayBridgeRegistration() {
         if (!PentecostRuntime.forgeLayer || "1".equals(System.getenv("PENTECOST_FABRIC_EARLY"))) {
             return;
@@ -120,7 +92,6 @@ public final class Hooks {
         }
     }
 
-    /** Hands Fabric mobs' default stats to Forge (see LateRegistry.addFabricAttributes). */
     private static void addFabricMobStats() {
         if (!PentecostRuntime.forgeLayer) {
             return;
@@ -136,11 +107,6 @@ public final class Hooks {
         }
     }
 
-    /**
-     * Porting Lib loads its mods' config files as the game window is set up. On Fabric that comes
-     * after every mod has started and registered its configs. On Forge, Fabric mods start later,
-     * so Pentecost loads those configs once they have started.
-     */
     private static void loadPortingLibConfigs() {
         ClassLoader cl = PentecostRuntime.loader;
         try {
@@ -157,7 +123,6 @@ public final class Hooks {
             }
             Log.info("Loaded the config files of mods that use Porting Lib");
         } catch (ClassNotFoundException e) {
-            // no mod uses Porting Lib's configs
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
             Throwable why = e instanceof java.lang.reflect.InvocationTargetException && e.getCause() != null ? e.getCause() : e;
             Log.warn("Could not load the config files of mods that use Porting Lib: " + why);
@@ -168,7 +133,6 @@ public final class Hooks {
     private static final java.util.List<Object> REOPENED = new java.util.ArrayList<>();
     private static final java.util.Set<String> REOPEN_REPORTED = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
-    /** Runs Fabric or Quilt mod start code with the game's frozen registries open, then freezes them again. */
     private static void openRegistries(Runnable work) {
         registriesOpen = true;
         try {
@@ -189,7 +153,6 @@ public final class Hooks {
         }
     }
 
-    /** Holders made for objects that were never registered (a mod failed halfway) would stop the freeze. */
     private static void dropLeftoverHolders(Object registry) {
         try {
             Class<?> c = registry.getClass();
@@ -208,7 +171,6 @@ public final class Hooks {
                 m.clear();
             }
         } catch (ReflectiveOperationException | RuntimeException e) {
-            // Leave the registry as it is.
         }
     }
 
@@ -222,7 +184,6 @@ public final class Hooks {
 
     private static java.lang.reflect.Field frozenField;
 
-    /** Called by the game at the top of MappedRegistry.validateWrite, before it refuses a frozen registry. */
     public static void registryWrite(Object registry) {
         if (!registriesOpen || registry.getClass().getName().startsWith("net.minecraftforge.")) {
             return;
@@ -252,11 +213,9 @@ public final class Hooks {
                 Log.info("Registry " + name + " reopened while Fabric and Quilt mods start");
             }
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
-            // The game reports the frozen registry as it normally would.
         }
     }
 
-    /** Hooks MappedRegistry.validateWrite, so Pentecost can reopen it for late Fabric registration. */
     public static ClassTransformer registryTransformer() {
         return (name, bytes) -> {
             if (!name.equals("net.minecraft.core.MappedRegistry")) {
@@ -291,12 +250,9 @@ public final class Hooks {
         };
     }
 
-    /** Set by the game glue. Runs right before the game window is made. */
     public static volatile Runnable windowHints;
-    /** Set by the game glue. Runs when the game window exists, before it takes its size. */
     public static volatile java.util.function.Consumer<Object> windowBorn;
 
-    /** Called by the game right before it makes its window. */
     public static void beforeWindow() {
         startGlue();
         Runnable r = windowHints;
@@ -309,7 +265,6 @@ public final class Hooks {
         }
     }
 
-    /** Called by the game when its window exists, right before it takes its size and place. */
     public static void afterWindow(Object window) {
         java.util.function.Consumer<Object> c = windowBorn;
         if (c != null) {
@@ -321,10 +276,8 @@ public final class Hooks {
         }
     }
 
-    /** Set by the game glue. Gets the game window right after the game set its own icon. */
     public static volatile java.util.function.Consumer<Object> iconSet;
 
-    /** Called by the game at the end of its own icon call, so the Pentecost icon replaces the grass block. */
     public static void afterIcon(Object window) {
         java.util.function.Consumer<Object> c = iconSet;
         if (c != null) {
@@ -336,7 +289,6 @@ public final class Hooks {
         }
     }
 
-    /** The window mode goes on as the game window is made, so borderless is the first thing you see. */
     public static ClassTransformer windowTransformer() {
         return (name, bytes) -> {
             if (!name.equals("com.mojang.blaze3d.platform.Window")) {
@@ -400,17 +352,10 @@ public final class Hooks {
 
     private static volatile boolean fabricRegistriesSubmitted;
 
-    /** Called at the top of the Fabric API bridge's hand-over of new registries to the game. */
     public static void fabricRegistriesSubmit() {
         fabricRegistriesSubmitted = true;
     }
 
-    /**
-     * Called when a Fabric mod makes a new registry. On Fabric the game sees a new registry at once.
-     * The bridge holds new registries back and hands them over in one batch, so a mod that looks up
-     * its own registry right after making it finds nothing (and some make a second copy).
-     * Pentecost hands each one to the game right away, as Fabric does, and takes it out of the batch.
-     */
     public static void fabricRegistryAdded(Object registry) {
         if (registry == null) {
             return;
@@ -446,14 +391,11 @@ public final class Hooks {
                 Log.warn("A late Fabric registry could not be handed to the game: no register method");
                 return;
             }
-            // The list of registries can be locked when the mod makes its registry (during class loading,
-            // for one). It opens just for this add and locks again after.
             java.lang.reflect.Field frozen = null;
             for (Class<?> c = root.getClass(); c != null && frozen == null; c = c.getSuperclass()) {
                 try {
                     frozen = c.getDeclaredField("frozen");
                 } catch (NoSuchFieldException ignored) {
-                    // look in the parent class
                 }
             }
             boolean wasFrozen = false;
@@ -475,7 +417,6 @@ public final class Hooks {
                 list.setAccessible(true);
                 ((java.util.List<?>) list.get(null)).remove(registry);
             } catch (ReflectiveOperationException | RuntimeException ignored) {
-                // the batch will skip nothing; the game already has the registry
             }
             Log.info("Fabric registry " + key + " added to the game right away, as on Fabric");
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
@@ -487,7 +428,6 @@ public final class Hooks {
         }
     }
 
-    /** Hooks the Fabric API bridge's registry hand-over, so registries made later still reach the game. */
     public static ClassTransformer fabricRegistryTransformer() {
         return (name, bytes) -> {
             if (!name.equals("net.fabricmc.fabric.impl.registry.sync.FabricRegistryInit")) {
@@ -535,17 +475,12 @@ public final class Hooks {
         };
     }
 
-    /**
-     * True while Fabric and Quilt mods start. On Forge the game keeps ticking during loading,
-     * but on Fabric no tick happens before every mod has started, and Fabric mods count on that.
-     */
     public static volatile boolean holdTicks;
 
     private static final AtomicBoolean TICK_HOOK_SEEN = new AtomicBoolean();
     private static final AtomicBoolean TICK_HELD_SEEN = new AtomicBoolean();
     private static final AtomicBoolean TICK_FREE_SEEN = new AtomicBoolean();
 
-    /** Called at the top of Minecraft.tick. True skips the tick. */
     public static boolean ticksHeld() {
         if (TICK_HOOK_SEEN.compareAndSet(false, true)) {
             Log.info("Tick hook reached");
@@ -562,7 +497,6 @@ public final class Hooks {
 
     private static volatile java.lang.invoke.MethodHandle tickMethod;
 
-    /** Called by the game loop in place of Minecraft.tick: runs the tick unless ticks are held. */
     public static void tickUnlessHeld(Object minecraft) throws Throwable {
         if (ticksHeld()) {
             return;
@@ -581,11 +515,6 @@ public final class Hooks {
     private static volatile java.lang.invoke.MethodHandle pollEvents;
     private static final AtomicBoolean LOOP_HELD_SEEN = new AtomicBoolean();
 
-    /**
-     * Called by the game loop in place of Minecraft.runTick. While Fabric and Quilt mods start, the loop
-     * only keeps the window answering (so the system does not mark it frozen), as on Fabric where
-     * nothing draws or ticks before every mod has started.
-     */
     public static void runTickUnlessHeld(Object minecraft, boolean render) throws Throwable {
         if (holdTicks) {
             if (LOOP_HELD_SEEN.compareAndSet(false, true)) {
@@ -613,10 +542,6 @@ public final class Hooks {
         h.invokeExact(minecraft, render);
     }
 
-    /**
-     * Holds the game tick while Fabric and Quilt mods start. The game loop's call to Minecraft.tick
-     * goes through Pentecost. (An early exit inside tick would still run mod hooks placed at its exits.)
-     */
     public static ClassTransformer tickTransformer() {
         return (name, bytes) -> {
             if (!name.equals("net.minecraft.client.Minecraft")) {
@@ -656,11 +581,6 @@ public final class Hooks {
         };
     }
 
-    /**
-     * Forge gives each loot table its name once and refuses a second naming, even with the same name.
-     * Fabric's loot events rebuild tables and name them again with the same name.
-     * Setting the same name again is let through as a no-op.
-     */
     public static ClassTransformer lootNameTransformer() {
         return (name, bytes) -> {
             if (!name.equals("net.minecraft.world.level.storage.loot.LootTable")) {
@@ -705,7 +625,6 @@ public final class Hooks {
         };
     }
 
-    /** Called by Forge at the top of a step's queued-task run. */
     public static void forgeDeferred(Object queue) {
         if (PentecostRuntime.runner == null) {
             return;
@@ -721,10 +640,22 @@ public final class Hooks {
         }
     }
 
-    /** Set by the game glue. Runs once per frame, after the game drew its HUD. */
     public static volatile Runnable frame;
 
-    /** Called by the game right after it drew its HUD. */
+    public static volatile java.util.function.Consumer<Object> toasts;
+
+    public static void afterToasts(Object graphics) {
+        java.util.function.Consumer<Object> t = toasts;
+        if (t != null) {
+            try {
+                t.accept(graphics);
+            } catch (RuntimeException | LinkageError e) {
+                toasts = null;
+                Log.error("Pentecost's notices failed and were turned off: " + e);
+            }
+        }
+    }
+
     public static void hud() {
         Runnable r = frame;
         if (r != null) {
@@ -737,7 +668,6 @@ public final class Hooks {
         }
     }
 
-    /** Adds the per-frame call behind the game's own HUD draw. */
     public static ClassTransformer hudTransformer() {
         return (name, bytes) -> {
             if (!"net.minecraft.client.renderer.GameRenderer".equals(name)) {
@@ -751,12 +681,25 @@ public final class Hooks {
                     return new MethodVisitor(Opcodes.ASM9, super.visitMethod(access, n, d, s, e)) {
                         @Override
                         public void visitMethodInsn(int op, String owner, String mn, String md, boolean itf) {
+                            if (owner.equals("net/minecraft/client/gui/components/toasts/ToastComponent") && mn.equals("render")
+                                    && md.equals("(Lnet/minecraft/client/gui/GuiGraphics;)V")) {
+                                super.visitInsn(Opcodes.DUP_X1);
+                                super.visitMethodInsn(op, owner, mn, md, itf);
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks",
+                                        "afterToasts", "(Ljava/lang/Object;)V", false);
+                                return;
+                            }
                             super.visitMethodInsn(op, owner, mn, md, itf);
                             if (owner.equals("net/minecraft/client/gui/Gui") && mn.equals("render")
                                     && md.equals("(Lnet/minecraft/client/gui/GuiGraphics;F)V")) {
                                 super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks",
                                         "hud", "()V", false);
                             }
+                        }
+
+                        @Override
+                        public void visitMaxs(int maxStack, int maxLocals) {
+                            super.visitMaxs(maxStack + 1, maxLocals);
                         }
                     };
                 }
@@ -765,14 +708,9 @@ public final class Hooks {
         };
     }
 
-    /** Fabric API's HudRenderCallback: {event, invoker method, call method}. Null until found, or without Fabric API. */
     private static volatile Object[] hudCallback;
     private static volatile boolean hudCallbackLooked;
 
-    /**
-     * Called at the end of Forge's HUD draw. Forge's HUD never runs the vanilla Gui.render,
-     * which is where Fabric API fires HudRenderCallback, so Pentecost fires it here, once, for every Fabric HUD mod.
-     */
     public static void hudRender(Object graphics, float partialTick) {
         Object[] cb = hudCallback;
         if (cb == null) {
@@ -793,7 +731,6 @@ public final class Hooks {
                 callHandle.invokeExact(invoker, graphics, partialTick);
                 return;
             } catch (Throwable handleFailed) {
-                // fall back to reflection below, and stop trying the handles
                 hudCallback = new Object[]{cb[0], cb[1], cb[2]};
             }
         }
@@ -845,7 +782,6 @@ public final class Hooks {
         }
     }
 
-    /** Adds the call to hudRender at the end of Forge's HUD draw. */
     public static ClassTransformer forgeHudTransformer() {
         return (name, bytes) -> {
             if (bytes == null || !"net.minecraftforge.client.gui.overlay.ForgeGui".equals(name)) {
@@ -885,7 +821,6 @@ public final class Hooks {
 
     private static final AtomicBoolean GLUE = new AtomicBoolean();
 
-    /** Starts Pentecost's in-game code once: screens, resource packs. */
     private static void startGlue() {
         if (System.getProperty("pentecost.gameglue") == null || PentecostRuntime.loader == null
                 || !GLUE.compareAndSet(false, true)) {
@@ -899,7 +834,6 @@ public final class Hooks {
         }
     }
 
-    /** Called by the game at the top of the pack list constructor. */
     public static Object packSources(Object sources) {
         startGlue();
         java.util.function.UnaryOperator<Object> p = packSources;
@@ -917,7 +851,6 @@ public final class Hooks {
     private static final String PACKS = "net.minecraft.server.packs.repository.PackRepository";
     private static final String SOURCES = "[Lnet/minecraft/server/packs/repository/RepositorySource;";
 
-    /** Routes the pack list constructor's sources through packSources. */
     public static ClassTransformer packTransformer() {
         return (name, bytes) -> {
             if (!PACKS.equals(name)) {
@@ -954,24 +887,17 @@ public final class Hooks {
         };
     }
 
-    /** Pentecost's look for the game's standard widgets. Set by the game glue. */
     public interface Style {
-        /** Draws a widget. True when drawn, so the game skips its own drawing. */
         boolean widget(Object widget, Object graphics, int mouseX, int mouseY, float partialTick);
 
-        /** Draws a screen background. True when drawn. */
         boolean background(Object screen, Object graphics);
 
-        /** Runs after a screen built its widgets. */
         void inited(Object screen);
 
-        /** Runs after a screen drew itself, for transitions. */
         void drawn(Object screen, Object graphics);
 
-        /** Draws a tooltip's box. True when drawn. */
         boolean tooltip(Object graphics, int x, int y, int width, int height, int z);
 
-        /** Draws the F3 screen. source: the game's debug overlay, or Forge's HUD. True when drawn. */
         boolean debug(Object source, Object graphics);
     }
 
@@ -1020,7 +946,6 @@ public final class Hooks {
             try {
                 s.drawn(screen, graphics);
             } catch (RuntimeException | LinkageError e) {
-                // A missed fade is harmless.
             }
         }
     }
@@ -1043,7 +968,6 @@ public final class Hooks {
             try {
                 s.inited(screen);
             } catch (RuntimeException | LinkageError e) {
-                // A screen's own state is left as it is.
             }
         }
     }
@@ -1057,7 +981,6 @@ public final class Hooks {
             "net.minecraft.client.gui.components.EditBox");
     private static final String GG = "Lnet/minecraft/client/gui/GuiGraphics;";
 
-    /** Lets Pentecost draw the game's standard widgets and screen backgrounds. */
     public static ClassTransformer styleTransformer() {
         return (name, bytes) -> {
             boolean widget = STYLED.contains(name);
@@ -1065,7 +988,6 @@ public final class Hooks {
             boolean tip = name.equals("net.minecraft.client.gui.screens.inventory.tooltip.TooltipRenderUtil");
             boolean debugVanilla = name.equals("net.minecraft.client.gui.components.DebugScreenOverlay");
             boolean debugForge = name.equals("net.minecraftforge.client.gui.overlay.ForgeGui");
-            // Any screen that draws its own background (Create World does) gets the hook too.
             boolean ownDirt = !screen && bytes != null && mentions(bytes, DIRT);
             if (!widget && !screen && !tip && !ownDirt && !debugVanilla && !debugForge) {
                 return bytes;
@@ -1173,10 +1095,8 @@ public final class Hooks {
         };
     }
 
-    /** Set by the game glue. Picks the loading screen to show. */
     public static volatile java.util.function.UnaryOperator<Object> overlayRouter;
 
-    /** Called by the game at the top of Minecraft.setOverlay. */
     public static Object routeOverlay(Object overlay) {
         java.util.function.UnaryOperator<Object> r = overlayRouter;
         if (r == null || overlay == null) {
@@ -1191,7 +1111,6 @@ public final class Hooks {
         }
     }
 
-    /** Called by the game at the top of Minecraft.setScreen. */
     public static Object routeScreen(Object screen) {
         Object out = screen;
         java.util.function.UnaryOperator<Object> r = screenRouter;
@@ -1206,7 +1125,6 @@ public final class Hooks {
         return out;
     }
 
-    /** Called by the game in Minecraft.setScreen, right before the new screen becomes the current one. */
     public static Object finalScreen(Object shown) {
         java.util.function.BinaryOperator<Object> f = screenFinalizer;
         if (f == null) {
@@ -1222,7 +1140,6 @@ public final class Hooks {
 
     private Hooks() {}
 
-    /** Called by the game from the Minecraft constructor. */
     public static void clientStart(Object game) {
         if (!STARTED.compareAndSet(false, true)) {
             return;
@@ -1236,7 +1153,6 @@ public final class Hooks {
         }
     }
 
-    /** Inserts the call to clientStart before the constructor's first Thread.currentThread() call. */
     public static ClassTransformer transformer() {
         return (name, bytes) -> {
             if (!MINECRAFT.equals(name)) {

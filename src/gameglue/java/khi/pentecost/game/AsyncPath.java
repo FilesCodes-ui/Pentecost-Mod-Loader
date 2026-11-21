@@ -12,11 +12,6 @@ import net.minecraft.world.phys.Vec3;
 import java.util.ArrayList;
 import java.util.function.Supplier;
 
-/**
- * A path whose search runs on a worker. Until the answer comes, the navigation treats it as "on the way" and the mob waits.
- * Anything that reads it early makes it search right there, on the calling thread, the old way: correct, only not faster.
- * Every method of Path is answered from the real path once there is one.
- */
 final class AsyncPath extends Path implements PendingPath {
     private final BlockPos target;
     private final Supplier<Path> searchHere;
@@ -36,7 +31,6 @@ final class AsyncPath extends Path implements PendingPath {
         return !ready;
     }
 
-    /** Takes the answer. False when an answer was already taken. */
     synchronized boolean settle(Path p) {
         if (ready) {
             return false;

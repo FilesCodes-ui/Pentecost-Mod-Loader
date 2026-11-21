@@ -10,17 +10,11 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Looks at a skin file: which arm model it was drawn for, whether it uses the old 64 by 32 layout, and what
- * is wrong with it. Converts the old layout to the current one. No game classes in here.
- */
 public final class SkinImage {
-    /** What the checker found. notes are sentences for the player, worst first. */
     public record Report(int width, int height, boolean slim, boolean legacy, List<String> notes) {}
 
     private SkinImage() {}
 
-    /** The image of a skin file. Throws a readable reason when the file is not a skin. */
     public static BufferedImage read(byte[] png) throws IOException {
         SkinApi.checkSkin(png);
         BufferedImage image = ImageIO.read(new ByteArrayInputStream(png));
@@ -72,10 +66,6 @@ public final class SkinImage {
         return new Report(img.getWidth(), img.getHeight(), slim, legacy, List.copyOf(notes));
     }
 
-    /**
-     * True when both arms leave the columns a slim arm does not use see-through. A classic arm paints them.
-     * A 64 by 32 skin has no slim form.
-     */
     public static boolean detectSlim(BufferedImage img) {
         if (img.getHeight() < 64 || img.getWidth() < 64) {
             return false;
@@ -83,7 +73,6 @@ public final class SkinImage {
         return everyAlpha(img, 54, 20, 2, 12, 0) && everyAlpha(img, 46, 52, 2, 12, 0);
     }
 
-    /** A 64 by 32 skin as 64 by 64, the way the game reads old skins. A 64 by 64 skin comes back unchanged. */
     public static byte[] upgradeLegacy(byte[] png) throws IOException {
         BufferedImage old = read(png);
         if (old.getHeight() != 32) {
@@ -91,7 +80,6 @@ public final class SkinImage {
         }
         BufferedImage out = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
         out.getGraphics().drawImage(old, 0, 0, null);
-        // x, y, x offset, y offset, width, height: the right limbs are mirrored onto the left ones.
         int[][] copies = {
                 {4, 16, 16, 32, 4, 4}, {8, 16, 16, 32, 4, 4}, {0, 20, 24, 32, 4, 12}, {4, 20, 16, 32, 4, 12},
                 {8, 20, 8, 32, 4, 12}, {12, 20, 16, 32, 4, 12},

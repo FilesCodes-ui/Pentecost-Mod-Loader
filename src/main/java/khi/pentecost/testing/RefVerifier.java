@@ -24,11 +24,6 @@ import java.util.TreeMap;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-/**
- * Checks every call a converted mod makes.
- * Calls into Minecraft must resolve against the readable-name game jar. That proves the remapper.
- * Calls into Forge, Fabric, or Quilt loader classes are counted as provided or missing. That is the API tracker.
- */
 public final class RefVerifier {
     private record ClassInfo(String superName, String[] interfaces, Set<String> methods, Set<String> fields) {}
 
@@ -53,7 +48,6 @@ public final class RefVerifier {
     private final Map<String, ClassInfo> game = new HashMap<>();
     private final Set<String> provided = new HashSet<>();
 
-    /** Counts the classes in these jars as loader classes Pentecost provides. */
     public void addProvided(List<Path> jars) throws IOException {
         for (Path jar : jars) {
             try (ZipFile z = new ZipFile(jar.toFile())) {
@@ -145,7 +139,6 @@ public final class RefVerifier {
                         }
                     }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
                 } catch (RuntimeException ex) {
-                    // Unreadable class file. Skip it.
                 }
             }
         }
@@ -213,7 +206,6 @@ public final class RefVerifier {
                 todo.add(i);
             }
         }
-        // A parent outside the game jar (a Java or library class) may declare the member.
         return leftGame || (method && OBJECT_METHODS.contains(name));
     }
 

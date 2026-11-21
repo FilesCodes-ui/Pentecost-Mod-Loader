@@ -34,12 +34,6 @@ import java.util.function.Function;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-/**
- * Pentecost's Mods screen. One list of every mod from every loader, and for each mod
- * a plain-language list of what it changes, each with its own switch.
- *
- * Everything here is drawn with flat shapes, not game textures, so no mod or resource pack restyles it.
- */
 public final class PentecostModsScreen extends Screen {
     private static final int BG = 0xFF0A0A0B;
     private static final int BG_WORLD = 0xE6000000;
@@ -80,7 +74,6 @@ public final class PentecostModsScreen extends Screen {
     private int detailMax;
     private int listWidth;
     private String exportNote;
-    /** The screen draws at its own size, about two screen pixels per pixel, whatever the GUI scale is. */
     private float ui = 1f;
     private int vw;
     private int vh;
@@ -112,8 +105,6 @@ public final class PentecostModsScreen extends Screen {
         refill();
     }
 
-    // ---------------------------------------------------------------- data
-
     private static boolean isLibrary(ModInfo m) {
         if (m.loader() == LoaderKind.LIBRARY) {
             return true;
@@ -126,10 +117,6 @@ public final class PentecostModsScreen extends Screen {
         return markedLibrary(m);
     }
 
-    /**
-     * A mod that calls itself a library in its own metadata: Mod Menu's "library" badge, or a Mod Menu parent
-     * (a module of a bigger mod, such as the parts of Porting Lib). These go to the Libraries filter.
-     */
     private static boolean markedLibrary(ModInfo m) {
         try {
             com.google.gson.JsonObject raw = m.raw();
@@ -152,12 +139,10 @@ public final class PentecostModsScreen extends Screen {
                 }
             }
         } catch (RuntimeException ignored) {
-            // odd metadata: treat as a normal mod
         }
         return false;
     }
 
-    /** Libraries a player may still want to see: everything marked a library, minus Fabric API's own modules. */
     private static List<ModInfo> libraries() {
         List<ModInfo> out = new ArrayList<>();
         for (ModInfo m : PentecostRuntime.allMods.isEmpty() ? PentecostRuntime.mods : PentecostRuntime.allMods) {
@@ -216,8 +201,6 @@ public final class PentecostModsScreen extends Screen {
         }
     }
 
-    // ---------------------------------------------------------------- config screens
-
     private Optional<Function<Screen, Screen>> configFor(ModInfo m) {
         return configs.computeIfAbsent(m.id(), id -> {
             if (Choices.isModOff(id) || PentecostRuntime.mods.stream().noneMatch(x -> x.id().equals(id))) {
@@ -231,7 +214,6 @@ public final class PentecostModsScreen extends Screen {
         });
     }
 
-    /** Forge mods register a settings screen with Forge. Asked through reflection: Forge may be absent. */
     @SuppressWarnings("unchecked")
     private Optional<Function<Screen, Screen>> forgeConfig(ModInfo m) throws ReflectiveOperationException {
         if (!PentecostRuntime.forgeLayer) {
@@ -256,7 +238,6 @@ public final class PentecostModsScreen extends Screen {
         return Optional.empty();
     }
 
-    /** Fabric and Quilt mods offer a settings screen through the "modmenu" entrypoint. */
     private Optional<Function<Screen, Screen>> fabricConfig(ModInfo m) throws ReflectiveOperationException {
         ClassLoader cl = getClass().getClassLoader();
         for (String value : m.entrypoints("modmenu")) {
@@ -286,8 +267,6 @@ public final class PentecostModsScreen extends Screen {
         }
         return Optional.empty();
     }
-
-    // ---------------------------------------------------------------- icons
 
     private static String iconPath(ModInfo m) {
         if (m.raw() != null) {
@@ -349,8 +328,6 @@ public final class PentecostModsScreen extends Screen {
         }
     }
 
-    // ---------------------------------------------------------------- drawing tools
-
     private static void outline(GuiGraphics g, int x1, int y1, int x2, int y2, int color) {
         g.fill(x1, y1, x2, y1 + 1, color);
         g.fill(x1, y2 - 1, x2, y2, color);
@@ -382,7 +359,6 @@ public final class PentecostModsScreen extends Screen {
         return mx >= x && mx < x + w && my >= y && my < y + h && (clip == null || clip.has(mx, my));
     }
 
-    /** An outlined button. It fills white while the pointer is on it. */
     private void button(GuiGraphics g, String label, int x, int y, int w, int mx, int my, Clip clip, Runnable action) {
         boolean hover = over(mx, my, x, y, w, 18, clip);
         if (hover) {
@@ -404,12 +380,10 @@ public final class PentecostModsScreen extends Screen {
         }
     }
 
-    // ---------------------------------------------------------------- frame
-
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         measure();
-        g.fill(0, 0, width, height, minecraft.level == null ? BG : BG_WORLD);
+        g.fill(0, 0, width, height, khi.pentecost.game.menuworld.MenuHost.showing() ? Ui.back(minecraft) : minecraft.level == null ? BG : BG_WORLD);
         Ui.dither(g, width, height);
         g.pose().pushPose();
         g.pose().scale(ui, ui, 1);
@@ -422,7 +396,6 @@ public final class PentecostModsScreen extends Screen {
         final int height = vh;
         hits.clear();
 
-        // Header.
         Ui.wordmark(g, "MODS", MARGIN, 12, 2, TEXT);
         List<ModInfo> all = allMods();
         long off = all.stream().filter(m -> Choices.isModOff(m.id())).count();
@@ -435,7 +408,6 @@ public final class PentecostModsScreen extends Screen {
         int lx = MARGIN;
         int rx = lx + listWidth + 24;
 
-        // ---- left: search, filters, list
         g.fill(lx, top + 20, lx + listWidth, top + 21, search.isFocused() ? MUTED : LINE);
         int cx = lx;
         int cy = top + 30;
@@ -501,7 +473,6 @@ public final class PentecostModsScreen extends Screen {
         }
         listBar.draw(g, lx + listWidth - 2, ly1, ly2, listScroll, listMax, mx, my);
 
-        // ---- right: the selected mod
         g.fill(rx - 12, top, rx - 11, bottom, LINE);
         int footer = bottom - 28;
         if (selected != null) {
@@ -520,9 +491,7 @@ public final class PentecostModsScreen extends Screen {
                 exportNote = "Saved " + zip.getFileName()
                         + (flagged.isEmpty() ? "" : ". Check " + flagged.size() + " file(s) for keys before sharing.");
                 if (!flagged.isEmpty()) {
-                    net.minecraft.client.gui.components.toasts.SystemToast.addOrUpdate(minecraft.getToasts(),
-                            net.minecraft.client.gui.components.toasts.SystemToast.SystemToastIds.PERIODIC_NOTIFICATION,
-                            Component.literal("Check before sharing this pack"),
+                    khi.pentecost.game.PentecostToast.show(Component.literal("Check before sharing this pack"),
                             Component.literal(flagged.size() + " config file(s) may hold keys, passwords or addresses. See README.txt in the zip."));
                 }
                 net.minecraft.Util.getPlatform().openFile(zip.getParent().toFile());
@@ -616,7 +585,6 @@ public final class PentecostModsScreen extends Screen {
         detailBar.draw(g, x2 - 1, y1, y2 - 4, detailScroll, detailMax, mx, my);
     }
 
-    /** One line with a title, a quieter note under it, and a switch. A hairline closes it. */
     private int row(GuiGraphics g, int x, int y, int w, int mx, int my, Clip clip, String title, String note,
                     boolean on, Runnable action) {
         if (over(mx, my, x, y, w, 28, clip)) {
@@ -646,8 +614,6 @@ public final class PentecostModsScreen extends Screen {
         }
         return "";
     }
-
-    // ---------------------------------------------------------------- input
 
     @Override
     public boolean mouseClicked(double mx, double my, int button) {

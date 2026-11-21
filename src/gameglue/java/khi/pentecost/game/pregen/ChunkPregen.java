@@ -23,38 +23,17 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * Makes the chunks of one dimension ahead of time, as fast as the machine allows without hurting the players on it.
- * Works on any server: a single player world, a world opened to friends (WWLS) and a dedicated server all run this
- * same code, because it only talks to the server's own chunk system.
- * <p>
- * How a chunk is made: the server thread puts a ticket on it (distance 0, so it is a full chunk but is not ticked,
- * which means no mob thinks, no block updates, nothing sent to players) and asks for it. The game's own worker
- * threads make it. When it is done the ticket is taken off, and the game saves and unloads it the normal way.
- * <p>
- * How many are being made at once (the window) is the whole speed control:
- * - nobody on the server: a big window, the machine's cores all busy,
- * - players on the server: a small window that shrinks whenever the server tick gets slow and grows back when it
- *   does not, so friends on a WWLS world are not made to lag,
- * - setting pregen.speed = full keeps the big window even with players on.
- * <p>
- * Threads: ticket work has to happen on the server thread, and it does. A virtual thread per run does the
- * waiting-and-writing part (the progress file and the speed report), which is plain blocking code.
- */
 final class ChunkPregen {
     enum State { RUNNING, PAUSED, DONE, STOPPED }
 
-    /** Never times out by itself. Taken off by hand when the chunk is finished. */
     static final TicketType<ChunkPos> TICKET = TicketType.create("pentecost_pregen",
             (a, b) -> Long.compare(a.toLong(), b.toLong()));
 
     private static final int ADMIT_PER_TICK = 64;
     private static final int MIN_WINDOW = 2;
     private static final float TICK_LIMIT_MS = 40.0F;
-    /** A tick this slow means the server is in trouble whatever the window is: ask for nothing new until it recovers. */
     private static final float PANIC_MS = 250.0F;
     private static final long REPORT_EVERY_MS = 5000;
-    /** How often, in ticks, to look for chunks that never finish. */
     private static final int SWEEP_EVERY_TICKS = 100;
 
     private final MinecraftServer server;
@@ -67,10 +46,8 @@ final class ChunkPregen {
     final int radius;
     final String dimension;
 
-    /** The chunks being made right now: where the progress file may resume from, and which ones to give up on. */
     private final PregenLedger ledger = new PregenLedger();
     private int sinceSweep;
-    /** True while a flying player is being followed: their chunks come first, so this run asks for nothing new. */
     private volatile boolean yielding;
     private volatile long next;
     private final PregenWindow window;
@@ -115,8 +92,6 @@ final class ChunkPregen {
         return level;
     }
 
-    // ---- Speed ----
-
     private static int cores() {
         return Math.max(1, Runtime.getRuntime().availableProcessors());
     }
@@ -134,9 +109,6 @@ final class ChunkPregen {
                 server.getAverageTickTime(), TICK_LIMIT_MS);
     }
 
-    // ---- Server thread ----
-
-    /** Called once per server tick, on the server thread. */
     void tick() {
         if (state != State.RUNNING) {
             return;
@@ -165,7 +137,7 @@ final class ChunkPregen {
         long packed = plan.chunkAt(index);
         ChunkPos pos = new ChunkPos(PregenPlan.x(packed), PregenPlan.z(packed));
         if (!level.getWorldBorder().isWithinBounds(pos)) {
-            done.incrementAndGet(); // outside this dimension's world border: nothing to make, and nothing should be
+            done.incrementAndGet();
             return;
         }
         ledger.admit(index, System.nanoTime());
@@ -183,7 +155,7 @@ final class ChunkPregen {
 
     private void complete(long index, ChunkPos pos, boolean ok, Throwable error) {
         if (!ledger.complete(index)) {
-            return; // already given up on (see abandonStuck), so this late answer no longer counts
+            return;
         }
         cache.removeRegionTicket(TICKET, pos, 0, pos);
         if (ok) {
@@ -197,11 +169,6 @@ final class ChunkPregen {
         }
     }
 
-    /**
-     * Other mods' world generation can hang or crash on a rare chunk. Without this, every such chunk would keep its
-     * slot in the window for good and the run would slowly choke. After a long wait the chunk is given up on: its
-     * ticket comes off, it counts as failed, and the run carries on. Server thread only.
-     */
     private void abandonStuck() {
         long limit = Settings.num("pregen.stuckSeconds", 180) * 1_000_000_000L;
         long now = System.nanoTime();
@@ -239,7 +206,6 @@ final class ChunkPregen {
         }
     }
 
-    /** Stops asking for new chunks. The ones already being made finish and give their tickets back by themselves. */
     void stop() {
         if (state == State.RUNNING || state == State.PAUSED) {
             stopClock();
@@ -259,12 +225,9 @@ final class ChunkPregen {
         return elapsedBeforeMs + active / 1_000_000L;
     }
 
-    /** Lowest chunk number that may not be on disk yet. Carrying on from here makes at most a few chunks twice. */
     private long safeIndex() {
         return ledger.safeIndex(next);
     }
-
-    // ---- Virtual thread: speed report and progress file ----
 
     private void supervise() {
         long lastDone = done.get();
@@ -311,8 +274,6 @@ final class ChunkPregen {
         return String.format("%.1f h", s / 3600.0);
     }
 
-    // ---- Progress file ----
-
     private synchronized void save() {
         try {
             Map<String, Object> m = new LinkedHashMap<>();
@@ -335,7 +296,6 @@ final class ChunkPregen {
         }
     }
 
-    /** What the progress file says, or null when there is none or it cannot be read. */
     record Saved(String dimension, int centerX, int centerZ, int radius, long next, long done, long failed,
                  long elapsedMs, String state) {}
 

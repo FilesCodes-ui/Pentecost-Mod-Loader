@@ -28,15 +28,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/**
- * Pentecost's F3 screen: the game's information in readable panels.
- * Standard shows what most players look for, in more depth than the game's own list.
- * Full shows every line the game and mods give, in panels.
- * Lines mods add through Forge's event get their own panel in both.
- *
- * The game asks for F3 only while it is on. Pentecost keeps the last lines it was given and draws the panels
- * itself once per frame, so they can slide in and out. The right column moves down while the F6 readout is open.
- */
 final class DebugView {
     private record Line(String key, String value) {}
 
@@ -45,20 +36,16 @@ final class DebugView {
     private static List<String> lastLeft = List.of();
     private static List<String> lastRight = List.of();
     private static List<String> lastFromMods = List.of();
+    static volatile float f6Left = -1;
 
     private DebugView() {}
 
-    /** Called while the game draws F3. Keeps the lines; the panels are drawn by render(). */
     static void draw(GuiGraphics g, List<String> left, List<String> right, List<String> fromMods) {
         lastLeft = new ArrayList<>(left);
         lastRight = new ArrayList<>(right);
         lastFromMods = new ArrayList<>(fromMods);
     }
 
-    /**
-     * Called once per frame after the game's HUD. topRight: how far down the right column starts,
-     * in screen-scaled pixels (the F6 readout sits above it).
-     */
     static void render(float topRight) {
         Minecraft mc = Minecraft.getInstance();
         Player player = mc.player;
@@ -95,17 +82,26 @@ final class DebugView {
             float slide = stagger(e, i++);
             y = panel(g, font, p, 8, y, false, vw, slide, alpha) + 6;
         }
+        int vh = (int) (mc.getWindow().getGuiScaledHeight() / ui);
+        int needed = 0;
+        for (Panel p : rightCol) {
+            needed += 12 + p.lines().size() * 10 + 6;
+        }
+        int rx = vw - 8;
         y = 8 + Math.round(topRight / ui);
+        if (f6Left >= 0 && y + needed > vh - 4) {
+            rx = Math.round(f6Left / ui) - 8;
+            y = 8;
+        }
         i = 0;
         for (Panel p : rightCol) {
             float slide = stagger(e, i++);
-            y = panel(g, font, p, vw - 8, y, true, vw, slide, alpha) + 6;
+            y = panel(g, font, p, rx, y, true, vw, slide, alpha) + 6;
         }
         g.pose().popPose();
         g.flush();
     }
 
-    /** Later panels follow a little behind the first, so the column unfolds instead of moving as one block. */
     private static float stagger(float e, int index) {
         float t = Math.max(0f, Math.min(1f, e * (1f + index * 0.15f) - index * 0.15f));
         return 1f - (1f - t) * (1f - t);
@@ -244,7 +240,6 @@ final class DebugView {
         return String.format(Locale.ROOT, "%02d:%02d", minutes / 60, minutes % 60);
     }
 
-    /** Raw lines as key and value where they hold a colon, plain text otherwise. Empty lines are skipped. */
     private static List<Line> raw(List<String> lines) {
         List<Line> out = new ArrayList<>();
         for (String s : lines) {
@@ -265,24 +260,17 @@ final class DebugView {
         return out;
     }
 
-    /** The game draws text with almost no alpha as fully solid, so nearly invisible text is skipped. */
     private static void text(GuiGraphics g, Font font, String s, int x, int y, int color) {
         if ((color >>> 24) >= 4) {
             g.drawString(font, s, x, y, color, false);
         }
     }
 
-    /** Fades a color's alpha by a 0..255 factor. */
     private static int fade(int color, int alpha) {
         int a = (color >>> 24) * alpha / 255;
         return (a << 24) | (color & 0xFFFFFF);
     }
 
-    /**
-     * Draws one block. x is the left edge, or the right edge when alignRight. slide: 0 hidden off the side,
-     * 1 in place. Returns the bottom. No box: a white label, then each line on its own dark strip that is
-     * only as wide as its text, like selected text in a terminal.
-     */
     private static int panel(GuiGraphics g, Font font, Panel p, int x, int y, boolean alignRight, int vw,
                              float slide, int alpha) {
         int maxW = Math.max(120, vw / 2 - 24);
@@ -312,7 +300,6 @@ final class DebugView {
             int lx = alignRight ? x - lw + shift : x - shift;
             g.fill(lx, ly, lx + lw, ly + 10, fade(0xB40A0A0B, alpha));
             if (alignRight) {
-                // Mirrored: the key sits against the right edge and the value to its left.
                 int right = lx + lw - 4;
                 if (!l.key().isEmpty()) {
                     String key = font.plainSubstrByWidth(l.key(), keyW);

@@ -27,11 +27,9 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
 
-/** Rewrites every class in a jar through a remapper, on all CPU threads. */
 public final class JarRemapper {
     private JarRemapper() {}
 
-    /** @param text when set, also converts annotation strings, refmap files, and access widener files */
     public static void remap(Path in, Path out, Remapper remapper, TextRemapper text) throws IOException {
         List<Map.Entry<String, byte[]>> entries = new ArrayList<>();
         try (ZipFile z = new ZipFile(in.toFile())) {
@@ -61,7 +59,6 @@ public final class JarRemapper {
                 ClassVisitor chain = text == null ? cw : new StringFixer(cw, text);
                 cr.accept(new ClassRemapper(chain, remapper), 0);
                 String prefix = "";
-                // Multi-release jars keep classes under META-INF/versions/N/.
                 int cut = name.indexOf(cr.getClassName() + ".class");
                 if (cut > 0) {
                     prefix = name.substring(0, cut);
@@ -99,14 +96,23 @@ public final class JarRemapper {
         if (widener) {
             return text.remap(s).getBytes(StandardCharsets.UTF_8);
         }
-        if (!(s.contains("\"mappings\"") && s.contains("\"data\""))) {
+        if (!s.contains("\"mappings\"")) {
             return data;
         }
         try {
             com.google.gson.JsonObject root = com.google.gson.JsonParser.parseString(s).getAsJsonObject();
+            if (!root.has("mappings") || !root.get("mappings").isJsonObject()) {
+                return data;
+            }
             remapValues(root.get("mappings"), text);
             remapValues(root.get("data"), text);
-            return root.toString().getBytes(StandardCharsets.UTF_8);
+            String result = root.toString();
+            java.util.regex.Matcher left = LEFTOVER.matcher(result);
+            if (left.find()) {
+                khi.pentecost.boot.Log.warn("Mixin map " + name + " still names " + left.group()
+                        + " after conversion: mixins that use it will miss their target");
+            }
+            return result.getBytes(StandardCharsets.UTF_8);
         } catch (RuntimeException notARefmap) {
             return data;
         }
@@ -128,6 +134,9 @@ public final class JarRemapper {
         }
     }
 
+    private static final java.util.regex.Pattern LEFTOVER =
+            java.util.regex.Pattern.compile("\\b(?:m_\\d+_|f_\\d+_|method_\\d+|field_\\d+|class_\\d+)\\b");
+
     private static boolean isSignature(String name) {
         if (!name.startsWith("META-INF/")) {
             return false;
@@ -135,7 +144,6 @@ public final class JarRemapper {
         return name.endsWith(".SF") || name.endsWith(".RSA") || name.endsWith(".DSA") || name.endsWith(".EC");
     }
 
-    /** Converts name tokens inside annotation strings, such as Mixin targets. */
     private static final class StringFixer extends ClassVisitor {
         private static final java.util.regex.Pattern INFERRED =
                 java.util.regex.Pattern.compile("^(get|set|is|call|invoke|create|new)([A-Za-z].*)$");

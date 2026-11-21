@@ -13,10 +13,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Headless check of the preparation pipeline and of per-world places. Usage: MenuPrepCheck <seedCacheDir> <scratchDir>.
- * Nothing is generated: a seed that is not cached must stop at the EULA question.
- */
 public final class MenuPrepCheck {
     private static int failures;
 
@@ -33,7 +29,6 @@ public final class MenuPrepCheck {
         Path home = Path.of(System.getProperty("user.dir"));
         JsonObject meta = JsonParser.parseString(Files.readString(cache.resolve("meta.json"))).getAsJsonObject();
 
-        // 1. A cached seed is read without generating anything, and scanned the first time.
         MenuProfile p = new MenuProfile();
         p.seed = Long.parseLong(cache.getFileName().toString());
         p.centerMode = MenuProfile.CenterMode.COORDS;
@@ -50,14 +45,12 @@ public final class MenuPrepCheck {
                 && first.spawnX() == (meta.has("spawnX") ? meta.get("spawnX").getAsInt() : p.centerX), first.spawnX() + "," + first.spawnZ());
         check("the land can be read for the camera", first.terrain().heightAt(first.centerX(), first.centerZ()) > -64, "");
 
-        // 2. The same world is not scanned again, unless asked.
         p.scanKey = first.scanKey();
         MenuPrep.Ready again = MenuPrep.prepare(home, config, p, false, s -> { });
         check("an unchanged world is not scanned again", again.scanned() == null, "");
         MenuPrep.Ready forced = MenuPrep.prepare(home, config, p, true, s -> { });
         check("a rescan can be asked for", forced.scanned() != null && forced.scanned().size() == first.scanned().size(), "");
 
-        // 3. A seed that is not cached stops at the EULA question and writes nothing.
         MenuProfile fresh = new MenuProfile();
         fresh.seed = 8675309L;
         Path wouldBe = config.resolve("menu_world").resolve("8675309");
@@ -69,7 +62,6 @@ public final class MenuPrepCheck {
         }
         check("an uncached seed asks about the EULA first", asked && !Files.exists(wouldBe), "");
 
-        // 4. A save: usable one is read from where it is, broken ones give a reason.
         Path cherry = cache.getParent().resolve("-769185976586290351");
         if (Files.isRegularFile(cherry.resolve("level.dat"))) {
             MenuProfile save = MenuProfile.forSave(cherry.toString());
@@ -95,7 +87,6 @@ public final class MenuPrepCheck {
         }
         check("no world picked gives a plain reason", reason != null && reason.contains("picked"), String.valueOf(reason));
 
-        // 5. Places belong to one world each.
         MenuProfile m = new MenuProfile();
         m.addCustom("home", 10, 70, 10, 24);
         m.switchPointsTo("seed:1");
@@ -114,7 +105,6 @@ public final class MenuPrepCheck {
         Poi pp = loaded.points.get(0);
         check("a saved profile reloads the same", pp.name.equals("home") && loaded.version == 3, "");
 
-        // 6. Hand-edited nonsense is brought back into range.
         Files.writeString(file, "{\"handheld\":9,\"clearance\":-4,\"fadeSeconds\":0,\"fovOffset\":500,\"secondsPerDay\":1,"
                 + "\"startTicks\":-1000,\"viewChunks\":999,\"timeMode\":\"SOON\",\"moves\":[null,\"\",\"orbit\"]}");
         MenuProfile wild = ProfileStore.load(file);

@@ -17,30 +17,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * One of Pentecost's menus, drawn over a game menu, in the boot splash style:
- * a slanted pixel wordmark, a quiet line under it, entries that turn into a white bar on hover.
- *
- * The game's screen still builds its buttons, and mods still add theirs. This view hides those widgets,
- * keeps hold of them, and draws its own layout. A click here presses the original button,
- * so every action does exactly what it did before, whoever put it there.
- *
- * Buttons from mods go to one row, drawn by the mods themselves and turned black and white.
- * Each mod's button has a switch in the Mods screen.
- */
 final class MenuView {
-    /** The Mods entry. It always exists and opens Pentecost's Mods screen. */
     static final String MODS = "pentecost.mods";
-    /** The Pentecost entry. Opens Pentecost's settings. */
     static final String SETTINGS = "pentecost.settings";
-    /** The Account entry. Opens the sign in screen. */
     static final String ACCOUNT = "pentecost.account";
-    /** The Join a friend entry. Opens World Wide Local Server. */
     static final String FRIENDS = "pentecost.friends";
-    /** Server tools for operators, on a server or in a world open to friends. */
     static final String MANAGE = "pentecost.manage";
-    /** The Commands page: terminal, groups, switches and levels. For operators in a world. */
     static final String COMMANDS = "pentecost.commands";
+    static final String QUIT = "pentecost.quit";
 
     private record ModButton(String modId, String label, AbstractButton source) {}
 
@@ -52,7 +36,6 @@ final class MenuView {
     private final List<Hit> hits = new ArrayList<>();
     private int lastHover = -1;
 
-    /** where: "title" or "pause". Used for the per-mod button switches. */
     MenuView(String where) {
         this.where = where;
     }
@@ -63,7 +46,6 @@ final class MenuView {
         GrayButtons.clear();
     }
 
-    /** Takes over every widget that is still showing. Runs each frame, since mods add widgets late. */
     void harvest(List<? extends GuiEventListener> children) {
         for (GuiEventListener child : children) {
             if (!(child instanceof AbstractWidget w) || !w.visible) {
@@ -75,7 +57,6 @@ final class MenuView {
             }
             String owner = Ui.ownerOf(w);
             if (owner != null) {
-                // Mod Menu's buttons only open a mods list. Pentecost has its own.
                 if (!owner.equals("modmenu")) {
                     Choices.seeButton(owner, where);
                     String label = w.getMessage().getString().trim();
@@ -92,11 +73,6 @@ final class MenuView {
         return label.replace("...", "").replace("…", "").trim();
     }
 
-    /**
-     * Draws the menu. word: the wordmark. under: the quiet line under it.
-     * main lists the entries in order, by the translation key of the game's button.
-     * links maps keys of small extra actions to the text to show.
-     */
     void draw(Screen screen, GuiGraphics g, int mouseX, int mouseY, float partialTick, String word, String under,
               List<String> lines, List<String> main, Map<String, String> links) {
         Minecraft mc = Minecraft.getInstance();
@@ -113,7 +89,6 @@ final class MenuView {
         int x = 56;
         int y = Math.max(36, vh * 18 / 100);
 
-        // Logo, wordmark, the quiet line, a hairline.
         int px = vh >= 300 ? 2 : 1;
         Ui.logo(g, x, y - px, px, Ui.TEXT);
         int wx = x + (Ui.LOGO_W + 5) * px;
@@ -128,7 +103,6 @@ final class MenuView {
         g.fill(x, y, x + barWidth, y + 1, Ui.LINE);
         y += 14;
 
-        // Entries.
         int index = 0;
         int hovered = -1;
         for (String key : main) {
@@ -151,15 +125,16 @@ final class MenuView {
                 }
                 label = "Commands";
                 action = () -> mc.setScreen(new CommandsScreen(screen));
+            } else if (key.equals(QUIT)) {
+                label = "Quit game";
+                action = () -> quitGame(mc);
             } else if (key.equals(FRIENDS)) {
                 label = "Join a friend";
                 action = () -> mc.setScreen(new WwlsScreen(screen));
             } else if (key.equals(ACCOUNT)) {
-                label = Account.signedIn() ? Account.name() : "Sign in";
+                label = Account.signedIn() ? Account.name() : Account.restoring() ? "Signing in" : "Sign in";
                 action = () -> mc.setScreen(Account.signedIn() ? new AccountScreen(screen) : new PentecostLoginScreen(screen, null, null));
             } else if (key.equals(SETTINGS)) {
-                // The game's Options button already opens Pentecost's settings. This entry only matters
-                // when the player switched to the game's own settings screens.
                 if (!khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.VANILLA_SETTINGS)) {
                     continue;
                 }
@@ -171,8 +146,6 @@ final class MenuView {
                 action = source::onPress;
                 if (key.equals("menu.shareToLan")
                         && !khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.VANILLA_SETTINGS)) {
-                    // World Wide Local Server replaces Open to LAN. The entry stays open while sharing,
-                    // so the code and Stop sharing are one click away.
                     label = "Open to friends";
                     enabled = true;
                     action = () -> mc.setScreen(new WwlsScreen(screen));
@@ -200,7 +173,6 @@ final class MenuView {
             lastHover = hovered;
         }
 
-        // Buttons from mods: one row, each mod's own button in black and white.
         List<ModButton> shown = new ArrayList<>();
         for (ModButton b : fromMods) {
             if (Choices.isEnabled(b.modId(), "button:" + where)) {
@@ -247,7 +219,6 @@ final class MenuView {
             }
         }
 
-        // Bottom right: quiet facts, then small extra actions.
         int fy = vh - 22 - lines.size() * 11;
         for (String line : lines) {
             g.drawString(font, line, vw - 40 - font.width(line), fy, Ui.FAINT, false);
@@ -277,7 +248,20 @@ final class MenuView {
         g.pose().popPose();
     }
 
-    /** Presses whatever is under the pointer. Returns true when something was pressed. */
+    static void quitGame(Minecraft mc) {
+        if (mc.level != null) {
+            boolean local = mc.isLocalServer();
+            mc.level.disconnect();
+            if (local) {
+                mc.clearLevel(new net.minecraft.client.gui.screens.GenericDirtMessageScreen(
+                        net.minecraft.network.chat.Component.translatable("menu.savingLevel")));
+            } else {
+                mc.clearLevel();
+            }
+        }
+        mc.stop();
+    }
+
     boolean click(double mouseX, double mouseY) {
         Minecraft mc = Minecraft.getInstance();
         float ui = Ui.scale(mc);

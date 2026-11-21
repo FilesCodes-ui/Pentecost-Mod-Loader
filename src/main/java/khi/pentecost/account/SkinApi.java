@@ -16,14 +16,7 @@ import java.util.Base64;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
-/**
- * Everything the wardrobe asks of the network: look a player up by name, read the skin and cape of an id,
- * download a skin, and change the signed in account's skin and cape through Minecraft Services.
- * No game classes in here, so the parts that do not need the network are tested without the game.
- * Every failure is an IOException with a sentence the player can read.
- */
 public final class SkinApi {
-    /** What a profile wears: the skin file, whether its arms are slim, and the cape file (empty when none). */
     public record Textures(String skinUrl, boolean slim, String capeUrl) {}
 
     private static final String SERVICES = "https://api.minecraftservices.com/minecraft/profile";
@@ -31,7 +24,6 @@ public final class SkinApi {
             .connectTimeout(Duration.ofSeconds(15)).build();
     private static final Pattern NAME = Pattern.compile("^[A-Za-z0-9_]{3,16}$");
     private static final Pattern ID = Pattern.compile("^[0-9a-fA-F]{32}$");
-    /** Mojang's own limit is much lower than this, so a file this big is not a skin. */
     public static final int MAX_BYTES = 1 << 20;
 
     private SkinApi() {}
@@ -40,9 +32,6 @@ public final class SkinApi {
         return s != null && NAME.matcher(s.trim()).matches();
     }
 
-    // ------------------------------------------------------------------ parsing (no network)
-
-    /** The id in a "look up a name" answer, as 32 hex characters. */
     public static String parseId(String json) throws IOException {
         try {
             JsonObject o = JsonParser.parseString(json).getAsJsonObject();
@@ -53,12 +42,10 @@ public final class SkinApi {
                 }
             }
         } catch (RuntimeException e) {
-            // falls through
         }
         throw new IOException("Mojang's answer has no player id");
     }
 
-    /** Reads a session server profile: the "textures" property holds base64 JSON with the skin and the cape. */
     public static Textures parseTextures(String profileJson) throws IOException {
         try {
             JsonObject o = JsonParser.parseString(profileJson).getAsJsonObject();
@@ -89,7 +76,6 @@ public final class SkinApi {
         throw new IOException("This player has no skin data");
     }
 
-    /** Width and height of a PNG from its header, or null when the bytes are not a PNG. */
     public static int[] pngSize(byte[] png) {
         if (png == null || png.length < 24) {
             return null;
@@ -105,7 +91,6 @@ public final class SkinApi {
         return new int[] {w, h};
     }
 
-    /** Minecraft skins are 64 by 64, or the old 64 by 32. Throws a readable reason otherwise. */
     public static void checkSkin(byte[] png) throws IOException {
         int[] size = pngSize(png);
         if (size == null) {
@@ -116,7 +101,6 @@ public final class SkinApi {
         }
     }
 
-    /** The body of a multipart upload with a "variant" field and a "file" part. Public for the test. */
     public static byte[] multipart(String boundary, boolean slim, byte[] png) {
         ByteArrayOutputStream out = new ByteArrayOutputStream(png.length + 400);
         String head = "--" + boundary + "\r\nContent-Disposition: form-data; name=\"variant\"\r\n\r\n" + (slim ? "slim" : "classic") + "\r\n"
@@ -128,7 +112,6 @@ public final class SkinApi {
         return out.toByteArray();
     }
 
-    /** A sentence for a failed call. */
     static String describe(int status, String body) {
         if (status == 401 || status == 403) {
             return "Minecraft refused the request. Your session may have ended. Restart from your launcher.";
@@ -144,16 +127,12 @@ public final class SkinApi {
                     why = o.get("errorMessage").getAsString();
                 }
             } catch (RuntimeException e) {
-                // keep it short
             }
             return why.isEmpty() ? "Mojang did not accept this image" : "Mojang did not accept this: " + why;
         }
         return "Mojang answered " + status;
     }
 
-    // ------------------------------------------------------------------ looking up (no sign in)
-
-    /** The id of a player by name. */
     public static String idOf(String name) throws IOException {
         if (!isName(name)) {
             throw new IOException("A Minecraft name is 3 to 16 letters, numbers or underscores");
@@ -169,7 +148,6 @@ public final class SkinApi {
         return parseId(r.body());
     }
 
-    /** The skin and cape of an id, as the session server shows them. */
     public static Textures texturesOf(String id) throws IOException {
         HttpResponse<String> r = send(HttpRequest.newBuilder(URI.create("https://sessionserver.mojang.com/session/minecraft/profile/"
                 + id.replace("-", "")))
@@ -183,7 +161,6 @@ public final class SkinApi {
         return parseTextures(r.body());
     }
 
-    /** Downloads an image. Only https, and no more than {@link #MAX_BYTES}. */
     public static byte[] download(String url) throws IOException {
         URI uri;
         try {
@@ -213,9 +190,6 @@ public final class SkinApi {
         }
     }
 
-    // ------------------------------------------------------------------ changing the signed in account
-
-    /** Makes png the account's skin. */
     public static void upload(String token, byte[] png, boolean slim) throws IOException {
         checkSkin(png);
         String boundary = "pentecost" + Long.toHexString(System.nanoTime());
@@ -230,13 +204,11 @@ public final class SkinApi {
         }
     }
 
-    /** Back to the default skin for the account. */
     public static void resetSkin(String token) throws IOException {
         call(HttpRequest.newBuilder(URI.create(SERVICES + "/skins/active")).header("Authorization", "Bearer " + token)
                 .timeout(Duration.ofSeconds(30)).DELETE().build());
     }
 
-    /** Wears the cape with this id. */
     public static void setCape(String token, String capeId) throws IOException {
         JsonObject body = new JsonObject();
         body.addProperty("capeId", capeId);
@@ -245,7 +217,6 @@ public final class SkinApi {
                 .PUT(HttpRequest.BodyPublishers.ofString(body.toString())).build());
     }
 
-    /** Takes the cape off. */
     public static void hideCape(String token) throws IOException {
         call(HttpRequest.newBuilder(URI.create(SERVICES + "/capes/active")).header("Authorization", "Bearer " + token)
                 .timeout(Duration.ofSeconds(30)).DELETE().build());

@@ -21,17 +21,12 @@ import java.util.Random;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
-/**
- * Game rules made easy: /gr for any rule, one-word switches for the common ones, number tuners, whole presets
- * (built in and your own), /daylength to make days and nights as long or short as you like, and /firespeed.
- */
 final class RuleCmds {
     private static final String C = "Rules";
     private static final Map<String, GameRules.Key<?>> KEYS = new TreeMap<>();
     private static final Map<String, String> DEFAULTS = new TreeMap<>();
     private static final Random RANDOM = new Random();
 
-    /** Real minutes the bright part (ticks 0 to 12999) and the dark part (13000 to 23999) of a normal day last. */
     private static final double DAY_MIN = 13000.0 / 1200.0;
     private static final double NIGHT_MIN = 11000.0 / 1200.0;
 
@@ -53,8 +48,6 @@ final class RuleCmds {
             SharedSuggestionProvider.suggest(Store.presetNames(), b);
 
     private RuleCmds() {}
-
-    // ---------------------------------------------------------------- reading and writing rules
 
     private static void scan() {
         if (!KEYS.isEmpty()) {
@@ -131,8 +124,6 @@ final class RuleCmds {
         });
     }
 
-    // ---------------------------------------------------------------- presets
-
     private static final Map<String, String[]> PRESETS = new LinkedHashMap<>();
 
     private static void preset(String name, String... pairs) {
@@ -179,8 +170,6 @@ final class RuleCmds {
         return n;
     }
 
-    // ---------------------------------------------------------------- day length and fire speed
-
     private static int setDay(CommandContext<CommandSourceStack> c, double day, double night, String text) {
         MinecraftServer s = c.getSource().getServer();
         Store.setDayFactors(day, night);
@@ -194,10 +183,6 @@ final class RuleCmds {
         return factor <= 0.0 ? "never" : String.format(Locale.ROOT, "%.1f", base / factor);
     }
 
-    /**
-     * Called every server tick. The game's own clock keeps running (so sleeping and the sky stay smooth); this adds
-     * or takes away the difference. It also thins out fire ticks when /firespeed asks for less than normal.
-     */
     static void tick(MinecraftServer server) {
         int pct = Store.firePct();
         if (pct < 100) {
@@ -229,8 +214,6 @@ final class RuleCmds {
             o.setDayTime(t + add);
         }
     }
-
-    // ---------------------------------------------------------------- commands
 
     static void add() {
         scan();
@@ -323,7 +306,6 @@ final class RuleCmds {
             return Qol.ok(c, n + " game rules are back to normal, with fire speed and day length too.");
         });
 
-        // one-word switches (each is flipped every time)
         toggle("daycycle", "doDaylightCycle", "Stop or start the sun and moon", false);
         toggle("weathercycle", "doWeatherCycle", "Stop or start weather changes", false);
         toggle("mobgrief", "mobGriefing", "Switch creepers, endermen and friends changing blocks on or off", false);
@@ -359,7 +341,6 @@ final class RuleCmds {
         toggle("lavaconvert", "lavaSourceConversion", "Switch lava source conversion on or off", false);
         toggle("globalsounds", "globalSoundEvents", "Switch the world-wide boss and portal sounds on or off", false);
 
-        // number tuners
         tuner("randomtick", "randomTickSpeed", "How fast crops, leaves and ice change (3 is normal)", 0, 4096);
         tuner("sleeppct", "playersSleepingPercentage", "How many players must sleep to skip the night (percent)", 0, 100);
         tuner("spawnradius", "spawnRadius", "How far from the spawn new players appear", 0, 1000);
@@ -377,7 +358,6 @@ final class RuleCmds {
                     return Qol.ok(c, n == 100 ? "Fire is back to normal speed." : "Fire now runs at " + n + " percent of normal speed.");
                 });
 
-        // presets
         Qol.custom(C, "preset", 2, "<name>", "Apply a whole set of game rules at once (/presets lists them)",
                 Qol.lit("preset", 2).then(Commands.argument("word", StringArgumentType.word()).suggests(PRESET_NAMES)
                         .executes(Qol.guard(c -> {
@@ -430,7 +410,6 @@ final class RuleCmds {
             return Qol.ok(c, "Deleted " + w + ".");
         });
 
-        // days and nights of any length
         Qol.custom(C, "daylength", 2, "<minutes> [night minutes] | speed <x> | normal | freeze",
                 "Set how many real minutes a day and a night last (about 11 and 9 is normal)",
                 Qol.lit("daylength", 2)

@@ -7,26 +7,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Name tables. The vanilla jar ships with scrambled names. Mojang's official mapping file gives
- * the readable names, and Pentecost runs the game in those readable names.
- * Fabric mods use "intermediary" names and Forge mods use "SRG" names. Both convert to readable names here.
- */
 public final class Mappings {
-    /** scrambled class -> readable class (internal names with slashes). */
     public final Map<String, String> classes = new HashMap<>();
-    /** scrambled owner -> (scrambled name + descriptor -> readable name). */
     public final Map<String, Map<String, String>> methods = new HashMap<>();
-    /** scrambled owner -> (scrambled name + ":" + descriptor -> readable name). */
     public final Map<String, Map<String, String>> fields = new HashMap<>();
     public final Map<String, Map<String, String>> methodsByName = new HashMap<>();
     public final Map<String, Map<String, String>> fieldsByName = new HashMap<>();
 
-    /** A name-only table for mods: every intermediary or SRG name is unique, so no owner is needed. */
     public record NameTable(Map<String, String> classes, Map<String, String> methods,
                             Map<String, String> fields, int conflicts) {}
-
-    // ------------------------------------------------------------ Mojang (ProGuard format)
 
     public static Mappings parseProguard(Path file) throws IOException {
         List<String> lines = Files.readAllLines(file);
@@ -117,8 +106,6 @@ public final class Mappings {
         return "[".repeat(dims) + base;
     }
 
-    // ------------------------------------------------------------ Fabric intermediary (tiny v2)
-
     public NameTable intermediary(List<String> tinyLines) {
         Map<String, String> cls = new HashMap<>();
         Map<String, String> mth = new HashMap<>();
@@ -167,8 +154,6 @@ public final class Mappings {
         }
         return new NameTable(cls, mth, fld, conflicts);
     }
-
-    // ------------------------------------------------------------ Forge SRG (tsrg2)
 
     public NameTable srg(List<String> tsrgLines) {
         Map<String, String> mth = new HashMap<>();
@@ -219,7 +204,6 @@ public final class Mappings {
                 }
             }
         }
-        // Forge mods already use Mojang class names, so the class table stays empty.
         return new NameTable(Map.of(), mth, fld, conflicts);
     }
 }

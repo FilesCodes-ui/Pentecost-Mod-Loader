@@ -15,24 +15,13 @@ import java.time.Duration;
 import java.util.HexFormat;
 import java.util.Map;
 
-/**
- * Downloads with retries and SHA-1 checks.
- *
- * Every download must use https and come from a host Pentecost expects (Mojang, Minecraft, Modrinth, Fabric,
- * Forge, NeoForged). Files that no caller gave a hash for are checked against the pinned hashes below.
- */
 public final class Http {
     public static final String USER_AGENT =
             "KHI-Pentecost/0.1.0 (Minecraft mod loader compatibility tooling)";
 
-    /** Domains downloads may come from, with their subdomains. */
     private static final String[] TRUSTED = {
             "mojang.com", "minecraft.net", "modrinth.com", "fabricmc.net", "minecraftforge.net", "neoforged.net"};
 
-    /**
-     * Files that are fetched by a fixed address and must always be the same bytes.
-     * Verified against the checksums published next to them on the Fabric and Forge Maven servers.
-     */
     private static final Map<String, String> PINNED = Map.of(
             "https://maven.fabricmc.net/net/fabricmc/intermediary/1.20.1/intermediary-1.20.1-v2.jar",
             "20ba9399cb5a23aa06ea901eff0a84e648d866db",
@@ -46,7 +35,6 @@ public final class Http {
 
     private Http() {}
 
-    /** Throws unless the address is https and on a trusted domain. */
     static void checkUrl(String url) throws IOException {
         URI u;
         try {
@@ -66,7 +54,6 @@ public final class Http {
         throw new IOException("Refusing a download from an unexpected host: " + host);
     }
 
-    /** The pinned hash for an address, or null when there is none. */
     static String pinned(String url) {
         return PINNED.get(url);
     }
@@ -75,7 +62,6 @@ public final class Http {
         return send(url, HttpResponse.BodyHandlers.ofString()).body();
     }
 
-    /** Sends a JSON body and returns the answer. The address must be https and on a trusted domain. */
     public static String postJson(String url, String json) throws IOException {
         checkUrl(url);
         HttpRequest req = HttpRequest.newBuilder(URI.create(url))
@@ -96,7 +82,6 @@ public final class Http {
         }
     }
 
-    /** Downloads url to dest. Skips the download when dest exists and matches sha1 (or sha1 is null). */
     public static Path download(String url, Path dest, String sha1) throws IOException {
         if (sha1 == null) {
             sha1 = pinned(url);

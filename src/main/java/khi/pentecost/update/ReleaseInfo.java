@@ -8,17 +8,12 @@ import java.io.IOException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * The newest Pentecost release on GitHub, reduced to what an update needs: its version, its notes and the installer file
- * with the SHA-256 GitHub lists for it. Only files from Pentecost's own releases are accepted.
- */
 public record ReleaseInfo(String tag, String version, String notes, String assetName, String url, String sha256, long size) {
     public static final String REPO = "FilesCodes-ui/Pentecost-Mod-Loader";
     public static final String LATEST_API = "https://api.github.com/repos/" + REPO + "/releases/latest";
     private static final String DOWNLOADS = "https://github.com/" + REPO + "/releases/download/";
     private static final Pattern INSTALLER = Pattern.compile("^Pentecost-Installer-[0-9][0-9A-Za-z.\\-]*\\.exe$");
 
-    /** Reads the answer of GitHub's "latest release" call. Throws when the release has no installer, or no checksum to check it by. */
     public static ReleaseInfo parse(String json) throws IOException {
         JsonObject o;
         try {
@@ -54,13 +49,11 @@ public record ReleaseInfo(String tag, String version, String notes, String asset
         throw new IOException("The newest release has no installer");
     }
 
-    /** "v0.3.1" gives "0.3.1". */
     public static String clean(String tag) {
         String s = tag.trim();
         return s.startsWith("v") || s.startsWith("V") ? s.substring(1) : s;
     }
 
-    /** True when latest is a higher version than current. Compares the dotted numbers; a version with a suffix like -beta is older than the plain one. */
     public static boolean newer(String latest, String current) {
         int[] a = numbers(clean(latest));
         int[] b = numbers(clean(current));

@@ -22,18 +22,12 @@ import net.minecraft.world.level.chunk.PalettedContainerRO;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * One finished chunk, ready to be handed to a client level: its sections, its heightmaps and the saved light.
- * Built from the chunk's saved NBT. Only chunks that reached the "full" status are accepted, because the others
- * (the generator's border chunks) are incomplete terrain.
- */
 public final class ChunkData {
     public final int x;
     public final int z;
     public final int minSectionY;
     public final LevelChunkSection[] sections;
     public final CompoundTag heightmaps;
-    /** Saved light by section Y. Includes the extra light-only sections above and below the world. */
     public final Map<Integer, DataLayer> skyLight;
     public final Map<Integer, DataLayer> blockLight;
     public final boolean lightOn;
@@ -51,7 +45,6 @@ public final class ChunkData {
         this.lightOn = lightOn;
     }
 
-    /** Null when the chunk is not finished. {@code minSectionY} is -4 for the vanilla overworld, 24 sections. */
     public static ChunkData build(CompoundTag tag, Registry<Biome> biomes, int minSectionY, int sectionCount) {
         String status = tag.getString("Status");
         if (!status.equals("minecraft:full") && !status.equals("full")) return null;
@@ -90,10 +83,6 @@ public final class ChunkData {
                 tag.getCompound("Heightmaps"), sky, block, tag.getBoolean("isLightOn"));
     }
 
-    /**
-     * The sections as a chunk packet carries them. A server builds this on its own thread and the client only reads it.
-     * Call it on a worker thread; the render thread then finds it ready.
-     */
     public byte[] packetBytes() {
         byte[] b = packet;
         if (b == null) {

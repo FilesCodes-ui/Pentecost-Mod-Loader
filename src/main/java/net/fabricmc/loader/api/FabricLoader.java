@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
 
-/** Pentecost's own copy of this Fabric Loader API type. Calls land in Pentecost. No Fabric Loader code runs. */
 public interface FabricLoader {
     static FabricLoader getInstance() {
         return khi.pentecost.adapter.fabric.FabricLoaderImpl.INSTANCE;

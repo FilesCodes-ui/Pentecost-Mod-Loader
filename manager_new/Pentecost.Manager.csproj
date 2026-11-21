@@ -4,18 +4,29 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net9.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Pentecost-Manager</AssemblyName>
     <RootNamespace>Pentecost.Manager</RootNamespace>
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <Version>0.7.0</Version>
+    <Version>1.0.0</Version>
     <Product>Pentecost Manager</Product>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 
   <ItemGroup>
     <Resource Include="app.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\tools\devkey\dev-key.cer" LogicalName="dev-key.cer" />
+    <EmbeddedResource Include="..\tools\devkey\dev-key-backup.cer" LogicalName="dev-key-backup.cer" Condition="Exists('..\tools\devkey\dev-key-backup.cer')" />
   </ItemGroup>
 
 </Project>

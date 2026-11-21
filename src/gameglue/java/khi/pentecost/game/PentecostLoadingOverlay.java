@@ -12,11 +12,6 @@ import java.lang.reflect.Field;
 import java.util.Optional;
 import java.util.function.Consumer;
 
-/**
- * Pentecost's loading screen, shown while the game loads or reloads resources.
- * It finishes the reload exactly as the game's own loading screen does; only the picture differs:
- * the logo and wordmark, a thin progress line, a RAM gauge and the time left.
- */
 final class PentecostLoadingOverlay extends Overlay {
     private final Minecraft minecraft;
     private final ReloadInstance reload;
@@ -26,8 +21,15 @@ final class PentecostLoadingOverlay extends Overlay {
     private float progress;
     private long fadeOutStart = -1L;
     private long fadeInStart = -1L;
-    /** Fonts load during the first reload. Until it ends, text would show as blank boxes. */
     private static boolean fontsReady;
+    private static final long MENU_WAIT_MS = 20_000;
+    private boolean finished;
+    private long finishedAt;
+    private boolean waitForMenu;
+    private boolean menuStarted;
+    private long settledSince = -1L;
+    private static final long SETTLE_MS = 600;
+    private static final long FADE_OUT_MS = 350;
 
     private PentecostLoadingOverlay(Minecraft mc, ReloadInstance reload, Consumer<Optional<Throwable>> onFinish, boolean fadeIn) {
         this.minecraft = mc;
@@ -36,7 +38,6 @@ final class PentecostLoadingOverlay extends Overlay {
         this.fadeIn = fadeIn;
     }
 
-    /** Pentecost's version of a game loading screen, or null when its parts cannot be read. */
     @SuppressWarnings("unchecked")
     static Overlay replace(LoadingOverlay original) {
         try {
@@ -62,22 +63,22 @@ final class PentecostLoadingOverlay extends Overlay {
         int w = g.guiWidth();
         int h = g.guiHeight();
         long now = Util.getMillis();
-        if (fadeIn && fadeInStart == -1L) {
-            fadeInStart = now;
+        if (!menuStarted) {
+            khi.pentecost.boot.Splash.close();
+            menuStarted = true;
+            try {
+                khi.pentecost.game.menuworld.MenuHost.prepareEarly();
+            } catch (Throwable t) {
+                khi.pentecost.boot.Log.warn("Menu world could not start early: " + t);
+            }
         }
-        float out = fadeOutStart > -1L ? (now - fadeOutStart) / 1000f : -1f;
-        float in = fadeInStart > -1L ? (now - fadeInStart) / 500f : -1f;
+        float out = fadeOutStart > -1L ? (now - fadeOutStart) / (float) FADE_OUT_MS : -1f;
         float alpha;
-        if (out >= 1f) {
+        if (out >= 0f) {
             if (minecraft.screen != null) {
                 minecraft.screen.render(g, 0, 0, partialTick);
             }
-            alpha = 1f - Mth.clamp(out - 1f, 0f, 1f);
-        } else if (fadeIn) {
-            if (minecraft.screen != null && in < 1f) {
-                minecraft.screen.render(g, mouseX, mouseY, partialTick);
-            }
-            alpha = Mth.clamp(in, 0.15f, 1f);
+            alpha = 1f - Mth.clamp(out, 0f, 1f);
         } else {
             alpha = 1f;
         }
@@ -89,12 +90,12 @@ final class PentecostLoadingOverlay extends Overlay {
             draw(g, w, h, a);
         }
 
-        if (out >= 2f) {
+        if (out >= 1f) {
             minecraft.setOverlay(null);
         }
-        if (fadeOutStart == -1L && reload.isDone() && (!fadeIn || in >= 2f)) {
-            // Marked as finished first: finishing can open a world, which draws frames while this runs.
-            fadeOutStart = Util.getMillis();
+        if (!finished && reload.isDone()) {
+            finished = true;
+            finishedAt = Util.getMillis();
             fontsReady = true;
             try {
                 reload.checkExceptions();
@@ -104,6 +105,30 @@ final class PentecostLoadingOverlay extends Overlay {
             }
             if (minecraft.screen != null) {
                 minecraft.screen.init(minecraft, w, h);
+            }
+            waitForMenu = minecraft.level == null && minecraft.screen instanceof net.minecraft.client.gui.screens.TitleScreen;
+            if (waitForMenu) {
+                khi.pentecost.game.menuworld.MenuHost.attach(minecraft);
+            }
+        }
+        if (finished && waitForMenu && fadeOutStart == -1L) {
+            try {
+                khi.pentecost.game.menuworld.MenuHost.frame(minecraft);
+            } catch (Throwable t) {
+                waitForMenu = false;
+            }
+        }
+        if (finished && fadeOutStart == -1L) {
+            boolean ready = !waitForMenu || khi.pentecost.game.menuworld.MenuHost.settled();
+            long t = Util.getMillis();
+            if (!ready) {
+                settledSince = -1L;
+            } else if (settledSince < 0) {
+                settledSince = t;
+            }
+            boolean wait = waitForMenu && (!ready || t - settledSince < SETTLE_MS) && t - finishedAt < MENU_WAIT_MS;
+            if (!wait) {
+                fadeOutStart = Util.getMillis();
             }
         }
     }
@@ -125,14 +150,12 @@ final class PentecostLoadingOverlay extends Overlay {
         Ui.logo(g, x, y - px, px, text);
         Ui.wordmark(g, "PENTECOST", x + (Ui.LOGO_W + 5) * px, y, px, text);
 
-        // Thin progress line under the mark.
         int ly = y + 14 * px + 18;
         g.fill(x, ly, x + markW, ly + 1, faint);
         g.fill(x, ly, x + Math.round(markW * progress), ly + 1, text);
-        String status = progress < 0.999f ? "Loading resources" : "Ready";
+        String status = progress < 0.999f ? "Loading resources" : finished && fadeOutStart == -1L ? "Preparing the menu world" : "Ready";
         if (fontsReady) g.drawString(minecraft.font, status, (vw - minecraft.font.width(status)) / 2, ly + 10, muted, false);
 
-        // RAM gauge, bottom left.
         Runtime rt = Runtime.getRuntime();
         double used = (rt.totalMemory() - rt.freeMemory()) / 1073741824.0;
         double max = rt.maxMemory() / 1073741824.0;
@@ -146,7 +169,6 @@ final class PentecostLoadingOverlay extends Overlay {
             g.fill(bx + s * 9, by + 12, bx + s * 9 + 7, by + 20, s < lit ? text : faint);
         }
 
-        // Time left, bottom right.
         long elapsed = Util.getMillis() - started;
         String left;
         if (progress >= 0.999f) {

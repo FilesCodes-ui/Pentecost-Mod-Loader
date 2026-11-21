@@ -10,11 +10,6 @@ public sealed record PackResult(string Name, int Mods, int Downloaded, int Copie
         + (Problems.Count > 0 ? $", {Problems.Count} skipped. The log lists them." : ".");
 }
 
-/// <summary>
-/// Modrinth packs (.mrpack). Export writes the mods of a profile. Import downloads a pack's mods and makes a profile
-/// for it. Import only writes inside the game's mods, config, shaderpacks and resourcepacks folders, and it never
-/// replaces a file that is already there.
-/// </summary>
 public static class Packs
 {
     static string RunDir => Path.Combine(Paths.Home, "run");
@@ -29,8 +24,8 @@ public static class Packs
         var mods = await Task.Run(ModScan.Scan, ct);
         try { await Modrinth.Lookup(mods, ct); }
         catch (Exception ex) { AppLog.Write("pack export lookup: " + ex.Message); }
-        var on = new HashSet<string>(profile.On, StringComparer.OrdinalIgnoreCase);
-        var chosen = mods.Where(m => on.Count > 0 ? on.Contains(m.BaseName) : m.Enabled).ToList();
+        if (ProfileStore.Active != profile) throw new IOException("Use this profile first, then export it.");
+        var chosen = mods.Where(m => m.Enabled).ToList();
         if (chosen.Count == 0) throw new IOException("This profile has no mods to export.");
 
         var linked = 0;
@@ -77,7 +72,6 @@ public static class Packs
         return (linked, bundled);
     }
 
-    /// <summary>Why this pack cannot run here, or null when it can.</summary>
     public static string? Problem(JsonObject index)
     {
         var deps = index["dependencies"] as JsonObject;
@@ -88,7 +82,6 @@ public static class Packs
         return null;
     }
 
-    /// <summary>Where a pack's file goes inside the game folder, or null when its name would reach outside it.</summary>
     public static string? SafeTarget(string root, string rel)
     {
         if (string.IsNullOrEmpty(rel) || rel.Contains(':')) return null;
@@ -97,7 +90,6 @@ public static class Packs
         return dest.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase) ? dest : null;
     }
 
-    /// <summary>Downloads the newest pack file of a Modrinth modpack for Minecraft 1.20.1 and imports it.</summary>
     public static async Task<PackResult> InstallFromModrinth(string projectId, string? loader, CancellationToken ct)
     {
         var versions = await Modrinth.Versions(projectId, null, ct);
@@ -108,7 +100,6 @@ public static class Packs
         return await InstallVersion(pick, ct);
     }
 
-    /// <summary>Downloads one version of a modpack, checks it, imports it, and removes the pack file.</summary>
     public static async Task<PackResult> InstallVersion(VersionInfo v, CancellationToken ct)
     {
         if (!v.FileName.EndsWith(".mrpack", StringComparison.OrdinalIgnoreCase)) throw new IOException("That version is not a Modrinth pack file.");
@@ -129,6 +120,11 @@ public static class Packs
             index = JsonNode.Parse(await r.ReadToEndAsync(ct)) as JsonObject ?? throw new IOException("The pack's index cannot be read.");
         if (Problem(index) is { } bad) throw new IOException(bad);
         var name = index["name"]?.ToString() is { Length: > 0 } n ? n : Path.GetFileNameWithoutExtension(path);
+        var profile = NewActiveProfile(name);
+        profile.FromPack = name + (index["versionId"]?.ToString() is { Length: > 0 } vid ? " " + vid : "");
+        ProfileStore.Save();
+        var here = Settings.ReuseMods ? await PackInfo.Local() : new Dictionary<string, string>();
+        var reused = 0;
 
         var modNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var problems = new List<string>();
@@ -161,12 +157,16 @@ public static class Packs
             if (File.Exists(Path.Combine(dir, file)) || File.Exists(Path.Combine(dir, file) + ".disabled")) continue;
             var url = (f["downloads"] as JsonArray)?.Select(x => x?.ToString()).FirstOrDefault(u => Modrinth.SafeImage(u) != null);
             var sha1 = f["hashes"]?["sha1"]?.ToString() ?? "";
+            if (sha1.Length == 40 && here.TryGetValue(sha1, out var have))
+            {
+                try { Directory.CreateDirectory(dir); File.Copy(have, Path.Combine(dir, file)); reused++; continue; }
+                catch (Exception ex) { AppLog.Write("pack reuse " + file + ": " + ex.Message); }
+            }
             if (url == null) { problems.Add(file + ": not hosted on Modrinth, skipped"); continue; }
             jobs.Add(Get(url, dir, file, sha1, Modrinth.Strong(f["hashes"]?["sha512"]?.ToString())));
         }
         await Task.WhenAll(jobs);
 
-        // Files the pack carries inside itself.
         var copied = await Task.Run(() =>
         {
             var count = 0;
@@ -202,13 +202,102 @@ public static class Packs
             return count;
         }, ct);
 
-        // The profile: the pack's mods on, every other mod off.
-        var profile = new ModProfile { Name = ProfileStore.UniqueName(name) };
-        foreach (var m in ModScan.Scan())
-            (modNames.Contains(m.BaseName) ? profile.On : profile.Off).Add(m.BaseName);
-        ProfileStore.Load().Profiles.Add(profile);
+        PackInfo.Forget();
+        return new PackResult(profile.Name, modNames.Count, downloaded, copied + reused, problems);
+    }
+
+    static ModProfile NewActiveProfile(string name)
+    {
+        if (Instances.GameRunning()) throw new IOException("Close the game first.");
+        var profile = ProfileStore.Add(name, copyActive: false);
+        var err = ProfileStore.SetActive(profile.Name);
+        if (err != null) throw new IOException(err);
+        return profile;
+    }
+
+    public static async Task<PackResult> ImportPentecost(string path, CancellationToken ct)
+    {
+        using var zip = ZipFile.OpenRead(path);
+        var entry = zip.GetEntry("pentecost-pack.json") ?? throw new IOException("This file is not a Pentecost pack.");
+        if (entry.Length > MaxIndex || zip.Entries.Count > MaxEntries) throw new IOException("This pack is larger than a pack should be, so it was not opened.");
+        JsonObject index;
+        using (var r = new StreamReader(entry.Open()))
+            index = JsonNode.Parse(await r.ReadToEndAsync(ct)) as JsonObject ?? throw new IOException("The pack's list cannot be read.");
+        var mc = index["minecraft"]?.ToString();
+        if (mc != null && mc != "1.20.1") throw new IOException($"This pack is for Minecraft {mc}. Pentecost runs 1.20.1.");
+        var name = "Pack " + (index["created"]?.ToString() ?? Path.GetFileNameWithoutExtension(path));
+        var profile = NewActiveProfile(name);
+        profile.FromPack = "a pack exported from the game";
         ProfileStore.Save();
-        ProfileStore.SetActive(profile.Name);
-        return new PackResult(profile.Name, profile.On.Count, downloaded, copied, problems);
+
+        var problems = new List<string>();
+        var downloaded = 0;
+        var mods = 0;
+        var local = await Task.Run(() =>
+        {
+            var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (!Directory.Exists(Instances.Root)) return map;
+            foreach (var file in Directory.EnumerateFiles(Instances.Root, "*", SearchOption.AllDirectories)
+                         .Where(f => f.EndsWith(".jar", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".jar.disabled", StringComparison.OrdinalIgnoreCase)))
+            {
+                try
+                {
+                    using var s = File.OpenRead(file);
+                    map.TryAdd(Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(s)), file);
+                }
+                catch { }
+            }
+            return map;
+        }, ct);
+
+        foreach (var m in (index["mods"] as JsonArray)?.OfType<JsonObject>() ?? Enumerable.Empty<JsonObject>())
+        {
+            var file = m["file"]?.ToString() ?? "";
+            var sha1 = m["sha1"]?.ToString() ?? "";
+            var on = m["enabled"]?.GetValue<bool>() ?? true;
+            if (file.Length == 0 || file != Path.GetFileName(file) || !file.EndsWith(".jar", StringComparison.OrdinalIgnoreCase)) continue;
+            var dest = Path.Combine(Paths.Mods, file);
+            try
+            {
+                if (sha1.Length == 40 && local.TryGetValue(sha1, out var have))
+                    File.Copy(have, dest, true);
+                else if (sha1.Length == 40)
+                {
+                    var ver = JsonNode.Parse(await Modrinth.Client.GetStringAsync($"https://api.modrinth.com/v2/version_file/{sha1}?algorithm=sha1", ct)) as JsonObject;
+                    var url = (ver?["files"] as JsonArray)?.OfType<JsonObject>()
+                        .FirstOrDefault(f => f["hashes"]?["sha1"]?.ToString()?.Equals(sha1, StringComparison.OrdinalIgnoreCase) == true)?["url"]?.ToString();
+                    if (url == null || Modrinth.SafeImage(url) == null) { problems.Add(file + ": not on Modrinth and not on this computer, skipped"); continue; }
+                    await Downloads.Fetch(url, Paths.Mods, file, sha1, ct);
+                    downloaded++;
+                }
+                else { problems.Add(file + ": no checksum, skipped"); continue; }
+                if (!on && File.Exists(dest)) File.Move(dest, dest + ".disabled", true);
+                mods++;
+            }
+            catch (Exception ex) { problems.Add(file + ": " + ex.Message); }
+        }
+
+        var copied = await Task.Run(() =>
+        {
+            var count = 0;
+            long total = 0;
+            var root = Path.Combine(RunDir, "config");
+            foreach (var e in zip.Entries)
+            {
+                var full = e.FullName.Replace('\\', '/');
+                if (!full.StartsWith("config/") || full.EndsWith('/')) continue;
+                var dest = SafeTarget(root, full[7..]);
+                if (dest == null || e.Length > MaxFile || (total += e.Length) > MaxTotal) continue;
+                try
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                    e.ExtractToFile(dest, true);
+                    count++;
+                }
+                catch (Exception ex) { lock (problems) problems.Add(full + ": " + ex.Message); }
+            }
+            return count;
+        }, ct);
+        return new PackResult(profile.Name, mods, downloaded, copied, problems);
     }
 }

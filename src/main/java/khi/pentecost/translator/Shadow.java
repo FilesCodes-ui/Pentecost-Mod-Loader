@@ -26,18 +26,9 @@ import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-/**
- * The translator in shadow mode. It reads every mod jar and works out, for each mod, which other mods it really
- * uses (its parents), which of those it never declared (often optional support), and which classes it needs that no
- * jar has. For each missing class it says what it would link it to, and how sure it is. It changes nothing: the
- * current bridges keep doing the work. The report shows where the translator would agree with them and where it
- * would help, before it is ever allowed to act.
- */
 public final class Shadow {
-    /** A mod another mod uses. */
     public record Parent(String id, int classes, boolean declared) {}
 
-    /** What the translator would do with a class no jar has. */
     public record Gap(String missing, String usedBy, String candidate, String candidateMod, int score, String decision) {}
 
     public record ModReport(String id, LoaderKind loader, int classes, List<Parent> parents, List<Gap> gaps, List<String> mixinTargets) {}
@@ -49,10 +40,6 @@ public final class Shadow {
 
     private Shadow() {}
 
-    /**
-     * Reads the mods. elsewhere answers whether a class exists outside the mods (the game, Forge, a library),
-     * so those are never counted as missing.
-     */
     public static Result analyze(List<ModInfo> mods, Predicate<String> elsewhere) {
         long t0 = System.currentTimeMillis();
         Map<String, String> owner = new HashMap<>();
@@ -73,7 +60,6 @@ public final class Shadow {
                         }
                     }
                 } catch (IOException ignored) {
-                    // An unreadable jar is reported as having no classes.
                 }
             }
             classesOf.put(m.id(), names);
@@ -142,7 +128,6 @@ public final class Shadow {
         return new Result(out, owner.size(), System.currentTimeMillis() - t0);
     }
 
-    /** Every class a class file names: class constants, type descriptors, and class names written as text. */
     static Set<String> references(ClassReader r) {
         Set<String> out = new HashSet<>();
         char[] buf = new char[r.getMaxStringLength() + 1];
@@ -204,10 +189,6 @@ public final class Shadow {
         return c.substring(c.lastIndexOf('/') + 1);
     }
 
-    /**
-     * The best stand-in for a missing class: a class with the same simple name, scored by how much of the package
-     * they share and whether it comes from a mod this one already uses. The decision follows the score.
-     */
     static Gap gap(String ref, String usedBy, Map<String, List<String>> bySimple, Map<String, String> owner, Set<String> parents, String self) {
         List<String> same = bySimple.getOrDefault(simple(ref), List.of());
         String best = null;
@@ -250,7 +231,6 @@ public final class Shadow {
                 best == null ? "" : owner.get(best), bestScore, decision);
     }
 
-    /** The report as text, for a person. */
     public static String text(Result r) {
         StringBuilder b = new StringBuilder();
         b.append("Pentecost translator, shadow mode\n");

@@ -15,11 +15,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.WeakHashMap;
 
-/**
- * Turns skin and cape PNG files into game textures for the wardrobe and the settings preview.
- * Old 64 by 32 skins are converted to the 64 by 64 layout the player model reads, the way the game does it.
- * Only the render thread may call these. A texture is made once per image and dropped when many others were made after it.
- */
 final class SkinTextures {
     private static final int KEEP = 64;
     private static final ResourceLocation BAD = new ResourceLocation("pentecost", "skins/bad");
@@ -36,17 +31,14 @@ final class SkinTextures {
             return true;
         }
     };
-    /** The key of an array already seen, so the same bytes are not hashed every frame. */
     private static final Map<byte[], String> KEYS = new WeakHashMap<>();
 
     private SkinTextures() {}
 
-    /** The texture for a skin image, or null when the bytes are not a readable skin. */
     static ResourceLocation skin(byte[] png) {
         return get(png, true);
     }
 
-    /** The texture for a cape image, or null when the bytes are not a readable cape. */
     static ResourceLocation cape(byte[] png) {
         return get(png, false);
     }
@@ -84,8 +76,6 @@ final class SkinTextures {
         }
     }
 
-    // ------------------------------------------------------------------ images
-
     private static NativeImage skinImage(byte[] png) throws IOException {
         NativeImage in = NativeImage.read(new ByteArrayInputStream(png));
         NativeImage image = in;
@@ -122,14 +112,12 @@ final class SkinTextures {
         if (in.getWidth() >= 64 && in.getHeight() * 2 == in.getWidth()) {
             return in;
         }
-        // The old 22 by 17 cape: put it in the top left corner of the 64 by 32 sheet the model reads.
         NativeImage sheet = new NativeImage(64, 32, true);
         sheet.copyFrom(in);
         in.close();
         return sheet;
     }
 
-    /** The base layers have no see-through parts. */
     private static void opaque(NativeImage image, int x1, int y1, int x2, int y2) {
         for (int x = x1; x < x2; x++) {
             for (int y = y1; y < y2; y++) {
@@ -138,7 +126,6 @@ final class SkinTextures {
         }
     }
 
-    /** Old skins with a fully solid hat area meant "no hat". New skins would show a solid block, so make that area clear. */
     private static void keepOuterLayerIfSolid(NativeImage image) {
         for (int x = 32; x < 64; x++) {
             for (int y = 0; y < 32; y++) {

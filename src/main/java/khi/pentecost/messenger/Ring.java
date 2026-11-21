@@ -3,11 +3,6 @@ package khi.pentecost.messenger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongArray;
 
-/**
- * A bounded queue with no locks, for many senders and any number of readers. Each slot carries a sequence number,
- * so a sender claims a slot with one compare and set and a reader takes it with another (the design by Dmitry Vyukov).
- * Offer returns false when the queue is full. It never blocks and never makes garbage.
- */
 final class Ring<E> {
     private final Object[] items;
     private final AtomicLongArray seq;

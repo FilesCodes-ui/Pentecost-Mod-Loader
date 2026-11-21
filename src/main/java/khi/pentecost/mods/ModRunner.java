@@ -13,9 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Checks dependencies and starts every mod. One failing mod never stops the others. */
 public final class ModRunner {
-    /** Ids the loader itself answers for. Library mods such as Fabric API stay normal jars. */
     private static final Set<String> BUILT_IN = Set.of("minecraft", "java", "forge", "fabricloader",
             "fabric-loader", "quilt_loader", "pentecost", "mixinextras");
 
@@ -24,7 +22,7 @@ public final class ModRunner {
     private final Map<String, Throwable> failures = new LinkedHashMap<>();
     private final Map<String, List<String>> missing = new LinkedHashMap<>();
     private final List<String> started = new ArrayList<>();
-    /** Fabric and Quilt mods whose client side starts inside Forge's client setup step. */
+
     private final Set<String> waiting = new java.util.LinkedHashSet<>();
 
     public ModRunner(ClassLoader loader, List<ModInfo> mods) {
@@ -32,7 +30,6 @@ public final class ModRunner {
         this.mods = mods;
     }
 
-    /** Records mods whose required dependencies are absent. Those mods do not start. */
     public void checkDependencies() {
         Set<String> present = new java.util.HashSet<>(BUILT_IN);
         for (ModInfo m : mods) {
@@ -42,7 +39,7 @@ public final class ModRunner {
             }
         }
         for (ModInfo m : mods) {
-            List<String> gone = m.depends().stream().filter(d -> !present.contains(d)).toList();
+            List<String> gone = m.depends().stream().filter(d -> !ModDiscovery.met(d, present)).toList();
             if (!gone.isEmpty()) {
                 missing.put(m.id(), gone);
                 Log.error(m.name() + " needs " + String.join(", ", gone)
@@ -51,7 +48,6 @@ public final class ModRunner {
         }
     }
 
-    /** Runs Fabric and Quilt preLaunch entrypoints. These run before the game's own main method. */
     public void runPreLaunch() {
         for (ModInfo m : mods) {
             if (missing.containsKey(m.id()) || m.loader() == LoaderKind.FORGE) {
@@ -92,8 +88,7 @@ public final class ModRunner {
                 fail(m, t);
             }
         }
-        // As on Fabric: every mod's common start code runs first, then every mod's client start code.
-        // A mod's client code can rely on another mod's common code having run.
+
         if (client) {
             for (ModInfo m : mods) {
                 if (!started.contains(m.id()) || failures.containsKey(m.id()) || waiting.contains(m.id())
@@ -125,12 +120,6 @@ public final class ModRunner {
         return id.startsWith("fabric-") || id.startsWith("fabric_") || id.equals("mixinextras");
     }
 
-    /**
-     * Startup order across loaders. A Fabric or Quilt mod that names a Forge mod in its own metadata
-     * works with that mod. Forge mods get ready in their client setup handlers, and Forge-side
-     * libraries close their own setup in the tasks queued behind those handlers.
-     * So that mod's client side starts between the two: the Forge mod is ready, the library is still open.
-     */
     private boolean waitsForForge(ModInfo m) {
         if (!khi.pentecost.core.PentecostRuntime.forgeLayer || m.entrypoints("client").isEmpty()
                 || (m.loader() != LoaderKind.FABRIC && m.loader() != LoaderKind.QUILT)) {
@@ -152,7 +141,6 @@ public final class ModRunner {
         return false;
     }
 
-    /** Starts the client side of the mods that waited for Forge's client setup handlers. */
     public void runWaitingClient() {
         for (ModInfo m : mods) {
             if (!waiting.remove(m.id()) || failures.containsKey(m.id())) {
@@ -181,7 +169,7 @@ public final class ModRunner {
         for (int i = 0; i < Math.min(6, st.length); i++) {
             Log.error("    at " + st[i]);
         }
-        // The top lines are often game or loader code. Also show where the mod's own code made the call.
+
         for (int i = 6; i < st.length; i++) {
             String c = st[i].getClassName();
             if (!c.startsWith("net.minecraft") && !c.startsWith("com.mojang") && !c.startsWith("java.")
@@ -191,7 +179,7 @@ public final class ModRunner {
                 break;
             }
         }
-        // The root reason is usually a few causes down. Show each with the lines that name it.
+
         int depth = 0;
         for (Throwable c = cause.getCause(); c != null && c != cause && depth < 5; c = c.getCause(), depth++) {
             Log.error("  Caused by: " + c);

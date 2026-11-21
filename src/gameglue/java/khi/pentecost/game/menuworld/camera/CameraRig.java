@@ -2,18 +2,8 @@ package khi.pentecost.game.menuworld.camera;
 
 import khi.pentecost.game.menuworld.source.Terrain;
 
-/**
- * Plays one shot at a time. On top of the shot's rails it adds a spring on the aim, a gentle terrain safety net,
- * banking into turns, handheld drift, field of view breathing, and a fade at both ends.
- *
- * The heights of open-air shots are planned ahead by {@link PathFit}, so the terrain net here rarely has anything to
- * do. When it does, it lifts the camera quickly and lowers it slowly, from the land around the camera rather than
- * the single block below it, so it never hops. Guided shots (tunnels, streets) skip the terrain net: their routes
- * were planned through the blocks themselves.
- */
 public final class CameraRig {
     private static final double LOOK_SMOOTH = 0.9;
-    /** Seconds ahead along the path that the terrain net looks, so it reacts to land before the camera is over it. */
     private static final double[] LOOK_AHEAD = {0.8, 1.6, 2.5};
     private double clearance = 7.0;
     private double fadeSeconds = 1.2;
@@ -32,8 +22,6 @@ public final class CameraRig {
     private double lastYaw = Double.NaN;
     private double yawRate;
     private double bankRoll;
-    // one clock and eased handheld, roll and field of view that run through every shot, so a shot that carries on
-    // from the last never restarts the sway or jumps the roll or zoom
     private double clock;
     private double handAmp, rollSm, fovSm;
     private boolean smoothed;
@@ -41,7 +29,6 @@ public final class CameraRig {
     private boolean fadeOut = true;
     private double fadeOutFrom = Double.NaN;
 
-    /** The player's camera settings. Takes effect on the next frame. */
     public void style(double handheldScale, double clearance, double fadeSeconds, double fovOffset) {
         this.handheldScale = Math.max(0, handheldScale);
         this.clearance = Math.max(0, clearance);
@@ -49,12 +36,10 @@ public final class CameraRig {
         this.fovOffset = fovOffset;
     }
 
-    /** Whether the camera leans into turns. */
     public void banking(boolean on) {
         this.banking = on;
     }
 
-    /** Keeps the camera over land that exists: inside this box (blocks). */
     public void limits(double minX, double minZ, double maxX, double maxZ) {
         this.boxed = minX < maxX && minZ < maxZ;
         this.minX = minX;
@@ -67,11 +52,6 @@ public final class CameraRig {
         start(next, true, true);
     }
 
-    /**
-     * Starts a shot. With {@code fadeIn} false the shot carries on from the one before it (a flight between places):
-     * the aim, the terrain lift and the banking are kept, so the picture does not jump. Likewise {@code fadeOut} false
-     * means the next shot will carry on from this one, so the picture is not faded down at the end.
-     */
     public void start(Shot next, boolean fadeIn, boolean fadeOut) {
         boolean carry = !fadeIn && aim != null;
         shot = next;
@@ -91,10 +71,8 @@ public final class CameraRig {
         phase = (next.id().hashCode() & 0xFFFF) / 10000.0;
     }
 
-    /** Changes whether the end of the playing shot fades, once it is known whether the next one flies on from it. */
     public void fadeOut(boolean fade) {
         this.fadeOut = fade;
-        // A cut learned late fades from now on. It never starts from a half faded picture that jumps.
         this.fadeOutFrom = fade && shot != null ? Math.max(time, Math.max(0, shot.seconds() - fadeSeconds)) : Double.NaN;
     }
 
@@ -102,7 +80,6 @@ public final class CameraRig {
         return shot == null || time >= shot.seconds();
     }
 
-    /** Seconds left in the playing shot. */
     public double remaining() {
         return shot == null ? 0 : Math.max(0, shot.seconds() - time);
     }
@@ -111,7 +88,6 @@ public final class CameraRig {
         return shot;
     }
 
-    /** 0 to 1: how visible the picture should be, for a soft cut at the start and end of the shot. */
     public double fade() {
         if (shot == null) {
             return 0;
@@ -147,8 +123,6 @@ public final class CameraRig {
             double minClear = shot.clearance() > 0 ? shot.clearance() : clearance;
             double soft = GroundField.envelope(terrain, eye.x(), eye.z(), 6) + minClear;
             double needNow = Math.max(0, soft - eye.y());
-            // Look ahead along the path: the land the camera will be over in the next seconds counts now, so it starts
-            // rising before a ridge and does not dip back down just before one.
             double need = needNow;
             double total = shot.seconds();
             for (double ahead : LOOK_AHEAD) {
@@ -165,7 +139,7 @@ public final class CameraRig {
             }
             double tau = need > lift ? (need > needNow + 0.5 ? 0.9 : 0.4) : 2.2;
             double step = (need - lift) * (1 - Math.exp(-dt / tau));
-            lift += Math.max(-3.0 * dt, Math.min(8.0 * dt, step)); // never a hop, even when the land arrives late
+            lift += Math.max(-3.0 * dt, Math.min(8.0 * dt, step));
             eye = eye.add(0, lift, 0);
             double hard = GroundField.envelope(terrain, eye.x(), eye.z(), 2) + 1.4;
             if (eye.y() < hard) {
@@ -217,7 +191,6 @@ public final class CameraRig {
         return d;
     }
 
-    /** Critically damped spring toward a target. Returns {value, velocity}. */
     private static double[] smoothDamp(double cur, double target, double vel, double smooth, double dt) {
         double omega = 2.0 / smooth;
         double x = omega * dt;

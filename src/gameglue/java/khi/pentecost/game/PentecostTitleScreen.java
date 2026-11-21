@@ -16,10 +16,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Pentecost's main menu. It is the game's main menu underneath, so mods that add to the main menu
- * still find it. Pentecost draws its own layout on top.
- */
 public final class PentecostTitleScreen extends TitleScreen {
     private static final List<String> MAIN = List.of("menu.singleplayer", "menu.multiplayer", MenuView.FRIENDS, MenuView.MODS,
             MenuView.SETTINGS, "menu.options", MenuView.ACCOUNT, "menu.quit");
@@ -46,11 +42,12 @@ public final class PentecostTitleScreen extends TitleScreen {
 
     @Override
     public void removed() {
-        MenuHost.detach(minecraft);
+        if (!MenuHost.staysBehindMenus()) {
+            MenuHost.detach(minecraft);
+        }
         super.removed();
     }
 
-    /** With the menu world showing the game has a player, which would pick the in-game music. The menu keeps its own. */
     @Override
     public Music getBackgroundMusic() {
         return Musics.MENU;
@@ -62,11 +59,11 @@ public final class PentecostTitleScreen extends TitleScreen {
         view.harvest(children());
         MenuHost.frame(minecraft);
         if (MenuHost.showing()) {
-            // The live world is already drawn by the game. Black over it while it loads and at each cut.
             int black = Math.round(MenuHost.cover() * 255F);
             if (black > 0) g.fill(0, 0, width, height, black << 24);
+        } else if (MenuHost.coming()) {
+            g.fill(0, 0, width, height, 0xFF000000);
         } else {
-            // The game's turning landscape. Dark only behind the menu column, clear on the right.
             backdrop.render(partialTick, 1.0F);
         }
         shade(g);
@@ -83,9 +80,9 @@ public final class PentecostTitleScreen extends TitleScreen {
                         + "   " + mods + " mods", "Copyright Mojang AB. Do not distribute!"),
                 MAIN, LINKS);
         UpdateNotice.draw(this, g, mouseX, mouseY);
+        ModWarnNotice.draw(this, g, mouseX, mouseY, UpdateNotice.roomTaken());
     }
 
-    /** A dark gradient that fades out left to right, plus a light vignette top and bottom. */
     private void shade(GuiGraphics g) {
         int reach = (int) (width * 0.55F);
         int step = 4;
@@ -101,6 +98,9 @@ public final class PentecostTitleScreen extends TitleScreen {
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (button == 0 && UpdateNotice.click(this, mouseX, mouseY)) {
+            return true;
+        }
+        if (button == 0 && ModWarnNotice.click(this, mouseX, mouseY)) {
             return true;
         }
         if (button == 0 && view.click(mouseX, mouseY)) {

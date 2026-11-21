@@ -40,7 +40,6 @@ class LaunchSessionTest {
     void anIncompleteSessionIsNotUsed() {
         assertFalse(LaunchSession.parse(new String[]{"--username", "Alex", "--accessToken", FAKE_TOKEN}).real());
         assertFalse(LaunchSession.parse(new String[]{"--uuid", "u", "--accessToken", FAKE_TOKEN}).real());
-        // A flag at the very end has no value and must not throw.
         assertFalse(LaunchSession.parse(new String[]{"--username"}).real());
     }
 

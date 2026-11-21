@@ -14,7 +14,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-/** The item in your hand and what is in your pockets. */
 final class ItemCmds {
     private static final String C = "Items";
 

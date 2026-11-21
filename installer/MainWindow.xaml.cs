@@ -36,10 +36,6 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>
-    /// Started by the game's Update button: wait for the game to close so its files are free, then install over the old copy.
-    /// The main menu worlds are not downloaded again, and the player's worlds, mods and settings stay.
-    /// </summary>
     async Task RunUpdateAsync(int waitPid)
     {
         WorldsBox.IsChecked = false;
@@ -54,14 +50,12 @@ public partial class MainWindow : Window
             await Task.Run(() =>
             {
                 try { System.Diagnostics.Process.GetProcessById(waitPid).WaitForExit(60_000); }
-                catch (ArgumentException) { /* already closed */ }
+                catch (ArgumentException) { }
                 catch (Exception ex) { Log.Write("wait failed: " + ex.Message); }
             });
         }
         await RunAsync(false);
     }
-
-    // ------------------------------------------------------------------ pages
 
     void RefreshHome()
     {
@@ -75,7 +69,6 @@ public partial class MainWindow : Window
         UninstallBtn.Visibility = installed == null ? Visibility.Collapsed : Visibility.Visible;
         FolderText.Text = mc;
         FolderText.ToolTip = mc;
-        // Look in run\menu_world first, so the box only offers the worlds that are actually missing.
         var allWorlds = Worlds.Load().Worlds.Count;
         var missing = Worlds.Missing(Setup.HomeOf(mc));
         var bytes = missing.Sum(w => w.Size);
@@ -100,7 +93,6 @@ public partial class MainWindow : Window
                 : "Pentecost shows these behind the title screen. You can skip them and run this installer again later.";
         }
 
-        // Look in run\mods first, so the box only offers what is actually missing.
         var have = VideoMods.Installed(Setup.HomeOf(mc));
         if (have.Embeddium && have.Oculus)
         {
@@ -142,8 +134,6 @@ public partial class MainWindow : Window
         ProgPercent.Text = $"{(int)Math.Round(Math.Clamp(fraction, 0, 1) * 100)}%";
     }
 
-    // ---------------------------------------------------------------- actions
-
     async Task RunAsync(bool uninstall)
     {
         lastWasUninstall = uninstall;
@@ -176,7 +166,7 @@ public partial class MainWindow : Window
                 ShowDone(uninstall: false, result);
             }
         }
-        catch (OperationCanceledException) { /* the window is closing */ }
+        catch (OperationCanceledException) { }
         catch (SetupException ex) { Log.Write("error: " + ex.Message); ShowError(ex.Message); }
         catch (Exception ex)
         {
@@ -221,8 +211,6 @@ public partial class MainWindow : Window
         ErrLog.Text = "Details are in " + Log.Path_;
         Show(ErrorPanel);
     }
-
-    // --------------------------------------------------------------- handlers
 
     void TitleBar_MouseDown(object sender, MouseButtonEventArgs e)
     {

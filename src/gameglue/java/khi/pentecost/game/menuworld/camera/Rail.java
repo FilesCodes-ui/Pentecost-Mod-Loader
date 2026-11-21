@@ -3,10 +3,6 @@ package khi.pentecost.game.menuworld.camera;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * A smooth path through control points: a Catmull-Rom spline sampled into a table, then looked up by distance
- * travelled, so moving along 0..1 is a steady speed whatever the control point spacing is.
- */
 public final class Rail {
     private static final int PER_SEGMENT = 48;
 
@@ -15,10 +11,6 @@ public final class Rail {
     private final double length;
     private final boolean uniform;
 
-    /**
-     * Two rails made with {@link #uniform} and the same number of control points move in step: at any u the second is
-     * exactly the first plus the difference of their control points. A look rail built as "eye plus an offset" relies on that.
-     */
     public static Rail uniform(List<Vec> control) {
         return new Rail(control, true);
     }
@@ -83,7 +75,6 @@ public final class Rail {
         return length;
     }
 
-    /** The point u of the way along the rail, by distance, u in 0..1. */
     public Vec at(double u) {
         if (uniform) {
             double pos = Math.max(0, Math.min(1, u)) * (samples.length - 1);

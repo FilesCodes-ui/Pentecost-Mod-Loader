@@ -32,7 +32,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/** For operators and for looking after a server: giving, clearing, borders, jail, saving and inspecting. */
 final class AdminCmds {
     private static final String C = "Admin";
 
@@ -108,7 +107,6 @@ final class AdminCmds {
     }
 
     static void add() {
-        // ---- players
         Qol.none(C, "tpall", 2, "Bring everyone to you", c -> {
             ServerPlayer me = Qol.me(c);
             int n = 0;
@@ -202,7 +200,6 @@ final class AdminCmds {
             return Qol.ok(c, "Ran /" + cmd + " as " + n + " player" + (n == 1 ? "" : "s") + ".");
         });
 
-        // ---- jail
         Qol.none(C, "setjail", 2, "Make where you stand the jail", c -> {
             Store.setWarp("jail", Where.of(Qol.me(c)));
             return Qol.ok(c, "Jail set at " + Where.describe(Where.of(Qol.me(c))) + ".");
@@ -222,7 +219,6 @@ final class AdminCmds {
             return Qol.ok(c, "Released " + name(t) + ".");
         });
 
-        // ---- items
         Qol.custom("Items", "i", 2, "<item> [count]", "Give yourself an item (any amount)",
                 Qol.lit("i", 2).then(Commands.argument("word", StringArgumentType.word()).suggests(ITEMS)
                         .executes(Qol.guard(c -> giveTo(c.getSource(), List.of(Qol.me(c)), StringArgumentType.getString(c, "word"), 1)))
@@ -277,7 +273,6 @@ final class AdminCmds {
                             return Qol.ok(c, out.isEmpty() ? "Nobody has any." : "Carrying it: " + String.join(", ", out));
                         }))));
 
-        // ---- the world and the server
         Qol.integer(C, "border", 2, "<size>", "Set the world border's width", 1, 59_999_968, false, (c, n) -> {
             c.getSource().getServer().overworld().getWorldBorder().setSize(n);
             return Qol.ok(c, "The border is now " + n + " blocks wide.");
@@ -389,7 +384,6 @@ final class AdminCmds {
             return Qol.ok(c, s.getPlayerCount() + " of " + s.getMaxPlayers() + " places taken.");
         });
 
-        // ---- looking at things
         Qol.none("Locate", "blockinfo", 0, "Show the block you are looking at", c -> {
             ServerPlayer p = Qol.me(c);
             HitResult hit = p.pick(300.0, 1.0F, false);

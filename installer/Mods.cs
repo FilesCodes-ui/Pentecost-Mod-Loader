@@ -5,11 +5,6 @@ using System.Text.RegularExpressions;
 
 namespace Pentecost.Installer;
 
-/// <summary>
-/// Embeddium (more video options, faster rendering) and Oculus (shader packs): the two mods Pentecost's Video and Shaders
-/// pages are built around. Files come from Modrinth for Minecraft 1.20.1 on Forge, are checked against Modrinth's SHA-1,
-/// and go into run\mods. A mod already there, in any version, is left alone. Nothing here may fail the install.
-/// </summary>
 public static class VideoMods
 {
     static readonly string[] Projects = { "embeddium", "oculus" };
@@ -22,7 +17,6 @@ public static class VideoMods
         return c;
     }
 
-    /// <summary>Returns how many of the mods could not be installed.</summary>
     public static async Task<int> InstallAsync(string home, Action<double, string> report, CancellationToken ct)
     {
         var mods = Path.Combine(home, "run", "mods");
@@ -89,18 +83,12 @@ public static class VideoMods
                     await InstallOne(id, mods, seen, depth + 1, ct);
     }
 
-    /// <summary>Whether each of the two mods already has a jar in run\mods, in any version. No network.</summary>
     public static (bool Embeddium, bool Oculus) Installed(string home)
     {
         var mods = Path.Combine(home, "run", "mods");
         return (Has(mods, "embeddium"), Has(mods, "oculus"));
     }
 
-    /// <summary>
-    /// True when a jar in the folder is this project: its name, then an optional "forge" or "mc" part, then a version
-    /// number ("oculus-mc1.20.1-1.8.0.jar", "embeddium-0.3.31+mc1.20.1.jar"). A different mod that only starts with
-    /// the same word ("embeddium-extra-...") is not a match.
-    /// </summary>
     static bool Has(string mods, string project)
     {
         if (!Directory.Exists(mods)) return false;
@@ -108,7 +96,6 @@ public static class VideoMods
         return Directory.GetFiles(mods, "*.jar").Any(f => rx.IsMatch(Path.GetFileName(f)));
     }
 
-    /// <summary>The mod's name without its version: "embeddium-0.3.31+mc1.20.1.jar" gives "embeddium".</summary>
     static string BaseName(string file)
     {
         var n = Path.GetFileNameWithoutExtension(file);

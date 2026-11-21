@@ -19,13 +19,8 @@ import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-/**
- * Converts the game and every mod to readable names, once. Results sit in the cache folder,
- * so later launches skip all of this work. Mapping files load only when something needs converting.
- */
 public final class RemapService {
-    /** Bump when the conversion changes, so old cached mod jars are rebuilt. */
-    private static final String MOD_CACHE = "mods-v8";
+    private static final String MOD_CACHE = "mods-v9";
     private static final String INTERMEDIARY =
             "https://maven.fabricmc.net/net/fabricmc/intermediary/%s/intermediary-%s-v2.jar";
     private static final String MCP_CONFIG_1_20_1 =
@@ -42,7 +37,6 @@ public final class RemapService {
         this.vanilla = vanilla;
     }
 
-    /** Returns the game files with the client jar swapped for the readable-name copy. */
     public GameFiles game() throws IOException {
         Path out = Dirs.cache().resolve("remapped").resolve("client-" + vanilla.version() + "-named.jar");
         if (!Files.isRegularFile(out)) {
@@ -55,7 +49,6 @@ public final class RemapService {
                 vanilla.assetsDir(), vanilla.assetIndex(), vanilla.mainClass());
     }
 
-    /** Returns the mod list with each jar swapped for its readable-name copy. */
     public List<ModInfo> mods(List<ModInfo> mods) throws IOException {
         List<ModInfo> out = new ArrayList<>();
         Path dir = Dirs.mk(Dirs.cache().resolve(MOD_CACHE));
@@ -63,7 +56,6 @@ public final class RemapService {
         int converted = 0;
         long t = System.nanoTime();
         for (ModInfo m : mods) {
-            // Several Forge mods can share one jar. Convert each jar once.
             Path dest = doneJars.get(m.jar().toString());
             if (dest == null) {
                 String hash = Http.sha1(m.jar()).substring(0, 12);
@@ -83,7 +75,6 @@ public final class RemapService {
         return out;
     }
 
-    /** One merged name table for every mod. Intermediary and SRG names never collide. */
     public Mappings.NameTable modTable() throws IOException {
         if (merged == null) {
             Mappings.NameTable a = intermediary();

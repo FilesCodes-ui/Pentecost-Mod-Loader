@@ -24,16 +24,11 @@ import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-/**
- * Opens game members that mods ask for. Reads Fabric and Quilt access widener files
- * and Forge access transformer files into one rule set. Without this a mod dies with an access error.
- */
 public final class AccessWidener implements ClassTransformer {
     private static final int ACCESSIBLE = 1;
     private static final int EXTENDABLE = 2;
     private static final int MUTABLE = 4;
     private static final int PROTECTED = 8;
-    /** Set by Forge rules: a private method opened to the public stays overridable. */
     private static final int KEEP_OPEN = 16;
 
     private static final class Rules {
@@ -84,10 +79,6 @@ public final class AccessWidener implements ClassTransformer {
     private static final String SHADOW = "Lorg/spongepowered/asm/mixin/Shadow;";
     private static final String MUTABLE_ANN = "Lorg/spongepowered/asm/mixin/Mutable;";
 
-    /**
-     * Opens every game field a mod's mixin marks @Shadow @Mutable. Returns how many.
-     * Fabric's Mixin does this on its own. Forge's Mixin, which runs on the Forge layer, does not.
-     */
     private int readMutableShadows(ModInfo m) {
         if (m.mixins() == null || m.mixins().isEmpty()) {
             return 0;
@@ -201,7 +192,6 @@ public final class AccessWidener implements ClassTransformer {
         return count;
     }
 
-    /** Reads META-INF/accesstransformer.cfg from each jar. Forge writes member names in SRG form. */
     public void addAccessTransformers(List<Path> jars, TextRemapper text) {
         int files = 0;
         for (Path jar : jars) {
@@ -322,6 +312,11 @@ public final class AccessWidener implements ClassTransformer {
         }
     }
 
+    public void addBuiltIn() {
+        Rules cr = rulesFor("net/minecraft/client/multiplayer/ClientLevel");
+        cr.methods.merge("getEntities()Lnet/minecraft/world/level/entity/LevelEntityGetter;", ACCESSIBLE, (a, b) -> a | b);
+    }
+
     public boolean isEmpty() {
         return rules.isEmpty();
     }
@@ -329,7 +324,6 @@ public final class AccessWidener implements ClassTransformer {
     @Override
     public byte[] transform(String className, byte[] bytes) {
         String internal = className.replace('.', '/');
-        // A class is touched when it has rules itself, or when it lists an inner class that has rules.
         if (!touched.contains(internal)) {
             return bytes;
         }

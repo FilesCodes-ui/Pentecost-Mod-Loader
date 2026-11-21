@@ -6,7 +6,6 @@ import org.spongepowered.asm.service.IPropertyKey;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Holds Mixin's global settings. */
 public class PentecostPropertyService implements IGlobalPropertyService {
     private record Key(String name) implements IPropertyKey {}
 

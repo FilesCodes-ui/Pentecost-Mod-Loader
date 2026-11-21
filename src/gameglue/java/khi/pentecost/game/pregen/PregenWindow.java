@@ -1,11 +1,5 @@
 package khi.pentecost.game.pregen;
 
-/**
- * How many chunks may be made at once. No game classes, so it can be checked headless.
- * <p>
- * Nobody on the server (or speed set to full): the big window. Players on: the small one, shrinking while the server
- * tick is slow and growing back when it is not, so friends on a WWLS world are not made to lag.
- */
 final class PregenWindow {
     static final int MIN = 2;
     private double window;
@@ -29,7 +23,7 @@ final class PregenWindow {
         } else if (window < gentle) {
             window = Math.min(gentle, window + 0.5);
         } else if (window > gentle) {
-            window = gentle; // the last player came online while it ran at full speed
+            window = gentle;
         }
     }
 }

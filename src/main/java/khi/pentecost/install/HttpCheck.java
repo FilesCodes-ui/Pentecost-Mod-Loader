@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/** Headless check for Http's address rules and pinned hashes. It makes no network calls. */
 public final class HttpCheck {
     private static int failures;
 
@@ -41,11 +40,11 @@ public final class HttpCheck {
             expect(accepted(u), "accepted " + u);
         }
         String[] bad = {
-                "http://piston-meta.mojang.com/x",                  // not https
+                "http://piston-meta.mojang.com/x",
                 "ftp://maven.fabricmc.net/x",
                 "https://evil.example.com/x.jar",
-                "https://mojang.com.evil.example.com/x.jar",        // trusted name used as a prefix
-                "https://evilmojang.com/x.jar",                     // trusted name glued to another
+                "https://mojang.com.evil.example.com/x.jar",
+                "https://evilmojang.com/x.jar",
                 "https://notminecraft.net/x.jar",
                 "https://localhost/x.jar",
                 "https://127.0.0.1/x.jar",
@@ -57,7 +56,6 @@ public final class HttpCheck {
             expect(!accepted(u), "refused " + u);
         }
 
-        // The pinned files: a pin exists, and the copies in the cache (if present) still match it.
         String intermediary = "https://maven.fabricmc.net/net/fabricmc/intermediary/1.20.1/intermediary-1.20.1-v2.jar";
         String mcp = "https://maven.minecraftforge.net/de/oceanlabs/mcp/mcp_config/1.20.1-20230612.114412/mcp_config-1.20.1-20230612.114412.zip";
         expect(Http.pinned(intermediary) != null, "intermediary is pinned");

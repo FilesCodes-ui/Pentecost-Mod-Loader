@@ -6,18 +6,12 @@ import net.minecraft.client.gui.screens.Screen;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * The Commands page: a terminal that runs commands in groups, the saved groups, and the switches that turn a whole
- * group of Pentecost commands off or change who may use one. Everything is sent as a command (/run, /group,
- * /cmdgroup, /cmdlevel), so the server checks the permission of each one and nobody gets more than they already had.
- */
 final class CommandsScreen extends PanelScreen {
     private enum Tab { TERMINAL("Terminal"), GROUPS("Groups"), SWITCHES("Switches"), LEVELS("Levels");
         final String label;
         Tab(String label) { this.label = label; }
     }
 
-    /** Command groups that can be switched. Info, Groups and Config always stay on. */
     private static final String[] CATEGORIES = {"Admin", "Build", "Chat", "Fun", "Items", "Locate", "Menus", "Move",
             "Ops", "Player", "Rules", "Server", "Timers", "World"};
 
@@ -54,7 +48,6 @@ final class CommandsScreen extends PanelScreen {
         focus = fields.isEmpty() ? null : fields.get(0);
     }
 
-    /** Runs what was typed. One command goes straight out, several go through /run so waits work. */
     private void runLine() {
         String t = line.text.trim();
         if (t.isEmpty()) {

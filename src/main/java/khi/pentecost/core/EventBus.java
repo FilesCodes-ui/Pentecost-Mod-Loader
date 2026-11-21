@@ -10,10 +10,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
-/**
- * The core event bus. Every loader adapter posts and listens here.
- * A listener that throws is skipped. A mod that keeps throwing gets quarantined.
- */
 public final class EventBus {
     public static final int QUARANTINE_AFTER = 3;
 
@@ -27,7 +23,6 @@ public final class EventBus {
         register(type, modId, 0, handler);
     }
 
-    /** Higher priority runs first. */
     public <T> void register(Class<T> type, String modId, int priority, Consumer<T> handler) {
         List<Listener<?>> list = listeners.computeIfAbsent(type, k -> new CopyOnWriteArrayList<>());
         int at = 0;

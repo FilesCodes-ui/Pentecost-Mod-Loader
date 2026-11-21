@@ -24,24 +24,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * Looks through the chunks of a world and proposes places for the camera:
- * <ul>
- * <li>vanilla structures (villages, mansions, outposts, ...), from the structure data the world saved, and</li>
- * <li>builds, meaning places a player made. A chunk only counts when the world says a player spent time there (its
- * InhabitedTime counter) AND it holds many blocks that only people place (bricks, glass, lanterns, concrete ...)
- * near the surface. A freshly generated world has no inhabited chunks, so it has no builds, and underground
- * structures cannot be mistaken for houses.</li>
- * </ul>
- * Structures also get the minutes a player spent there, so a village the player lived in outranks an untouched one.
- * It only reads the saved chunk data, so it works the same on a pregenerated seed and on the player's own save.
- */
 public final class WorldScanner {
     private WorldScanner() {}
 
     public record Result(List<Poi> structures, List<Poi> builds, int chunksRead, int playerChunks) {}
 
-    /** Structures that are underground or buried: real, but not worth a camera shot, so they start switched off. */
     private static final Set<String> HIDDEN = Set.of("mineshaft", "mineshaft_mesa", "stronghold", "buried_treasure",
             "ancient_city", "nether_fossil", "trail_ruins");
 
@@ -58,16 +45,14 @@ public final class WorldScanner {
             "terracotta", "smooth_stone", "quartz_block", "sea_lantern", "glowstone", "iron_bars"
     };
 
-    /** A chunk needs this many game ticks of a player nearby (1200 = one minute) before it can be part of a build. */
     static final long MIN_INHABITED = 1200;
     static final long TICKS_PER_MINUTE = 1200;
-    static final int MIN_CHUNK_SCORE = 30;     // man-made blocks near the surface for a chunk to count as part of a build
-    static final int MIN_CLUSTER_SCORE = 120;  // man-made blocks for a cluster to be worth a shot
-    private static final int BAND_BELOW_SURFACE = 20; // blocks below the surface that still count (cellars, basements)
+    static final int MIN_CHUNK_SCORE = 30;
+    static final int MIN_CLUSTER_SCORE = 120;
+    private static final int BAND_BELOW_SURFACE = 20;
 
     private record Stat(long inhabited, int manMade, int surface) {}
 
-    /** Scans the chunk box (inclusive). {@code biomes} is the vanilla biome registry the chunk reader needs. */
     public static Result scan(ChunkSource source, Registry<Biome> biomes, int minCx, int minCz, int maxCx, int maxCz)
             throws IOException {
         Set<Block> manMade = new HashSet<>();
@@ -93,7 +78,7 @@ public final class WorldScanner {
                 for (int i = 0; i < d.sections.length; i++) {
                     if (d.sections[i].hasOnlyAir()) continue;
                     int top = (i + d.minSectionY + 1) * 16;
-                    if (top <= surface - BAND_BELOW_SURFACE) continue; // deep underground does not count
+                    if (top <= surface - BAND_BELOW_SURFACE) continue;
                     d.sections[i].getStates().count((state, n) -> {
                         if (manMade.contains(state.getBlock())) acc[0] += n;
                     });
@@ -114,7 +99,6 @@ public final class WorldScanner {
             s.playerMinutes = most / (double) TICKS_PER_MINUTE;
         }
 
-        // Builds come from chunks a player spent time in, outside the boxes of visible structures.
         Map<Long, Stat> hot = new HashMap<>();
         for (Map.Entry<Long, Stat> e : inhabited.entrySet()) {
             Stat st = e.getValue();
@@ -132,7 +116,6 @@ public final class WorldScanner {
             CompoundTag start = starts.getCompound(key);
             String id = start.getString("id");
             if (id.isEmpty() || id.equals("INVALID")) continue;
-            // A start does not store its own box. It is the union of its pieces' boxes.
             ListTag pieces = start.getList("Children", Tag.TAG_COMPOUND);
             int[] box = null;
             for (int i = 0; i < pieces.size(); i++) {
@@ -152,7 +135,6 @@ public final class WorldScanner {
         }
     }
 
-    /** Joins neighbouring hot chunks (including diagonals) into builds and turns each big one into a point. */
     private static List<Poi> clusterBuilds(Map<Long, Stat> hot) {
         Set<Long> seen = new HashSet<>();
         List<Poi> builds = new ArrayList<>();
@@ -188,7 +170,6 @@ public final class WorldScanner {
                     (maxX - minX + 1) * 16, 48, (maxZ - minZ + 1) * 16);
             p.manMadeBlocks = (int) Math.min(Integer.MAX_VALUE, total);
             p.playerMinutes = most / (double) TICKS_PER_MINUTE;
-            // bigger builds, and builds a player spent longer in, get shown more often
             p.weight = Math.min(3.0, 0.5 + total / 500.0 + Math.min(1.0, p.playerMinutes / 60.0));
             builds.add(p);
         }
@@ -196,7 +177,6 @@ public final class WorldScanner {
         return builds;
     }
 
-    /** Average surface height of a chunk from its WORLD_SURFACE heightmap, or the fallback when it is unreadable. */
     static int surfaceAverage(CompoundTag heightmaps, int minY, int fallback) {
         long[] data = heightmaps.getLongArray("WORLD_SURFACE");
         if (data.length == 0) return fallback;
@@ -226,7 +206,6 @@ public final class WorldScanner {
         return ((long) cx << 32) | (cz & 0xFFFFFFFFL);
     }
 
-    /** minecraft:village_plains becomes "Village Plains". */
     static String prettyName(String id) {
         String s = id.contains(":") ? id.substring(id.indexOf(':') + 1) : id;
         StringBuilder out = new StringBuilder();

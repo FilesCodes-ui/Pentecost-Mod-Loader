@@ -22,21 +22,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * The place input. Anywhere a command wants a place, you can give:
- * <pre>
- *   Steve                      a player
- *   me, spawn, bed, death, back, look      yourself, the world spawn, your bed, your last death, where you were, the block you look at
- *   home:base, warp:market     a saved home or warp
- *   100 64 -200                plain coordinates
- *   ~ ~10 ~                    relative to you
- *   Steve.x 70 Steve.z         a player's coordinate in any slot, mixed freely with numbers and ~
- *   Steve.x+5 ~ Alex.z-3       with an offset after it
- *   Steve 0 5 0                a player, then an offset from them (a ~ counts as 0)
- * </pre>
- */
 public final class Where {
-    /** A place: the world, the point, and which way to face. */
     public record Spot(ServerLevel level, Vec3 pos, float yRot, float xRot) {}
 
     private static final Pattern PLAYER_AXIS = Pattern.compile("^([A-Za-z0-9_]{1,16})\\.([xyzXYZ])([+-]\\d+(?:\\.\\d+)?)?$");
@@ -68,7 +54,6 @@ public final class Where {
         };
     }
 
-    /** The block you are looking at, standing on top of it. */
     public static Spot look(CommandSourceStack src) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
         ServerPlayer p = Qol.self(src);
         HitResult hit = p.pick(300.0, 1.0F, false);
@@ -103,7 +88,6 @@ public final class Where {
         throw new Bad(HELP);
     }
 
-    /** Coordinates written with a player's name ("Steve.x") go to that player's world, so a trip to Steve's x y z goes to Steve's dimension. */
     private static ServerLevel levelOf(CommandSourceStack src, String[] t) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
         for (String token : t) {
             Matcher m = PLAYER_AXIS.matcher(token);
@@ -138,7 +122,6 @@ public final class Where {
             return v + (m.group(3) == null ? 0.0 : number(m.group(3)));
         }
         double v = number(token);
-        // A whole number for x or z means the middle of that block, like the game's own commands.
         return centre && !token.contains(".") ? v + 0.5 : v;
     }
 
@@ -216,8 +199,6 @@ public final class Where {
         }
         throw new Bad("\"" + token + "\" is not an online player or a known place. " + HELP);
     }
-
-    // ---------------------------------------------------------------- suggestions
 
     public static CompletableFuture<Suggestions> suggest(CommandContext<CommandSourceStack> c, SuggestionsBuilder b) {
         String rest = b.getRemaining();

@@ -24,11 +24,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-/**
- * Headless check of the build detector, the save reader and PLAYER_BUILDS targeting.
- * Usage: ScannerCheck <seedCacheDir> <scratchDir>. The seed cache holds a vanilla world nobody played in, so builds are
- * planted into the chunk data in memory (nothing on disk changes) to see whether the detector finds them.
- */
 public final class ScannerCheck {
     private static int failures;
 
@@ -37,12 +32,11 @@ public final class ScannerCheck {
         if (!ok) failures++;
     }
 
-    /** Wraps a chunk source and changes some chunks as they are read, the way a player's play would have. */
     private static final class Planter implements ChunkSource {
         final ChunkSource inner;
-        final Set<Long> built = new HashSet<>();     // bricks and player time
-        final Set<Long> bricksOnly = new HashSet<>(); // bricks, no player time (what generation alone could leave)
-        final Set<Long> visited = new HashSet<>();   // player time, no bricks
+        final Set<Long> built = new HashSet<>();
+        final Set<Long> bricksOnly = new HashSet<>();
+        final Set<Long> visited = new HashSet<>();
 
         Planter(ChunkSource inner) { this.inner = inner; }
 
@@ -103,7 +97,6 @@ public final class ScannerCheck {
         int minCx = ccx - r, minCz = ccz - r, maxCx = ccx + r - 1, maxCz = ccz + r - 1;
         RegionReader reader = new RegionReader(cache.resolve("region"));
 
-        // 1. A world nobody played in has no builds. The old detector reported one here, underground.
         long t0 = System.currentTimeMillis();
         WorldScanner.Result base = WorldScanner.scan(reader, biomes, minCx, minCz, maxCx, maxCz);
         long ms = System.currentTimeMillis() - t0;
@@ -112,7 +105,6 @@ public final class ScannerCheck {
                 + base.structures().size() + " structures, " + base.chunksRead() + " chunks in " + ms + " ms");
         check("unplayed world: no player minutes anywhere", noPlayer && base.playerChunks() == 0, "");
 
-        // 2. Plant things in memory.
         Planter planter = new Planter(reader);
         int[] free = freeSpot(base.structures(), ccx, ccz, 0);
         int[] free2 = freeSpot(base.structures(), ccx, ccz, 1);
@@ -146,7 +138,6 @@ public final class ScannerCheck {
                     v2 == null ? "village missing" : String.format("%.1f min", v2.playerMinutes));
         }
 
-        // 3. PLAYER_BUILDS picks what the player made.
         MenuProfile save = MenuProfile.forSave("x");
         save.mergeScanned(planted.structures());
         save.mergeScanned(planted.builds());
@@ -160,7 +151,6 @@ public final class ScannerCheck {
                 unplayed.activePoints().size() == unplayed.points.stream().filter(p -> p.enabled).count() && !unplayed.activePoints().isEmpty(),
                 unplayed.activePoints().size() + " points");
 
-        // 4. Old profiles lose the underground build guesses of the first detector.
         String oldJson = "{\"version\":1,\"points\":[{\"id\":\"build@-123,3\",\"name\":\"Build at -1969, 60\",\"kind\":\"BUILD\"},"
                 + "{\"id\":\"build@5,5\",\"name\":\"Mine\",\"kind\":\"BUILD\",\"edited\":true},"
                 + "{\"id\":\"custom@1,1\",\"name\":\"Spot\",\"kind\":\"CUSTOM\"}]}";
@@ -172,7 +162,6 @@ public final class ScannerCheck {
                 migrated.version == 3 && migrated.find("build@-123,3") == null && migrated.find("build@5,5") != null
                         && migrated.find("custom@1,1") != null, migrated.points.size() + " points left");
 
-        // 5. Saves: inspect, list, refuse the wrong ones. The Cherry mines cache keeps its level.dat, so it works as a save.
         Path root = cache.getParent();
         Path cherry = root.resolve("-769185976586290351");
         if (Files.isRegularFile(cherry.resolve("level.dat"))) {
@@ -210,7 +199,6 @@ public final class ScannerCheck {
             int[] around = SaveSource.scanBox(cherry, false, 64, -96, 4);
             check("scan box: whole save uses the region files, otherwise a box around the centre",
                     whole[0] <= whole[2] && around[2] - around[0] == 7, java.util.Arrays.toString(whole));
-            // whole-save scan of the real save folder, the way the settings screen will do it
             WorldScanner.Result full = WorldScanner.scan(new RegionReader(cherry.resolve("region")), biomes, whole[0], whole[1], whole[2], whole[3]);
             System.out.println("whole-save scan of the Cherry mines folder: " + full.chunksRead() + " chunks, "
                     + full.structures().size() + " structures, " + full.builds().size() + " builds");
@@ -222,7 +210,6 @@ public final class ScannerCheck {
         if (failures > 0) System.exit(1);
     }
 
-    /** A chunk whose 3x3 neighbourhood touches no structure box. {@code skip} picks the first, second, ... such spot. */
     private static int[] freeSpot(List<Poi> structures, int cx0, int cz0, int skip) {
         for (int ring = 3; ring < 30; ring++) {
             for (int dx = -ring; dx <= ring; dx++) {
@@ -238,7 +225,7 @@ public final class ScannerCheck {
                         }
                     }
                     if (free && skip-- == 0) return new int[] {cx, cz};
-                    if (free) { dx += 6; } // the next spot should not touch this one
+                    if (free) { dx += 6; }
                 }
             }
         }

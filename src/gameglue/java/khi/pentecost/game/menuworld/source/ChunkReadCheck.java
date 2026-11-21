@@ -15,10 +15,6 @@ import net.minecraft.world.level.chunk.LevelChunkSection;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/**
- * Headless check, no game window: loads the vanilla registries, reads every chunk of a cached seed and prints
- * what it found. Usage: ChunkReadCheck <cacheDir> <scratchDir>
- */
 public final class ChunkReadCheck {
     public static void main(String[] args) throws Exception {
         Path cache = Path.of(args[0]);

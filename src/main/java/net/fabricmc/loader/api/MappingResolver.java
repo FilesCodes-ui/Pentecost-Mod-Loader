@@ -2,7 +2,6 @@ package net.fabricmc.loader.api;
 
 import java.util.Collection;
 
-/** Pentecost's own copy of this Fabric Loader API type. Calls land in Pentecost. No Fabric Loader code runs. */
 public interface MappingResolver {
     Collection<String> getNamespaces();
 

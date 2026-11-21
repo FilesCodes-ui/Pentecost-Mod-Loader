@@ -6,11 +6,9 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
-/** One mod, in the same shape whatever loader it was written for. */
 public record ModInfo(String id, String name, String version, LoaderKind loader, Path jar,
                       Map<String, List<String>> entrypoints, List<String> depends,
                       List<String> mixins, List<String> accessWideners, JsonObject raw) {
-
     public List<String> entrypoints(String key) {
         return entrypoints.getOrDefault(key, List.of());
     }

@@ -6,7 +6,6 @@ using System.Windows.Media.Imaging;
 
 namespace Pentecost.Manager;
 
-/// <summary>Small builders so the pages read as layout, not as markup.</summary>
 public static class Ui
 {
     public static Brush Br(string key) => (Brush)Application.Current.FindResource(key);
@@ -59,8 +58,6 @@ public static class Ui
         return b;
     }
 
-    /// <summary>A panel with pixel-cut corners.</summary>
-    /// <summary>A card that also shows the shared pixel sheet. Only Home and the Browse cards use it.</summary>
     public static PixelBox SheetCard(UIElement child, double pad = 20)
     {
         var c = Card(child, pad);
@@ -92,7 +89,6 @@ public static class Ui
         Width = size, Height = size, Background = Br(color), VerticalAlignment = VerticalAlignment.Center,
     };
 
-    /// <summary>A picture from Modrinth's own servers, or null when the link is not one of theirs.</summary>
     public static BitmapImage? Picture(string? url, int decodeWidth = 0, int decodeHeight = 0)
     {
         if (Modrinth.SafeImage(url) is not { } uri) return null;
@@ -111,7 +107,6 @@ public static class Ui
         catch { return null; }
     }
 
-    /// <summary>A mod''s picture, kept once it has been decoded.</summary>
     static BitmapSource? FromJar(ModEntry m)
     {
         if (m.IconCache is BitmapSource done) return done;
@@ -131,22 +126,66 @@ public static class Ui
         catch { m.IconData = null; return null; }
     }
 
-    /// <summary>
-    /// A square icon. The mod''s own picture out of its jar comes first, because that works with no internet and for
-    /// mods Modrinth has never heard of. Then Modrinth''s picture, then the first letter.
-    /// </summary>
+    static readonly Dictionary<string, BitmapSource> iconCache = new();
+    static readonly SemaphoreSlim iconGate = new(4);
+
+    static BitmapSource? CachedIcon(string? url, int width)
+    {
+        if (url == null) return null;
+        lock (iconCache) return iconCache.TryGetValue(url + "|" + width, out var hit) ? hit : null;
+    }
+
+    static async Task FillIcon(Image img, string url, int width)
+    {
+        if (Modrinth.SafeImage(url) is not { } uri) return;
+        var key = url + "|" + width;
+        BitmapSource? bmp;
+        lock (iconCache) iconCache.TryGetValue(key, out bmp);
+        if (bmp == null)
+        {
+            await iconGate.WaitAsync();
+            try
+            {
+                var bytes = await Modrinth.Client.GetByteArrayAsync(uri);
+                bmp = await Task.Run(() =>
+                {
+                    var bi = new BitmapImage();
+                    bi.BeginInit();
+                    bi.StreamSource = new MemoryStream(bytes);
+                    bi.DecodePixelWidth = width;
+                    bi.CacheOption = BitmapCacheOption.OnLoad;
+                    bi.EndInit();
+                    bi.Freeze();
+                    return (BitmapSource)bi;
+                });
+                lock (iconCache) iconCache[key] = bmp;
+            }
+            catch { return; }
+            finally { iconGate.Release(); }
+        }
+        RenderOptions.SetBitmapScalingMode(img, bmp.PixelWidth <= 64 ? BitmapScalingMode.NearestNeighbor : BitmapScalingMode.HighQuality);
+        img.Source = bmp;
+        FadeIn(img, 140);
+        img.Opacity = 1;
+    }
+
     public static FrameworkElement Tile(string? iconUrl, string name, double size, ModEntry? mod = null)
     {
         var grid = new Grid();
-        var letter = name.Trim().Length > 0 ? char.ToUpperInvariant(name.Trim()[0]).ToString() : "?";
-        grid.Children.Add(new TextBlock { Text = letter, FontSize = size * 0.42, Foreground = Br("Faint"), FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
-        var source = (mod != null ? FromJar(mod) : null) ?? (BitmapSource?)Picture(iconUrl, (int)(size * 2));
+        grid.Children.Add(new DitherBackdrop());
+        var width = (int)(size * 2);
+        var source = (mod != null ? FromJar(mod) : null) ?? CachedIcon(iconUrl, width);
         if (source != null)
         {
             var img = new Image { Source = source, Stretch = Stretch.UniformToFill };
-            // Mod icons are small pixel art, so they are kept crisp instead of smoothed.
             RenderOptions.SetBitmapScalingMode(img, source.PixelWidth <= 64 ? BitmapScalingMode.NearestNeighbor : BitmapScalingMode.HighQuality);
             grid.Children.Add(img);
+        }
+        else if (mod == null && Modrinth.SafeImage(iconUrl) != null)
+        {
+            var img = new Image { Stretch = Stretch.UniformToFill, Opacity = 0 };
+            grid.Children.Add(img);
+            _ = FillIcon(img, iconUrl!, width);
         }
         return new Border { Width = size, Height = size, Background = Br("Panel2"), BorderBrush = Br("Line"), BorderThickness = new Thickness(1), Child = grid, ClipToBounds = true, VerticalAlignment = VerticalAlignment.Center };
     }
@@ -170,7 +209,6 @@ public static class Ui
         return t.ToString("yyyy-MM-dd");
     }
 
-    /// <summary>A two-column row: content on the left, controls on the right.</summary>
     public static Grid Row(UIElement left, UIElement? right = null)
     {
         var g = new Grid();
@@ -229,10 +267,6 @@ public static class Ui
     }
     public static FrameworkElement With(this FrameworkElement e, Thickness margin) { e.Margin = margin; return e; }
 
-    /// <summary>
-    /// Opens a list of choices under a button, and closes it when the same button is pressed again. Attach it once:
-    /// it keeps one menu per button, so pressing the button is always a toggle.
-    /// </summary>
     public static void Menu(ButtonBase owner, Func<IEnumerable<(string Label, Action Do, bool Ticked)>> items)
     {
         var list = new StackPanel();
@@ -247,7 +281,6 @@ public static class Ui
 
         owner.Click += (_, _) =>
         {
-            // Clicking the button while the menu is open already closed it, so a press just then means "close".
             if (pop.IsOpen || (DateTime.Now - closedAt).TotalMilliseconds < 250) { pop.IsOpen = false; return; }
             list.Children.Clear();
             foreach (var (label, act, ticked) in items())
@@ -263,7 +296,6 @@ public static class Ui
         };
         owner.KeyDown += (_, e) => { if (e.Key == Key.Escape) pop.IsOpen = false; };
     }
-    /// <summary>A list of choices at the mouse, for a right-click.</summary>
     public static void MenuAt(FrameworkElement near, IEnumerable<(string Label, string? Glyph, Action Do)> items)
     {
         var list = new StackPanel();
@@ -283,12 +315,9 @@ public static class Ui
         pop.IsOpen = true;
     }
 
-    // ---------------------------------------------------------------- motion
-
     static readonly Duration Quick = TimeSpan.FromMilliseconds(140);
     static CubicEase Out => new() { EasingMode = EasingMode.EaseOut };
 
-    /// <summary>Fades an element in while it slides up into place.</summary>
     public static void Rise(UIElement e, double from = 10, int ms = 220, int delayMs = 0)
     {
         var move = new TranslateTransform(0, from);
@@ -299,14 +328,12 @@ public static class Ui
         move.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(from, 0, TimeSpan.FromMilliseconds(ms)) { BeginTime = begin, EasingFunction = Out });
     }
 
-    /// <summary>The same, one after another, so a page arrives in order.</summary>
     public static void Stagger(IEnumerable<UIElement> items, int step = 45, int ms = 240)
     {
         var i = 0;
         foreach (var e in items.Take(8)) Rise(e, 12, ms, i++ * step);
     }
 
-    /// <summary>A card that brightens and takes a white edge under the mouse. Nothing moves, so nothing spills out of a list.</summary>
     public static T Lift<T>(T b) where T : Border
     {
         var edge = new SolidColorBrush(Col("Line"));
@@ -326,7 +353,6 @@ public static class Ui
         return b;
     }
 
-    /// <summary>A list row that lights up under the mouse.</summary>
     public static T HoverRow<T>(T b) where T : Border
     {
         var brush = new SolidColorBrush(Color.FromArgb(0, 255, 255, 255));
@@ -336,7 +362,6 @@ public static class Ui
         return b;
     }
 
-    /// <summary>A slow glow, for the one button that matters.</summary>
     public static void Pulse(FrameworkElement e)
     {
         var glow = new DropShadowEffect { Color = Col("Accent"), BlurRadius = 26, ShadowDepth = 0, Opacity = 0.2 };
@@ -350,19 +375,25 @@ public static class Ui
     public static void FadeIn(UIElement e, int ms = 160) =>
         e.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(ms)));
 
-    // ---------------------------------------------------------------- hover cards
-
-    /// <summary>Shows a card beside the mouse after a short hover. The card is built the first time it is needed.</summary>
     public static void HoverCard(FrameworkElement target, Func<FrameworkElement> build)
     {
-        var tip = new ToolTip { Padding = new Thickness(0), BorderThickness = new Thickness(0), Background = Brushes.Transparent, Placement = PlacementMode.Mouse, HorizontalOffset = 18, VerticalOffset = 20 };
+        var tip = new ToolTip { Padding = new Thickness(0), BorderThickness = new Thickness(0), Background = Brushes.Transparent, Placement = PlacementMode.Relative, PlacementTarget = target };
+        void Follow()
+        {
+            var at = Mouse.GetPosition(target);
+            tip.HorizontalOffset = at.X + 18;
+            tip.VerticalOffset = at.Y + 20;
+        }
         target.ToolTip = tip;
-        target.ToolTipOpening += (_, _) => { if (tip.Content == null) tip.Content = build(); };
+        target.ToolTipOpening += (_, _) => { Follow(); tip.Content = build(); };
+        target.MouseMove += (_, _) => { if (tip.IsOpen) Follow(); };
+        target.MouseLeave += (_, _) => tip.IsOpen = false;
+        tip.IsHitTestVisible = false;
+        tip.Opened += (_, _) => { if (!target.IsMouseOver) tip.IsOpen = false; };
         ToolTipService.SetInitialShowDelay(target, 450);
         ToolTipService.SetShowDuration(target, 60000);
     }
 
-    /// <summary>A row of square dots, the pixel version of a thin rule.</summary>
     public static Border Dotted(string color = "Edge", double step = 4)
     {
         var dot = new GeometryDrawing(Br(color), null, new RectangleGeometry(new Rect(0, 0, step / 2, 2)));
@@ -375,50 +406,18 @@ public static class Ui
         return new Border { Height = 2, Background = brush, SnapsToDevicePixels = true };
     }
 
-    /// <summary>A titled panel: a small square, the title in pixel caps, a dotted rule, then the content.</summary>
-    public static PixelBox Section(string title, UIElement body, UIElement? right = null)
+    public static Border Section(string title, UIElement body, UIElement? right = null)
     {
-        var name = H(Dot("Accent", 6).With(new Thickness(0, 0, 10, 0)), Cap(title));
+        var name = Cap(title);
         name.VerticalAlignment = VerticalAlignment.Center;
         var head = Row(name, right);
-        var box = V(head, Dotted().With(new Thickness(0, 10, 0, 14)), body);
-        var card = Card(box, 18);
-        card.Margin = new Thickness(0, 0, 0, 14);
-        return card;
-    }
-
-    /// <summary>The card a hover shows: a framed icon, the name, a dotted rule, a short description and tags.</summary>
-    public static FrameworkElement Preview(string? icon, string title, string? sub, string? desc, IEnumerable<string>? tags, string? foot, ModEntry? mod = null)
-    {
-        var text = new StackPanel { Margin = new Thickness(14, 0, 0, 0), Width = 290 };
-        text.Children.Add(T(title, 15, bold: true, wrap: true));
-        if (!string.IsNullOrWhiteSpace(sub)) text.Children.Add(T(sub!, 11.5, "Faint", wrap: true).With(new Thickness(0, 2, 0, 0)));
-        text.Children.Add(Dotted().With(new Thickness(0, 10, 0, 9)));
-        if (!string.IsNullOrWhiteSpace(desc)) text.Children.Add(T(desc!, 12.5, "Soft", wrap: true));
-        var list = tags?.Where(t => t.Length > 0).Take(6).ToList();
-        if (list is { Count: > 0 })
-        {
-            var wrap = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
-            foreach (var t in list) { var p = Pill(t); p.Margin = new Thickness(0, 0, 6, 4); wrap.Children.Add(p); }
-            text.Children.Add(wrap);
-        }
-        if (!string.IsNullOrWhiteSpace(foot)) text.Children.Add(Cap(foot!).With(new Thickness(0, 8, 0, 0)));
-        var tile = Tile(icon, title, 64, mod);
-        var frame = new PixelBox { Background = Br("Panel"), BorderBrush = Br("Edge"), BorderThickness = new Thickness(1), Padding = new Thickness(4), Notch = 2, Child = tile, VerticalAlignment = VerticalAlignment.Top };
-        return new PixelBox
-        {
-            Background = Br("Panel2"), BorderBrush = Br("Edge"), BorderThickness = new Thickness(1), Padding = new Thickness(16), Notch = 4,
-            Child = H(frame, text),
-        };
+        var box = V(head, new Border { Height = 1, Background = Br("Line"), Margin = new Thickness(0, 9, 0, 14) }, body);
+        return new Border { Child = box, Margin = new Thickness(0, 0, 0, 30) };
     }
 
     public static string Nice(string tag) => tag.Length == 0 ? tag : char.ToUpperInvariant(tag[0]) + tag[1..].Replace('-', ' ');
 }
 
-/// <summary>
-/// A long list that only keeps the rows near the screen. Each row has a fixed height, so a row far away is an empty box:
-/// its content is built when it scrolls close and dropped again when it scrolls away.
-/// </summary>
 public sealed class LazyList
 {
     public readonly ScrollViewer View;
@@ -431,7 +430,6 @@ public sealed class LazyList
     {
         this.rowHeight = rowHeight;
         this.build = build;
-        // The padding at the top leaves room for a hover edge on the first row.
         View = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = panel, Padding = new Thickness(2, 3, 10, 24) };
         View.ScrollChanged += (_, _) => Sync(true);
         View.SizeChanged += (_, _) => Sync(true);
@@ -440,7 +438,6 @@ public sealed class LazyList
     public int Count => panel.Children.Count;
     Border Slot(int i) => (Border)panel.Children[i];
 
-    /// <summary>True when the view is close to the last row.</summary>
     public bool NearEnd => View.VerticalOffset + View.ViewportHeight >= View.ExtentHeight - 700;
 
     public void Reset()
@@ -459,7 +456,6 @@ public sealed class LazyList
         Sync(true);
     }
 
-    /// <summary>Builds one row again, when what it shows has changed.</summary>
     public void Invalidate(int i)
     {
         if (i >= 0 && i < Count && i >= lo && i <= hi) Slot(i).Child = build(i);

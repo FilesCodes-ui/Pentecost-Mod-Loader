@@ -2,12 +2,6 @@ package khi.pentecost.game.pregen;
 
 import java.util.List;
 
-/**
- * Headless check of the pregenerator's scheduling rules ({@link PregenWindow} and {@link PregenLedger}), no game and no
- * server. Usage: ChunkPregenCheck
- * Exits with 1 and says what was wrong when anything fails. The parts that need a live server (tickets, chunk futures)
- * are exercised by a short run in a test world instead, see the status line.
- */
 public final class ChunkPregenCheck {
     private static final float LIMIT = 40.0F;
     private static int failures;
@@ -92,7 +86,6 @@ public final class ChunkPregenCheck {
         expect("overdue count matches (" + expected + ")", all.size() == expected && big.size() == 256 - expected);
     }
 
-    /** Not a pass/fail: what flying costs, so the speed of a run can be compared with what is needed. */
     private static void flightDemand() {
         System.out.println("Flight demand: new chunks per second needed at 20 blocks/s (a band 2*distance+1 chunks wide)");
         for (int distance : new int[] {8, 12, 16, 24}) {

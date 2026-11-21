@@ -4,7 +4,6 @@ import khi.pentecost.control.Settings;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 
-/** Shows "Stall 312 ms" above the hotbar when one frame took longer than the limit the player set. */
 final class Stall {
     private static long last;
     private static int frames;

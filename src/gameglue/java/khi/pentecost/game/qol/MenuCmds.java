@@ -21,7 +21,6 @@ import net.minecraft.world.inventory.SmithingMenu;
 import net.minecraft.world.inventory.StonecutterMenu;
 import net.minecraft.world.item.ItemStack;
 
-/** Workstations and chests you can open from anywhere. Each one stays open however far you are from a block. */
 final class MenuCmds {
     private static final String C = "Menus";
 
@@ -29,7 +28,6 @@ final class MenuCmds {
         AbstractContainerMenu make(int id, Inventory inv);
     }
 
-    /** The 36 slots of someone's inventory as a chest: the main grid first, the hotbar last. */
     private static final class InventoryView implements Container {
         private final Inventory inv;
 

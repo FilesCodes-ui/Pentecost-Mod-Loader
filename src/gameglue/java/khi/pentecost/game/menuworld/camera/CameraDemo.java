@@ -2,14 +2,9 @@ package khi.pentecost.game.menuworld.camera;
 
 import khi.pentecost.game.menuworld.source.Terrain;
 
-/**
- * Developer check, not used by the game. Plays shots over a made-up landscape and prints how each one behaved:
- * the lowest the camera got above the ground, and the fastest it turned. Run the class's main method.
- */
 public final class CameraDemo {
     private CameraDemo() {}
 
-    /** Rolling hills with a lake basin. */
     private static final class Hills implements Terrain {
         @Override
         public int heightAt(int x, int z) {

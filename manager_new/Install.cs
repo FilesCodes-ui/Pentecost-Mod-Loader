@@ -3,29 +3,22 @@ using Microsoft.Win32;
 
 namespace Pentecost.Manager;
 
-/// <summary>
-/// Puts the Manager itself on the computer. The public download is this same program as one file.
-/// Run from anywhere but the install folder, it offers to install itself. Pentecost is installed afterwards by the Manager, not by the setup.
-/// </summary>
 public static class SelfInstall
 {
     const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\PentecostManager";
     const string ExeName = "Pentecost-Manager.exe";
     const string Description = "Pentecost: Forge, Fabric and Quilt mods in one game";
 
-    // Tests point this at a scratch folder. Then no shortcuts and no registry entry are written.
     static readonly string? TestTarget = Environment.GetEnvironmentVariable("PENTECOST_SETUP_TEST");
 
     public static string Target => TestTarget ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Pentecost Manager");
     public static string TargetExe => Path.Combine(Target, ExeName);
     static string? Self => Environment.ProcessPath;
 
-    /// <summary>True for the one-file build. A build from source runs from a folder and has a file location.</summary>
     public static bool IsBundle => string.IsNullOrEmpty(typeof(SelfInstall).Assembly.Location);
 
     public static bool ShouldOffer => IsBundle && Self != null && !SamePath(Self, TargetExe);
 
-    /// <summary>True for the installed copy. Only it updates itself: a copy run from elsewhere, or from source, has nothing to replace.</summary>
     public static bool CanUpdate => IsBundle && Self != null && SamePath(Self, TargetExe);
 
     public static string Version => typeof(SelfInstall).Assembly.GetName().Version?.ToString(3) ?? "";
@@ -39,7 +32,6 @@ public static class SelfInstall
     static string DesktopLink => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "Pentecost Manager.lnk");
     static string StartLink => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "Pentecost Manager.lnk");
 
-    /// <summary>Returns null when it worked, otherwise a message for the player.</summary>
     public static string? Install()
     {
         try
@@ -69,7 +61,6 @@ public static class SelfInstall
         catch (Exception ex) { AppLog.Write("self install launch: " + ex.Message); }
     }
 
-    /// <summary>Removes shortcuts, the entry in Windows' app list and the program folder. The game, worlds, mods and settings stay.</summary>
     public static string? Uninstall()
     {
         try
@@ -89,13 +80,11 @@ public static class SelfInstall
         }
     }
 
-    /// <summary>This program sits in the folder, so a helper removes it a moment after this process ends.</summary>
     public static void RemoveFolderLater()
     {
         try
         {
             if (!Directory.Exists(Target) || (TestTarget == null && Path.GetFileName(Target.TrimEnd('\\')) != "Pentecost Manager")) return;
-            // One argument string, because cmd does not understand the escaping that ArgumentList adds.
             var psi = new ProcessStartInfo("cmd.exe") { CreateNoWindow = true, UseShellExecute = false };
             psi.Arguments = $"/c ping 127.0.0.1 -n 3 >nul & rmdir /s /q \"{Target}\"";
             Process.Start(psi);
@@ -119,7 +108,6 @@ public static class SelfInstall
         }
     }
 
-    /// <summary>The old copy can stay locked for a moment after it ends, so a few tries.</summary>
     static void Copy(string from, string to)
     {
         for (var i = 0; ; i++)

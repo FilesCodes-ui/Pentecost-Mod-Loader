@@ -17,18 +17,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * Commands in groups, and the switches that decide who may use Pentecost's commands.
- * /run does several commands in a row (with waits), /group saves them under a name, /cmdlevel changes the
- * permission level of one command and /cmdgroup switches a whole group of commands off or on.
- * Everything is kept in the world's pentecost/qol.json, so it survives a restart.
- */
 final class GroupCmds {
     private static final String C = "Groups";
     private static final String CONFIG = "Config";
-    /** Groups that always work, so nobody can lock themselves out. */
     private static final Set<String> LOCKED = Set.of("groups", "config", "info");
-    /** Commands that cannot be given another level. */
     private static final Set<String> PROTECTED = Set.of("cmdlevel", "cmdgroup", "cmdconfig", "qol");
     private static final int MAX_COMMANDS = 100;
     private static final int MAX_WAITING = 64;
@@ -40,7 +32,6 @@ final class GroupCmds {
 
     private GroupCmds() {}
 
-    /** Whether a command may be used by this source, counting the operator's switches. */
     static boolean allowed(String cat, String name, int perm, CommandSourceStack s) {
         if (!LOCKED.contains(cat.toLowerCase(Locale.ROOT)) && Store.groupOff(cat)) {
             return false;
@@ -71,8 +62,6 @@ final class GroupCmds {
         }
     }
 
-    // ---------------------------------------------------------------- running
-
     static List<String> split(String text) {
         List<String> out = new ArrayList<>();
         for (String part : text.split(";")) {
@@ -87,7 +76,6 @@ final class GroupCmds {
         return out;
     }
 
-    /** Runs the commands in order. A "wait <seconds>" line pauses, and the rest runs later. Returns how many ran now. */
     static int runList(MinecraftServer server, CommandSourceStack src, List<String> cmds) {
         if (depth >= 4) {
             throw new Qol.Bad("Groups were running groups too deep, so this stopped.");
@@ -167,8 +155,6 @@ final class GroupCmds {
         }
         return n;
     }
-
-    // ---------------------------------------------------------------- the commands
 
     static void add() {
         Qol.text(C, "run", 2, "<command ; command ; wait 2 ; command>",

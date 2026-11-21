@@ -26,11 +26,6 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/**
- * Pentecost's server list. The same black and white layout as the world list: search, a status line per server
- * (players, ping, version), reordering, direct connect, and a plain form to add or change a server.
- * It reads and writes the game's own servers.dat, so servers added here show up everywhere else too.
- */
 public final class PentecostServersScreen extends Screen {
     private record Hit(int x, int y, int w, int h, Runnable action) {}
 
@@ -69,8 +64,6 @@ public final class PentecostServersScreen extends Screen {
         this.servers.load();
     }
 
-    // ---------------------------------------------------------------- list
-
     @Override
     protected void init() {
         super.init();
@@ -103,8 +96,6 @@ public final class PentecostServersScreen extends Screen {
     }
 
     private void ping(ServerData d) {
-        // removed() stops the pool when another screen takes over (connecting, the EULA page). The same screen
-        // comes back when a connection fails, so it needs a fresh pool then.
         if (pool.isShutdown()) {
             pool = newPool();
         }
@@ -163,8 +154,6 @@ public final class PentecostServersScreen extends Screen {
         statusUntil = System.currentTimeMillis() + 4500;
     }
 
-    // ---------------------------------------------------------------- actions
-
     private void join(ServerData d) {
         if (d == null) {
             return;
@@ -173,7 +162,6 @@ public final class PentecostServersScreen extends Screen {
         connect(d.ip, d);
     }
 
-    /** Connects, after the player has seen and agreed to the Minecraft EULA (asked once). */
     private void connect(String ip, ServerData d) {
         if (!EulaScreen.agreed()) {
             EulaScreen.ask(minecraft, this, () -> connect(ip, d));
@@ -256,7 +244,6 @@ public final class PentecostServersScreen extends Screen {
         }
     }
 
-    /** Moves the selected server up or down in the saved list. Only while nothing is searched for. */
     private void reorder(int by) {
         if (selected == null || !search.isEmpty()) {
             if (!search.isEmpty()) {
@@ -286,8 +273,6 @@ public final class PentecostServersScreen extends Screen {
             scroll = i - visibleRows + 1;
         }
     }
-
-    // ---------------------------------------------------------------- text
 
     private String fit(String s, int w) {
         if (font.width(s) <= w) {
@@ -344,12 +329,9 @@ public final class PentecostServersScreen extends Screen {
             }
             img.close();
         } catch (IOException | RuntimeException e) {
-            // no icon
         }
         return null;
     }
-
-    // ---------------------------------------------------------------- drawing
 
     private void centered(GuiGraphics g, String text, int cx, int y, int color) {
         g.drawString(font, text, cx - font.width(text) / 2, y, color, false);
@@ -381,7 +363,7 @@ public final class PentecostServersScreen extends Screen {
 
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-        g.fill(0, 0, width, height, minecraft.level == null ? 0xFF0A0A0B : 0xD80A0A0B);
+        g.fill(0, 0, width, height, Ui.back(minecraft));
         Ui.dither(g, width, height);
         float ui = Ui.scale(minecraft);
         int vw = (int) (width / ui);
@@ -405,7 +387,6 @@ public final class PentecostServersScreen extends Screen {
         Ui.wordmark(g, word, hx + (Ui.LOGO_W + 5) * 2, y, 2, Ui.TEXT);
         y += 32;
 
-        // Search, refresh, direct connect.
         int refW = 74, dirW = 104, gap = 6;
         int searchW = colW - refW - dirW - gap * 2;
         Ui.outline(g, x0, y, x0 + searchW, y + 20, 0x66FFFFFF);
@@ -549,8 +530,6 @@ public final class PentecostServersScreen extends Screen {
         g.pose().popPose();
     }
 
-    // ---------------------------------------------------------------- input
-
     private String current() {
         return focus == 0 && form != Form.DIRECT ? fName : fIp;
     }
@@ -593,7 +572,7 @@ public final class PentecostServersScreen extends Screen {
             switch (key) {
                 case 256 -> form = Form.NONE;
                 case 257, 335 -> confirmForm();
-                case 258 -> focus = form == Form.DIRECT || form == Form.DELETE ? focus : 1 - focus; // tab
+                case 258 -> focus = form == Form.DIRECT || form == Form.DELETE ? focus : 1 - focus;
                 case 259 -> {
                     String v = current();
                     if (!v.isEmpty() && form != Form.DELETE) {
@@ -659,7 +638,7 @@ public final class PentecostServersScreen extends Screen {
                 openForm(Form.DELETE);
                 return true;
             }
-            case 294 -> { // F5
+            case 294 -> {
                 refreshAll();
                 return true;
             }
@@ -709,7 +688,6 @@ public final class PentecostServersScreen extends Screen {
                 }
             }
             if (form != Form.NONE) {
-                // clicking a field gives it focus
                 int cx = (int) (width / ui) / 2;
                 int bwid = Math.min(360, (int) (width / ui) - 40);
                 int bx = cx - bwid / 2;

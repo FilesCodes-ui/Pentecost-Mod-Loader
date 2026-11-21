@@ -4,7 +4,6 @@ namespace Pentecost.Manager;
 
 public partial class MainWindow
 {
-    /// <summary>Home: what needs doing, how the install is, the newest mods and the game's folders.</summary>
     FrameworkElement BuildPlay()
     {
         var page = new StackPanel();
@@ -12,18 +11,23 @@ public partial class MainWindow
         var installed = Paths.Installed;
         var hasUpdate = latest != null && cur != null && Updates.Newer(latest.Version, cur);
 
-        // ---- greeting, on a band of dither
         var who = Paths.AccountName();
-        var hello = Ui.V(Ui.T(who != null ? "Welcome back, " + who : "Welcome", 24, bold: true),
-            Ui.T("Forge, Fabric and Quilt mods in one game.", 13.5, "Muted").With(new Thickness(0, 5, 0, 0)));
-        hello.VerticalAlignment = VerticalAlignment.Center;
-        hello.Margin = new Thickness(26, 0, 0, 0);
-        var band = new Grid { Height = 92, ClipToBounds = true };
-        band.Children.Add(new DitherBackdrop());
-        band.Children.Add(hello);
-        page.Children.Add(new PixelBox { Background = Ui.Br("Panel"), BorderBrush = Ui.Br("Line"), BorderThickness = new Thickness(1), Notch = 3, Padding = new Thickness(1), Child = band });
+        var welcome = Ui.T(who != null ? "WELCOME BACK, " + who.ToUpperInvariant() : "WELCOME ABOARD", 13, "Soft");
+        welcome.FontFamily = (FontFamily)FindResource("Mono");
+        var foldersBtn = Ui.Btn("Folders", "Ghost", null, "\uE8B7");
+        foldersBtn.VerticalAlignment = VerticalAlignment.Bottom;
+        foldersBtn.Margin = new Thickness(0, 0, -8, 2);
+        var runDir = Path.Combine(Paths.Home, "run");
+        Ui.Menu(foldersBtn, () => new (string, string)[]
+        {
+            ("Mods", Paths.Mods), ("Worlds", Path.Combine(runDir, "saves")), ("Screenshots", Path.Combine(runDir, "screenshots")),
+            ("Shaders", Path.Combine(runDir, "shaderpacks")), ("Resource packs", Path.Combine(runDir, "resourcepacks")), ("Config", Path.Combine(runDir, "config")),
+        }.Select(f => (f.Item1, (Action)(() => OpenFolder(f.Item2)), false)));
+        page.Children.Add(Ui.Row(Ui.V(new Wordmark { Text = "HOME", Pixel = 3, Fill = Ui.Br("Text"), HorizontalAlignment = HorizontalAlignment.Left },
+            welcome.With(new Thickness(2, 10, 0, 6))), foldersBtn));
 
-        // ---- a notice when something needs doing
+        AddFeedToHome(page);
+
         Border? notice = null;
         if (installing)
             notice = InstallCard();
@@ -52,7 +56,6 @@ public partial class MainWindow
             page.Children.Add(managerNotice);
         }
 
-        // ---- the state of things. Each card opens its page.
         var facts = new UniformGrid { Columns = 4 };
         facts.Children.Add(Fact("Pentecost", installed ? "v" + (cur ?? "?") : "Not installed", hasUpdate ? latest!.Version + " is available" : installed ? "Up to date" : "Press Install on the left", "Settings"));
         facts.Children.Add(Fact("Java", !javaDone ? "Looking" : java == null ? "Not found" : "Ready", java ?? (javaDone ? "Needs Java 21 or newer" : ""), "Settings"));
@@ -62,37 +65,34 @@ public partial class MainWindow
         var p = ProfileStore.Active;
         facts.Children.Add(Fact("Profile", p.Name, "Memory " + GameRun.MemoryText(p, "automatic"), "Profiles"));
         for (var i = 1; i < 4; i++) ((Border)facts.Children[i]).BorderThickness = new Thickness(1, 0, 0, 0);
-        var strip = Ui.SheetCard(facts, 0);
-        strip.Margin = new Thickness(0, 12, 0, 0);
+        var strip = new Border { BorderBrush = Ui.Br("Line"), BorderThickness = new Thickness(0, 1, 0, 1), Child = facts, Margin = new Thickness(0, 16, 0, 0) };
         page.Children.Add(strip);
 
-        // ---- newest mods
-        var newest = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 0) };
-        var newestCard = Ui.SheetCard(Ui.V(Ui.Row(Ui.Cap("Newest mods"), Ui.Btn("All mods", "Ghost", (_, _) => Go("Mods"))), newest), 18);
-        ((Button)((Grid)((StackPanel)((Grid)newestCard.Child).Children[1]).Children[0]).Children[1]).Margin = new Thickness(0, -8, -8, -8);
-        newestCard.Margin = new Thickness(0, 12, 0, 0);
+        var newest = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+        var allMods = Ui.Btn("All mods", "Ghost", (_, _) => Go("Mods"));
+        allMods.Margin = new Thickness(0, -8, -8, -8);
+        var newestCard = Ui.V(Ui.Row(Ui.Cap("Newest mods"), allMods), newest);
+        newestCard.Margin = new Thickness(0, 14, 0, 0);
         page.Children.Add(newestCard);
 
-        // ---- last crash, and folders
-        var lower = new Grid { Margin = new Thickness(0, 12, 0, 0) };
+        var lower = new Grid { Margin = new Thickness(0, 14, 0, 0) };
         lower.ColumnDefinitions.Add(new ColumnDefinition());
         lower.ColumnDefinitions.Add(new ColumnDefinition());
         var crashBody = new StackPanel();
         crashBody.Children.Add(Ui.Cap("Last crash"));
-        var crashText = Ui.T("Checking", 13.5, "Muted", wrap: true);
-        crashText.Margin = new Thickness(0, 10, 0, 0);
+        var crashText = Ui.T("Checking", 13, "Muted", wrap: true);
+        crashText.Margin = new Thickness(0, 6, 0, 0);
         crashBody.Children.Add(crashText);
-        var crashCard = Ui.SheetCard(crashBody, 18);
-        crashCard.Margin = new Thickness(0, 0, 6, 0);
+        var crashCard = new Border { Child = crashBody, Margin = new Thickness(0, 0, 18, 0) };
         lower.Children.Add(crashCard);
 
-        var folders = new WrapPanel { Margin = new Thickness(0, 10, 0, -8) };
+        var folders = new WrapPanel { Margin = new Thickness(-10, 2, 0, -6) };
         void Folder(string label, string dir)
         {
-            var b = Ui.Btn(label, "Secondary", (_, _) => OpenFolder(dir), "");
+            var b = Ui.Btn(label, "Ghost", (_, _) => OpenFolder(dir));
             b.ToolTip = dir;
-            b.Margin = new Thickness(0, 0, 8, 8);
-            b.Padding = new Thickness(13, 7, 13, 7);
+            b.Padding = new Thickness(10, 5, 10, 5);
+            b.FontSize = 12.5;
             folders.Children.Add(b);
         }
         var run = Path.Combine(Paths.Home, "run");
@@ -102,15 +102,28 @@ public partial class MainWindow
         Folder("Shaders", Path.Combine(run, "shaderpacks"));
         Folder("Resource packs", Path.Combine(run, "resourcepacks"));
         Folder("Config", Path.Combine(run, "config"));
-        var folderCard = Ui.SheetCard(Ui.V(Ui.Cap("Folders"), folders), 18);
-        folderCard.Margin = new Thickness(6, 0, 0, 0);
+        var folderCard = new Border { Child = Ui.V(Ui.Cap("Folders"), folders), Margin = new Thickness(18, 0, 0, 0) };
         Grid.SetColumn(folderCard, 1);
+        folderCard.Visibility = Visibility.Collapsed;
         lower.Children.Add(folderCard);
         page.Children.Add(lower);
 
         _ = FillHome(modsValue, modsSub, newest, crashBody, crashText);
-        return Scroll(page);
+
+        var home = new Grid();
+        home.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        home.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        homeSea ??= new CloudSea { Margin = new Thickness(-34, -24, -28, 0) };
+        var sea = homeSea;
+        if (sea.Parent is Panel old) old.Children.Remove(sea);
+        Grid.SetRowSpan(sea, 2);
+        home.Children.Add(sea);
+        home.Children.Add(page);
+        page.SizeChanged += (_, _) => sea.SeaTop = page.ActualHeight + 24 + 6;
+        return home;
     }
+
+    CloudSea? homeSea;
 
     async Task FillHome(TextBlock modsValue, TextBlock modsSub, StackPanel newest, StackPanel crashBody, TextBlock crashText)
     {
@@ -151,20 +164,15 @@ public partial class MainWindow
         {
             newest.Children.Clear();
             if (mods.Count == 0) { newest.Children.Add(Ui.T("No mods yet. The Browse tab has thousands.", 13, "Muted")); return; }
-            foreach (var m in mods.OrderByDescending(x => x.Stamp).Take(7))
+            foreach (var m in mods.OrderByDescending(x => x.Stamp).Take(14))
             {
-                var name = Ui.T(m.Name, 11.5, "Soft", trim: true);
-                name.Margin = new Thickness(0, 7, 0, 0);
-                name.HorizontalAlignment = HorizontalAlignment.Center;
-                var tile = Ui.Tile(m.IconUrl, m.Name, 52, m);
-                tile.HorizontalAlignment = HorizontalAlignment.Center;
-                var item = Ui.HoverRow(new Border { Width = 92, Padding = new Thickness(6, 8, 6, 8), Margin = new Thickness(0, 0, 4, 0), Child = Ui.V(tile, name), Cursor = Cursors.Hand, ToolTip = m.Name + (m.Version.Length > 0 ? "  " + m.Version : "") });
+                var tile = Ui.Tile(m.IconUrl, m.Name, 38, m);
+                var item = Ui.HoverRow(new Border { Padding = new Thickness(5), Margin = new Thickness(0, 0, 6, 0), Child = tile, Cursor = Cursors.Hand, ToolTip = m.Name + (m.Version.Length > 0 ? "  " + m.Version : "") });
                 item.MouseLeftButtonUp += (_, _) => Go("Mods");
                 newest.Children.Add(item);
             }
         }
         ShowNewest();
-        // Icons come from Modrinth, so they arrive a moment later.
         if (mods.Any(m => !m.Looked))
         {
             try { await Modrinth.Lookup(mods, CancellationToken.None); ShowNewest(); }
@@ -177,8 +185,8 @@ public partial class MainWindow
 
     Border FactCard(string label, TextBlock value, TextBlock sub, string page)
     {
-        value.Margin = new Thickness(0, 9, 0, 5);
-        var card = new Border { Background = Brushes.Transparent, BorderBrush = Ui.Br("Line"), Padding = new Thickness(20, 18, 16, 18), Cursor = Cursors.Hand, Child = Ui.V(Ui.Cap(label), value, sub) };
+        value.Margin = new Thickness(0, 6, 0, 3);
+        var card = new Border { Background = Brushes.Transparent, BorderBrush = Ui.Br("Line"), Padding = new Thickness(18, 12, 16, 12), Cursor = Cursors.Hand, Child = Ui.V(Ui.Cap(label), value, sub) };
         card.MouseEnter += (_, _) => card.Background = Ui.Br("Panel2");
         card.MouseLeave += (_, _) => card.Background = Brushes.Transparent;
         card.MouseLeftButtonUp += (_, _) => Go(page);
@@ -206,7 +214,6 @@ public partial class MainWindow
         return Ui.Card(Ui.V(Ui.T("Installing Pentecost", 14.5, bold: true), installLabel, installBar), 18);
     }
 
-    /// <summary>The first install asks whether to fetch the main menu worlds.</summary>
     void AskInstall(bool first)
     {
         var worlds = new CheckBox { Style = Ui.St("Switch"), IsChecked = true, Content = Ui.T("Download the main menu worlds (about 480 MB)", 13, "Soft") };

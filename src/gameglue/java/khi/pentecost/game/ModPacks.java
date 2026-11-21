@@ -27,24 +27,14 @@ import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-/**
- * Every mod's files reach the game, whatever loader the mod was written for.
- *
- * On the Forge layer, Forge loads the files of Forge mods only. Fabric and Quilt mods would lose
- * their textures, translations, shaders and recipes. Pentecost adds one resource pack per such mod
- * to every pack list the game builds, for assets and for world data.
- */
 public final class ModPacks {
-    /** Jar to { has assets, has data }. Read once. */
     private static final Map<Path, boolean[]> CONTENTS = new HashMap<>();
     private static boolean reported;
 
     private ModPacks() {}
 
-    /** Gets the pack sources the game is about to use and returns them with Pentecost's source added. */
     public static Object extend(Object sourceArray) {
         RepositorySource[] in = (RepositorySource[]) sourceArray;
-        // Without the Forge layer, Fabric API loads these files itself.
         if (!PentecostRuntime.forgeLayer) {
             return in;
         }

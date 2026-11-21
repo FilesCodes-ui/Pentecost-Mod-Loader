@@ -14,7 +14,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-/** Knowing where things are: yourself, other players, places. */
 final class LocateCmds {
     private static final String C = "Locate";
 

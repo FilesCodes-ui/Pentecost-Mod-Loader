@@ -9,10 +9,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * The one Modrinth version Pentecost picks for a mod: the newest release (or the newest of anything when there is
- * no release), its main file, and the projects it says it needs.
- */
 public record ModrinthPick(String filename, String url, String sha1, List<String> required) {
 
     public static ModrinthPick of(String versionsJson) throws IOException {
@@ -59,7 +55,6 @@ public record ModrinthPick(String filename, String url, String sha1, List<String
         return new ModrinthPick(name, file.get("url").getAsString(), sha1, List.copyOf(required));
     }
 
-    /** A plain jar file name: letters, digits and . _ + - only, no folders. */
     public static String safeJarName(String raw) throws IOException {
         if (raw == null || !raw.matches("[A-Za-z0-9._+-]{1,150}\\.jar") || raw.contains("..")) {
             throw new IOException("Refusing a download with an unsafe file name");
@@ -67,7 +62,6 @@ public record ModrinthPick(String filename, String url, String sha1, List<String
         return raw;
     }
 
-    /** The mod's name without its version: "embeddium-0.3.31+mc1.20.1.jar" and "Embeddium-0.2.jar" both give "embeddium". */
     public static String baseName(String jarName) {
         String s = jarName.toLowerCase(java.util.Locale.ROOT);
         if (s.endsWith(".jar")) {

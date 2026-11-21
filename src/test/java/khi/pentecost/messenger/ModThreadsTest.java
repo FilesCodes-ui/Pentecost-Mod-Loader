@@ -59,7 +59,6 @@ class ModThreadsTest {
     @Test
     void callBackIntoWaiterDoesNotLockUp() throws Exception {
         make(2000);
-        // server -> a, a -> b, b -> a: a answers b's call while it waits.
         String r = mt.call("server", "a", () -> mt.call("a", "b", () -> mt.call("b", "a", () -> Thread.currentThread().getName())));
         assertEquals("pentecost-mods-1", r);
         assertTrue(notes.isEmpty());
@@ -84,7 +83,6 @@ class ModThreadsTest {
                     return null;
                 });
             } catch (Exception ignored) {
-                // Not part of the test.
             }
         });
         blocker.start();

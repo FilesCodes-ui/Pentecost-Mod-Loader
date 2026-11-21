@@ -18,15 +18,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Runs after Mixin. Two loaders can give one game class the same helper method twice:
- * Forge adds its extension interfaces, and a Fabric port of Forge's API (Porting Lib) adds its own copies.
- * Java refuses a class with two default methods of the same name, so Pentecost adds the method
- * to the class itself and has it call one interface's version. Forge's wins, since Forge owns those
- * systems on the Forge layer. Without Forge in the clash, the first interface wins.
- */
 final class DefaultConflicts {
-    /** Interface name to its default methods, as "name desc", including those it inherits. */
     private static final Map<String, Map<String, String>> DEFAULTS = new ConcurrentHashMap<>();
     private static final Set<String> REPORTED = ConcurrentHashMap.newKeySet();
 
@@ -41,7 +33,6 @@ final class DefaultConflicts {
         if (itfs.length < 2) {
             return bytes;
         }
-        // Which direct interface brings each default method, and which interface declares it.
         Map<String, List<String>> owners = new LinkedHashMap<>();
         Map<String, Set<String>> declarers = new HashMap<>();
         for (String itf : itfs) {
@@ -67,7 +58,6 @@ final class DefaultConflicts {
         if (fix.isEmpty()) {
             return bytes;
         }
-        // The class may already declare the method itself. Then there is no clash.
         Set<String> declared = new HashSet<>();
         reader.accept(new ClassVisitor(Opcodes.ASM9) {
             @Override
@@ -112,7 +102,6 @@ final class DefaultConflicts {
         return writer.toByteArray();
     }
 
-    /** Two declarers clash unless one of them inherits from the other, which Java resolves on its own. */
     private static boolean realClash(ClassLoader source, Set<String> declarers) {
         if (declarers == null || declarers.size() < 2) {
             return false;
@@ -144,13 +133,11 @@ final class DefaultConflicts {
                 }
             }
         } catch (Exception e) {
-            // Unknown parent: treat as no parents.
         }
         SUPERS.put(itf, out);
         return out;
     }
 
-    /** Default methods of an interface, "name desc" to the interface that declares the body. */
     private static Map<String, String> defaultsOf(ClassLoader source, String itf, Set<String> seen) {
         Map<String, String> cached = DEFAULTS.get(itf);
         if (cached != null) {
@@ -177,7 +164,6 @@ final class DefaultConflicts {
             }, ClassReader.SKIP_CODE);
             for (String parent : r.getInterfaces()) {
                 for (Map.Entry<String, String> m : defaultsOf(source, parent, seen).entrySet()) {
-                    // A redeclaration in this interface overrides the parent's.
                     if (!own.containsKey(m.getKey())) {
                         out.putIfAbsent(m.getKey(), m.getValue());
                     }

@@ -6,11 +6,6 @@ import khi.pentecost.core.ConnectionLimiter;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Headless check for the connection guard's Netty handler. In-memory channels stand in for the listener and for
- * accepted connections. Their address is not an internet address, so they all count as one address ("unknown"),
- * which is enough to check that refused connections never reach the game and that closing frees a slot.
- */
 public final class ConnectionGuardCheck {
     private static int failures;
 

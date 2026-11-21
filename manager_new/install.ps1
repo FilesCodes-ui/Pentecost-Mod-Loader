@@ -1,5 +1,3 @@
-# Builds the Manager into a folder of its own and puts a shortcut on the desktop and in the Start menu.
-# Run it again after changing the code to update the installed copy.
 $ErrorActionPreference = 'Stop'
 
 $project = Join-Path $PSScriptRoot 'Pentecost.Manager.csproj'
@@ -9,7 +7,6 @@ $exe = Join-Path $target 'Pentecost-Manager.exe'
 Get-Process Pentecost-Manager -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Milliseconds 400
 
-# The program draws its own icon, so build once, ask it for the icon, then build for real.
 Write-Host 'Drawing the icon'
 dotnet build $project -c Release --nologo -v q
 if ($LASTEXITCODE -ne 0) { throw 'The build failed.' }

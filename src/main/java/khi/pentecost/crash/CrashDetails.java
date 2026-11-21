@@ -28,34 +28,19 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Everything a crash report says beyond the stack trace: which mod the trace points at and how sure that is,
- * what to try, the machine, the Java settings, every mod with a file fingerprint, the player's choices,
- * the errors earlier in the log and the last lines of it. Used by Pentecost's own report (startup crashes)
- * and added to Minecraft's report (crashes in the running game, where the game's own blame is often wrong).
- * Nothing here may ever throw: a crash report that crashes is worse than none.
- */
 public final class CrashDetails {
-    /** Marks a report that already carries this text, so it is never added twice. */
     public static final String MARK = "==== PENTECOST CRASH SUMMARY ====";
 
     private CrashDetails() {}
 
-    /** A mod seen in a stack trace: where it first appears, and how many frames belong to it. */
     public record Blame(ModInfo mod, String id, StackTraceElement firstFrame, int frames) {
         boolean library() { return mod != null && mod.loader() == LoaderKind.LIBRARY; }
         String name() { return mod == null ? id : mod.name() + " (" + id + ")"; }
     }
 
-    // ---------------------------------------------------------------- the game's report
-
     private static volatile Object lastReport;
     private static volatile String[] lastParts;
 
-    /**
-     * Called at the end of the game's {@code CrashReport.getFriendlyReport} (patched in by ForgeRedirects).
-     * Puts the Pentecost summary above the game's own text and the details after it.
-     */
     public static String decorate(Object report, String text) {
         try {
             if (text == null || text.contains(MARK)) {
@@ -68,11 +53,24 @@ public final class CrashDetails {
                     try {
                         t = (Throwable) report.getClass().getMethod("getException").invoke(report);
                     } catch (ReflectiveOperationException | RuntimeException e) {
-                        // the summary then has no trace to read
                     }
                     List<ModInfo> mods = PentecostRuntime.allMods.isEmpty() ? PentecostRuntime.mods : PentecostRuntime.allMods;
+                    String guard = null;
+                    try {
+                        String blamed = null;
+                        if (t != null) {
+                            for (Blame b : blame(unwrap(t), mods, PentecostRuntime.loader)) {
+                                if (!b.library()) {
+                                    blamed = b.mod() == null ? b.id() : b.mod().id();
+                                    break;
+                                }
+                            }
+                        }
+                        guard = khi.pentecost.boot.StartupGuard.onCrash(text, blamed, mods);
+                    } catch (Throwable ignored) {
+                    }
                     lastParts = new String[]{
-                            redact(summary(t, mods, PentecostRuntime.loader, true)),
+                            redact(summary(t, mods, PentecostRuntime.loader, true)) + (guard == null ? "" : "\n" + guard + "\n"),
                             redact(details(mods, PentecostRuntime.loader, t, true))};
                     lastReport = report;
                 }
@@ -86,9 +84,6 @@ public final class CrashDetails {
         }
     }
 
-    // ---------------------------------------------------------------- summary
-
-    /** The part a player reads first: what broke, who is to blame, how sure that is, what to do. */
     public static String summary(Throwable error, List<ModInfo> mods, GameClassLoader loader, boolean inGame) {
         StringBuilder sb = new StringBuilder();
         sb.append(MARK).append("\n");
@@ -142,7 +137,6 @@ public final class CrashDetails {
         return sb.toString();
     }
 
-    /** All mods in the trace, deepest cause first, then outward. Order is where the code ran. */
     public static List<Blame> blame(Throwable root, List<ModInfo> mods, GameClassLoader loader) {
         Map<String, Blame> found = new LinkedHashMap<>();
         if (loader == null || root == null) {
@@ -195,7 +189,6 @@ public final class CrashDetails {
 
     private static final Pattern MIXIN_CONFIG = Pattern.compile("([A-Za-z0-9_.\\-]+\\.mixins?\\.json)");
 
-    /** A mixin failure names the mixin file; the mod that ships that file is the owner. */
     private static ModInfo mixinOwner(Throwable root, List<ModInfo> mods) {
         for (Throwable t = root; t != null; t = t.getCause() == t ? null : t.getCause()) {
             String text = t.getClass().getName() + " " + t.getMessage();
@@ -258,9 +251,6 @@ public final class CrashDetails {
         return out;
     }
 
-    // ---------------------------------------------------------------- details
-
-    /** The long part: machine, Java, Pentecost state, every mod, game settings, the log. */
     public static String details(List<ModInfo> mods, GameClassLoader loader, Throwable error, boolean inGame) {
         StringBuilder sb = new StringBuilder();
         sb.append("==== PENTECOST DETAILS ====\n");
@@ -299,7 +289,6 @@ public final class CrashDetails {
         try {
             sb.append("  Pending restart changes: ").append(Choices.pendingRestart()).append('\n');
         } catch (RuntimeException e) {
-            // not known at this stage
         }
         String cmd = System.getProperty("sun.java.command");
         if (cmd != null) {
@@ -337,7 +326,6 @@ public final class CrashDetails {
         try {
             sb.append("  Disk free where the game lives: ").append(Files.getFileStore(Dirs.run()).getUsableSpace() / 1048576).append(" MB\n");
         } catch (java.io.IOException e) {
-            // unknown disk
         }
     }
 
@@ -363,7 +351,6 @@ public final class CrashDetails {
             try {
                 size = Files.size(m.jar());
             } catch (java.io.IOException | RuntimeException e) {
-                // reported as 0
             }
             sb.append("  ").append(m.id()).append(" | ").append(m.name()).append(" | ").append(m.version()).append(" | ")
                     .append(m.loader().name().toLowerCase()).append(" | ")
@@ -469,8 +456,6 @@ public final class CrashDetails {
         }
     }
 
-    // ---------------------------------------------------------------- helpers
-
     public static Throwable unwrap(Throwable error) {
         Throwable root = error;
         while ((root instanceof InvocationTargetException || root instanceof ExceptionInInitializerError
@@ -527,13 +512,11 @@ public final class CrashDetails {
         return String.format(java.util.Locale.ROOT, s >= 120 ? "%.1f minutes" : "%.0f seconds", s >= 120 ? s / 60 : s);
     }
 
-    /** Hides the session a launcher hands in. A shared crash report must never carry a login. */
     static String maskSecrets(String s) {
         return s.replaceAll("(--(?:accessToken|uuid|xuid|clientId|userProperties))[ =]\\S+", "$1 <hidden>")
                 .replaceAll("(?i)(token|session)=\\S+", "$1=<hidden>");
     }
 
-    /** Takes the player's account name out of folder paths, so the file is safe to post. */
     static String redact(String text) {
         String home = System.getProperty("user.home");
         if (home != null && home.length() > 3) {

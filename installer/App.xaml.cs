@@ -5,16 +5,6 @@ namespace Pentecost.Installer;
 
 public partial class App : Application
 {
-    /// <summary>
-    /// Command line (all optional):
-    ///   --minecraft-dir PATH   use another .minecraft folder
-    ///   --install | --uninstall  run without a window; the exit code is 0 when it worked
-    ///   --no-worlds            with --install: skip the main menu worlds
-    ///   --remove-data          with --uninstall: also delete worlds, mods and settings
-    ///   --update               started by the game: wait for it to close, then reinstall without asking and without the worlds
-    ///   --wait PID             with --update: the process id of the game to wait for
-    ///   --ui-selftest          open the window for two seconds and close it
-    /// </summary>
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);

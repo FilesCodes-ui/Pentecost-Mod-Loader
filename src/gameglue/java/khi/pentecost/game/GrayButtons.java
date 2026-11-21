@@ -14,11 +14,6 @@ import org.joml.Matrix4f;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Draws a mod's own button in black and white.
- * The button draws itself off screen, exactly as the mod made it (icons, items, labels),
- * then Pentecost turns that picture gray and shows it.
- */
 final class GrayButtons {
     private static final class Slot {
         TextureTarget target;
@@ -26,13 +21,13 @@ final class GrayButtons {
         ResourceLocation id;
         int width;
         int height;
+        String key;
     }
 
     private static final Map<AbstractButton, Slot> SLOTS = new HashMap<>();
 
     private GrayButtons() {}
 
-    /** Frees every off-screen picture. Called when a menu is rebuilt. */
     static void clear() {
         Minecraft mc = Minecraft.getInstance();
         for (Slot s : SLOTS.values()) {
@@ -50,10 +45,6 @@ final class GrayButtons {
         }
     }
 
-    /**
-     * Draws the button at x, y in the current GUI space.
-     * mx, my: pointer in the same space. scale: Pentecost's own screen scale on top of the GUI scale.
-     */
     static void draw(GuiGraphics g, AbstractButton b, int x, int y, int mx, int my, float partialTick, float scale) {
         Minecraft mc = Minecraft.getInstance();
         int bw = b.getWidth();
@@ -69,9 +60,16 @@ final class GrayButtons {
             slot.id = mc.getTextureManager().register("pentecost_button", slot.texture);
             slot.width = tw;
             slot.height = th;
+            slot.key = null;
         }
 
-        // 1. The button draws itself into its own picture.
+        boolean hovered = mx >= x && mx < x + bw && my >= y && my < y + bh;
+        String key = hovered + "|" + b.active + "|" + b.isFocused() + "|" + b.getMessage().getString() + "|" + tw + "x" + th;
+        if (key.equals(slot.key)) {
+            blitSlot(g, slot, x, y, bw, bh, tw, th);
+            return;
+        }
+
         g.flush();
         Matrix4f oldProjection = new Matrix4f(RenderSystem.getProjectionMatrix());
         VertexSorting oldSorting = RenderSystem.getVertexSorting();
@@ -104,7 +102,6 @@ final class GrayButtons {
             return;
         }
 
-        // 2. The picture turns gray. GL keeps rows bottom first, so they flip on the way.
         NativeImage image = slot.texture.getPixels();
         if (image == null) {
             return;
@@ -127,15 +124,17 @@ final class GrayButtons {
             }
         }
         slot.texture.upload();
+        slot.key = key;
+        blitSlot(g, slot, x, y, bw, bh, tw, th);
+    }
 
-        // 3. The gray picture goes where the button would be.
+    private static void blitSlot(GuiGraphics g, Slot slot, int x, int y, int bw, int bh, int tw, int th) {
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
         g.blit(slot.id, x, y, bw, bh, 0f, 0f, tw, th, tw, th);
         RenderSystem.disableBlend();
     }
 
-    /** Pixels are stored ABGR. */
     private static int gray(int p) {
         int a = p >>> 24;
         int b = (p >> 16) & 0xFF;

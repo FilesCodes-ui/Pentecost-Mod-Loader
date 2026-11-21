@@ -12,11 +12,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Decides which sounds the game may start.
- * Three limits: muted mods, muted sounds, and a rate (the same sound no closer than a gap, all sounds no more than a count per second).
- * Music, records and voice are never rate limited. The gate also counts what plays, so the Sound page can list it.
- */
 final class SoundControl implements ClientHooks.Gate {
     private static final Map<String, int[]> MODS = new ConcurrentHashMap<>();
     private static final Map<String, int[]> SOUNDS = new ConcurrentHashMap<>();
@@ -75,6 +70,10 @@ final class SoundControl implements ClientHooks.Gate {
             return false;
         }
         SoundSource source = s.getSource();
+        if (!mod.equals("minecraft") && source != SoundSource.MUSIC
+                && khi.pentecost.game.menuworld.MenuHost.showing()) {
+            return false;
+        }
         if (source != null && NEVER_LIMITED.contains(source.getName())) {
             return true;
         }
@@ -99,8 +98,6 @@ final class SoundControl implements ClientHooks.Gate {
         }
         return true;
     }
-
-    // ---- what the Sound page reads
 
     record Seen(String name, int count) {}
 

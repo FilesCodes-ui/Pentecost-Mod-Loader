@@ -14,10 +14,6 @@ import net.minecraft.world.level.biome.Biome;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/**
- * Headless check, no game window. Usage: ProfileCheck <cacheDir> <scratchDir> <profileFile>
- * Scans the cache, fills a profile, saves and reloads it, then makes sure a player's edits survive a rescan.
- */
 public final class ProfileCheck {
     public static void main(String[] args) throws Exception {
         Path cache = Path.of(args[0]);
@@ -50,7 +46,6 @@ public final class ProfileCheck {
         int added = profile.mergeScanned(res.structures()) + profile.mergeScanned(res.builds());
         System.out.println("profile points after first scan: " + profile.points.size() + " (added " + added + ")");
 
-        // Edit like the editor would: switch one off, add a custom point, re-weight another.
         Poi first = profile.points.get(0);
         first.enabled = false;
         first.edited = true;
@@ -68,7 +63,6 @@ public final class ProfileCheck {
         System.out.println("saved and reloaded: " + (same ? "matches" : "MISMATCH") + ", active points "
                 + back.activePoints().size() + " of " + back.points.size());
 
-        // A rescan must not undo the player's edits or duplicate points.
         int again = back.mergeScanned(res.structures()) + back.mergeScanned(res.builds());
         System.out.println("rescan added " + again + ", first point still off: " + !back.find(first.id).enabled
                 + ", custom kept: " + (back.find(custom.id) != null) + ", total " + back.points.size());
@@ -76,7 +70,6 @@ public final class ProfileCheck {
         back.targets = MenuProfile.Targets.REGION_ONLY;
         System.out.println("REGION_ONLY active points: " + back.activePoints().size());
 
-        // A damaged file must give defaults, not an error.
         Path bad = file.resolveSibling("profile_bad.json");
         Files.writeString(bad, "{ not json");
         System.out.println("damaged file loads defaults: " + (ProfileStore.load(bad).points.isEmpty()));

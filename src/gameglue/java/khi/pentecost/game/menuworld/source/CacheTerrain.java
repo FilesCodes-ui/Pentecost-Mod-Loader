@@ -8,21 +8,13 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * What the camera director knows about the land: the height and water of every column, read from the heightmaps
- * the chunks were saved with. No blocks are decoded, so a 4096 chunk area loads in about a second.
- *
- * Height is the top of the first block that stops movement or holds a fluid, so the camera clears treetops and
- * water. A column is water when the fluid surface is above the ocean floor. Columns outside the loaded box answer
- * with a flat, dry guess, so the camera never meets a hole.
- */
 public final class CacheTerrain implements Terrain {
     private static final int MIN_Y = -64;
-    private static final int HEIGHT_BITS = 9; // ceil(log2(384 + 1)), the overworld's height range
+    private static final int HEIGHT_BITS = 9;
     private static final int OUTSIDE = 62;
 
     private final Map<Long, short[]> tops = new HashMap<>();
-    private final Map<Long, long[]> wet = new HashMap<>(); // 256 bits per chunk
+    private final Map<Long, long[]> wet = new HashMap<>();
 
     private CacheTerrain() {}
 
@@ -30,7 +22,6 @@ public final class CacheTerrain implements Terrain {
         return ((long) cx << 32) | (cz & 0xFFFFFFFFL);
     }
 
-    /** Reads the heightmaps of every finished chunk in the box. */
     public static CacheTerrain load(ChunkSource source, int minCx, int minCz, int maxCx, int maxCz) throws IOException {
         CacheTerrain t = new CacheTerrain();
         source.forEach(minCx, minCz, maxCx, maxCz, (cx, cz, tag) -> t.add(cx, cz, tag));
@@ -62,7 +53,7 @@ public final class CacheTerrain implements Terrain {
         try {
             return new SimpleBitStorage(HEIGHT_BITS, 256, maps.getLongArray(name));
         } catch (RuntimeException e) {
-            return null; // a heightmap packed another way (a modded height range) is skipped, not trusted
+            return null;
         }
     }
 

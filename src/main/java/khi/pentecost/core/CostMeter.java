@@ -14,12 +14,6 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.LongAdder;
 
-/**
- * Times every Forge event handler and adds the time up per mod.
- * Pentecost wraps the call that runs a handler (ASMEventHandler.invoke). Timing only runs while the
- * F6 panel is open, so it costs nothing the rest of the time.
- * A handler that posts another event is timed together with the handlers that event runs.
- */
 public final class CostMeter {
     private static final String HANDLER = "net.minecraftforge.eventbus.ASMEventHandler";
     private static final String INVOKE_DESC = "(Lnet/minecraftforge/eventbus/api/Event;)V";
@@ -31,6 +25,7 @@ public final class CostMeter {
         final LongAdder nanos = new LongAdder();
         final LongAdder calls = new LongAdder();
         long lastNanos;
+        long lastCalls;
 
         Slot(String mod, String name) {
             this.mod = mod;
@@ -55,12 +50,10 @@ public final class CostMeter {
         }
     }
 
-    /** Called by the rewritten handler call before it runs. Returns 0 while timing is off. */
     public static long begin() {
         return enabled ? System.nanoTime() : 0L;
     }
 
-    /** Called by the rewritten handler call after it runs. */
     public static void end(Object handler, long start) {
         if (start == 0L) {
             return;
@@ -99,7 +92,6 @@ public final class CostMeter {
             try {
                 mod = loader.modOf(owner);
             } catch (RuntimeException ignored) {
-                // A class that cannot be placed counts as unknown.
             }
         }
         if (mod == null) {
@@ -108,10 +100,6 @@ public final class CostMeter {
         return new Slot(mod, owner.substring(owner.lastIndexOf('.') + 1) + "." + method);
     }
 
-    /**
-     * The biggest mods over the last few seconds, as rows for the F6 panel: mod name and milliseconds per tick
-     * (at 20 ticks per second). Call from the render thread.
-     */
     public static List<String[]> rows(int count) {
         long now = System.nanoTime();
         if (!enabled) {
@@ -121,16 +109,21 @@ public final class CostMeter {
             windowStart = now;
             for (Slot s : SLOTS.values()) {
                 s.lastNanos = s.nanos.sum();
+                s.lastCalls = s.calls.sum();
             }
         } else if (now - windowStart >= 4_000_000_000L) {
             double seconds = (now - windowStart) / 1e9;
             Map<String, Long> perMod = new HashMap<>();
             Map<String, String> worst = new HashMap<>();
             Map<String, Long> worstCost = new HashMap<>();
+            Map<String, Long> worstCalls = new HashMap<>();
             for (Slot s : SLOTS.values()) {
                 long total = s.nanos.sum();
                 long delta = total - s.lastNanos;
                 s.lastNanos = total;
+                long callsTotal = s.calls.sum();
+                long callsDelta = callsTotal - s.lastCalls;
+                s.lastCalls = callsTotal;
                 if (delta <= 0) {
                     continue;
                 }
@@ -138,6 +131,7 @@ public final class CostMeter {
                 if (delta > worstCost.getOrDefault(s.mod, 0L)) {
                     worstCost.put(s.mod, delta);
                     worst.put(s.mod, s.name);
+                    worstCalls.put(s.mod, callsDelta);
                 }
             }
             List<Map.Entry<String, Long>> sorted = new ArrayList<>(perMod.entrySet());
@@ -147,10 +141,12 @@ public final class CostMeter {
                 Map.Entry<String, Long> e = sorted.get(i);
                 double perTick = e.getValue() / 1e6 / seconds / 20.0;
                 out.add(new String[]{e.getKey(), String.format(java.util.Locale.ROOT, "%.2f ms", perTick)});
-                if (perTick >= 1.0) {
-                    System.out.println(String.format(java.util.Locale.ROOT,
-                            "[Pentecost] Handler cost: %s %.2f ms per tick, mostly %s", e.getKey(), perTick,
-                            worst.get(e.getKey())));
+                if (perTick >= 0.3) {
+                    khi.pentecost.boot.Log.info(String.format(java.util.Locale.ROOT,
+                            "Handler cost: %s %.2f ms per tick, mostly %s (%.2f ms, %d calls per tick)",
+                            e.getKey(), perTick, worst.get(e.getKey()),
+                            worstCost.get(e.getKey()) / 1e6 / seconds / 20.0,
+                            Math.round(worstCalls.getOrDefault(e.getKey(), 0L) / seconds / 20.0)));
                 }
             }
             top = out;
@@ -159,7 +155,6 @@ public final class CostMeter {
         return top;
     }
 
-    /** Wraps ASMEventHandler.invoke so every handler call is timed. */
     public static ClassTransformer transformer() {
         return (name, bytes) -> {
             if (!name.equals(HANDLER)) {

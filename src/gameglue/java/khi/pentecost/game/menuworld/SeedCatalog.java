@@ -2,11 +2,6 @@ package khi.pentecost.game.menuworld;
 
 import java.util.List;
 
-/**
- * Seeds picked from published 1.20 lists, with where the list said something worth seeing is. None of these
- * has been looked at in game yet. The anchor is only a starting point: the camera director scores the land
- * around it and finds its own views.
- */
 public final class SeedCatalog {
     private SeedCatalog() {}
 

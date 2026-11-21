@@ -8,12 +8,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.IntSupplier;
 import java.util.function.LongSupplier;
 
-/**
- * Watches a world open to friends and closes the sharing when it should not stay open:
- *  - Nobody but the host has been in the world for 30 minutes. An open port nobody uses is only exposure.
- *  - Floods paused new connections three times in ten minutes. The address is being attacked, so stop advertising it.
- * Closing the session removes the room code and the router port. The player is told why on the WWLS screen.
- */
 public final class HostGuard {
     public static final long IDLE_MS = 30 * 60_000L;
     public static final int FLOOD_PAUSES = 3;
@@ -39,7 +33,6 @@ public final class HostGuard {
         });
     }
 
-    /** Starts watching. friends counts the players in the world other than the host. */
     public static HostGuard start(Wwls.Session session, IntSupplier friends, ConnectionLimiter limiter) {
         HostGuard g = new HostGuard(session, friends, limiter);
         g.timer.scheduleWithFixedDelay(g::tick, 5, 5, TimeUnit.SECONDS);
@@ -50,12 +43,10 @@ public final class HostGuard {
         return limiter;
     }
 
-    /** Why the sharing was closed by this guard, or an empty string. */
     public String reason() {
         return reason;
     }
 
-    /** The reason to close, or null to stay open. quietMs is how long nobody but the host has been in the world. */
     static String verdict(long quietMs, int friendsOnline, int recentPauses) {
         if (recentPauses >= FLOOD_PAUSES) {
             return "Sharing stopped: heavy traffic from the internet. Open the world again when it calms down, "

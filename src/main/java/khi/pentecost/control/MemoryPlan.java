@@ -9,30 +9,17 @@ import java.util.List;
 import java.util.Locale;
 import java.util.function.Function;
 
-/**
- * Pentecost's memory plan: a working size and a backup on top of it.
- * The working size (Memory) is what the game is set to use. The backup (Backup memory) is extra room above it for
- * spikes. The JVM never goes past its ceiling, so the ceiling is the working size plus the backup. The garbage
- * collector keeps the game near the working size and reaches into the backup only under pressure. With Generational ZGC
- * the working size is also a soft limit that the collector tries to stay under.
- *
- * The same numbers are kept in four places: the in-game Settings screen, the Manager's profiles, the installer's
- * launcher profile and the wrapper script. This class is the in-game side. It reads config/pentecost/settings.json.
- */
 public final class MemoryPlan {
-    /** The working size, the backup above it, the new objects area (0 for none) and the collector: g1, zgc or parallel. */
     public record Plan(int targetGb, int reserveGb, int youngGb, String gc) {
         public int ceilingGb() {
             return targetGb + reserveGb;
         }
     }
 
-    /** What a JVM's memory flags add up to, in megabytes. 0 means the flag is absent. */
     public record Effective(long startMb, long maxMb, long youngMb, long softMb, String gc) {}
 
     private MemoryPlan() {}
 
-    /** The default working size and backup for a PC with this much memory, in GB. */
     public static int[] tier(int machineGb) {
         int target;
         int reserve;
@@ -55,22 +42,18 @@ public final class MemoryPlan {
         return new int[]{target, fitReserve(machineGb, target, reserve)};
     }
 
-    /** The most the working size may be. Windows and other programs keep 2 GB. */
     public static int cap(int machineGb) {
         return Math.max(4, Math.min(32, machineGb - 2));
     }
 
-    /** The most backup that still leaves 2 GB free for the rest of the PC. */
     public static int fitReserve(int machineGb, int targetGb, int reserveGb) {
         return Math.max(0, Math.min(Math.min(16, reserveGb), machineGb - 2 - targetGb));
     }
 
-    /** The default new objects area: half of the working size, as before. */
     public static int halfOf(int targetGb) {
         return Math.max(1, targetGb / 2);
     }
 
-    /** The memory of this PC in GB, or 16 when it cannot be read. */
     public static int machineGb() {
         try {
             java.lang.management.OperatingSystemMXBean os = java.lang.management.ManagementFactory.getOperatingSystemMXBean();
@@ -78,21 +61,15 @@ public final class MemoryPlan {
                 return (int) (big.getTotalMemorySize() >> 30);
             }
         } catch (RuntimeException | LinkageError e) {
-            // fall through to a safe default
         }
         return 16;
     }
 
-    /** True when the player set at least one of the memory settings. Nothing is changed for a player who did not. */
     public static boolean anySet(Function<String, String> get) {
         return !get.apply(Settings.JAVA_MEMORY).isEmpty() || !get.apply(Settings.JAVA_RESERVE).isEmpty()
                 || !get.apply(Settings.JAVA_YOUNG).isEmpty() || !get.apply(Settings.JAVA_GC).isEmpty();
     }
 
-    /**
-     * The plan the settings ask for. A setting the player did not touch keeps what the running JVM has, so choosing only
-     * the collector does not move the memory.
-     */
     public static Plan plan(int machineGb, List<String> running, Function<String, String> get) {
         Effective now = effective(running);
         int[] tier = tier(machineGb);
@@ -127,7 +104,6 @@ public final class MemoryPlan {
         return new Plan(target, reserve, young, gc);
     }
 
-    /** The JVM flags for a plan. */
     public static List<String> flags(Plan p) {
         List<String> f = new ArrayList<>();
         f.add("-Xms" + p.targetGb() + "G");
@@ -149,7 +125,6 @@ public final class MemoryPlan {
         return f;
     }
 
-    /** The running flags with every memory and collector flag taken out, then the plan's flags and the extra flags after them. */
     public static List<String> apply(List<String> running, Plan plan, List<String> extra) {
         List<String> out = new ArrayList<>();
         for (String a : running) {
@@ -172,7 +147,6 @@ public final class MemoryPlan {
                 || a.equals("-XX:+UseG1GC") || a.equals("-XX:-ZGenerational");
     }
 
-    /** What the flags add up to. The last of a repeated flag wins, as it does in the JVM. */
     public static Effective effective(List<String> args) {
         long start = 0;
         long max = 0;
@@ -199,7 +173,6 @@ public final class MemoryPlan {
         return new Effective(start, max, young, soft, gc);
     }
 
-    /** A JVM size such as 8G, 8192m or 4194304k in megabytes. 0 when it cannot be read. */
     public static long megabytes(String size) {
         String v = size.trim().toLowerCase(Locale.ROOT);
         if (v.isEmpty()) {
@@ -222,7 +195,6 @@ public final class MemoryPlan {
         }
     }
 
-    /** The flags in jvm-flags.txt, one per line. A line starting with # is a note. */
     public static List<String> extraFlags(Path file) throws IOException {
         List<String> out = new ArrayList<>();
         if (!Files.isRegularFile(file)) {

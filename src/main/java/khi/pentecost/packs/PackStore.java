@@ -42,17 +42,6 @@ import java.util.stream.Stream;
 import java.util.zip.ZipException;
 import java.util.zip.ZipFile;
 
-/**
- * Everything the in-game resource pack and shader pack store asks of Modrinth and of the pack folder.
- * Search, pick the newest version for this game, download with hash checks, find which installed files came from
- * Modrinth and whether a newer version exists, and delete a pack.
- *
- * No game classes in here, so the parts that do not need the network are tested without the game.
- * Every failure is an IOException with a sentence the player can read.
- *
- * Download rules, the same as the Manager's: https, modrinth.com or one of its subdomains, a plain .zip file name,
- * SHA-1 checked, SHA-512 checked when Modrinth lists one, and a size limit.
- */
 public final class PackStore {
     public enum Kind {
         RESOURCE("resourcepack", "Resource packs"),
@@ -67,19 +56,14 @@ public final class PackStore {
         }
     }
 
-    /** One search result. */
     public record Project(String id, String title, String author, String summary, long downloads, String icon) {}
 
-    /** One page of search results and how many exist in all. */
     public record Results(List<Project> projects, int total) {}
 
-    /** The file of one version, checked and ready to download. */
     public record Pick(String versionId, String versionNumber, String filename, String url, String sha1, String sha512, long size) {}
 
-    /** A file in the pack folder. sha1 is null for a folder pack, or before the hash was read. */
     public record Local(String name, boolean folder, long size, String sha1) {}
 
-    /** What Modrinth knows about an installed file: its project, its version and the newest version for this game. */
     public record Known(String projectId, String title, String versionId, String versionNumber, Pick latest, String icon) {
         public boolean outdated() {
             return latest != null && !latest.versionId().equals(versionId);
@@ -87,7 +71,6 @@ public final class PackStore {
     }
 
     public static final int PAGE = 20;
-    /** A pack bigger than this is not offered. */
     static final long MAX_BYTES = 512L * 1024 * 1024;
 
     private static final String API = "https://api.modrinth.com/v2";
@@ -96,14 +79,10 @@ public final class PackStore {
     private static final Pattern SHA1 = Pattern.compile("[0-9a-fA-F]{40}");
     private static final Pattern SHA512 = Pattern.compile("[0-9a-fA-F]{128}");
     private static final Set<String> SORTS = Set.of("relevance", "downloads", "follows", "newest", "updated");
-    /** Hashes of zips already read, keyed by path, size and time, so a repeat check does not read every pack again. */
     private static final Map<String, String> HASHES = new ConcurrentHashMap<>();
 
     private PackStore() {}
 
-    // ------------------------------------------------------------------ addresses and parsing (no network)
-
-    /** The search address. sort is one of relevance, downloads, follows, newest, updated; anything else means relevance. */
     public static String searchUrl(Kind kind, String query, String sort, int offset, String game) {
         require(GAME, game, "game version");
         String facets = "[[\"project_type:" + kind.type + "\"],[\"versions:" + game + "\"]"
@@ -136,10 +115,6 @@ public final class PackStore {
         return new Results(List.copyOf(out), (int) Math.min(Integer.MAX_VALUE, num(root, "total_hits")));
     }
 
-    /**
-     * The file to install from a list of versions, newest first: a release for this game when there is one, else any
-     * version for this game. Null when no version has a usable file.
-     */
     public static Pick parsePick(String versionsJson, String game) throws IOException {
         JsonArray versions = array(versionsJson);
         List<JsonObject> releases = new ArrayList<>();
@@ -163,7 +138,6 @@ public final class PackStore {
         return null;
     }
 
-    /** The primary file of one version, or null when it is not a file Pentecost will download. */
     static Pick pickOf(JsonObject version) {
         String versionId = str(version, "id");
         if (!ID.matcher(versionId).matches() || !version.has("files") || !version.get("files").isJsonArray()) {
@@ -195,7 +169,6 @@ public final class PackStore {
                 SHA512.matcher(sha512).matches() ? sha512.toLowerCase(Locale.ROOT) : "", size);
     }
 
-    /** A plain .zip file name: no folders, no drive letters, no characters Windows refuses. */
     public static boolean safeName(String name) {
         if (name == null || name.isEmpty() || name.length() > 120 || name.startsWith(".") || name.contains("..")
                 || !name.toLowerCase(Locale.ROOT).endsWith(".zip")) {
@@ -209,7 +182,6 @@ public final class PackStore {
         return true;
     }
 
-    /** https, no sign-in part, and modrinth.com or one of its subdomains. */
     public static boolean trustedUrl(String url) {
         try {
             URI u = URI.create(url);
@@ -221,13 +193,10 @@ public final class PackStore {
         }
     }
 
-    // ------------------------------------------------------------------ looking things up
-
     public static Results search(Kind kind, String query, String sort, int offset, String game) throws IOException {
         return parseSearch(Http.text(searchUrl(kind, query, sort, offset, game)));
     }
 
-    /** The newest version of a project for this game. */
     public static Pick latest(String projectId, String game) throws IOException {
         require(ID, projectId, "project");
         require(GAME, game, "game version");
@@ -238,10 +207,6 @@ public final class PackStore {
         return p;
     }
 
-    /**
-     * Finds which of these files came from Modrinth, by their SHA-1, and the newest version of each project.
-     * A file Modrinth does not know is simply missing from the answer.
-     */
     public static Map<String, Known> identify(Collection<String> sha1s, String game) throws IOException {
         List<String> hashes = sha1s.stream().filter(h -> h != null && SHA1.matcher(h).matches()).map(h -> h.toLowerCase(Locale.ROOT))
                 .distinct().limit(200).toList();
@@ -271,7 +236,6 @@ public final class PackStore {
             try {
                 newest.put(pid, latest(pid, game));
             } catch (IOException e) {
-                // No update information for this one. It shows as known, not as outdated.
             }
         }
         Map<String, Known> out = new HashMap<>();
@@ -308,19 +272,15 @@ public final class PackStore {
                 }
             }
         } catch (IOException e) {
-            // Titles are a nicety. The file name still shows.
         }
         return out;
     }
-
-    // ------------------------------------------------------------------ icons
 
     static final int ICON = 64;
     private static final int MAX_ICON_BYTES = 1_000_000;
     private static final HttpClient ICON_HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NEVER).build();
 
-    /** A project's icon from Modrinth as a 64 by 64 PNG, or null. Only https addresses on modrinth.com hosts are fetched. */
     public static byte[] icon(String url) {
         if (!trustedUrl(url)) {
             return null;
@@ -343,7 +303,6 @@ public final class PackStore {
         }
     }
 
-    /** The pack.png of an installed pack, zip or folder, as a 64 by 64 PNG, or null. */
     public static byte[] localIcon(Path folder, String name) {
         try {
             Path root = folder.toAbsolutePath().normalize();
@@ -369,10 +328,6 @@ public final class PackStore {
         }
     }
 
-    /**
-     * Any image Java reads (PNG, JPEG, GIF, BMP) as a 64 by 64 PNG, fitted and centred. Small pixel art keeps sharp
-     * edges. Null when the bytes are not an image Java reads (WebP, for one).
-     */
     static byte[] toIcon(byte[] data) {
         try {
             BufferedImage src = ImageIO.read(new ByteArrayInputStream(data));
@@ -396,9 +351,6 @@ public final class PackStore {
         }
     }
 
-    // ------------------------------------------------------------------ the pack folder
-
-    /** The packs in a folder: zips and folders, by name. Hashes of zips are read only when hash is true. */
     public static List<Local> listLocal(Path folder, boolean hash) throws IOException {
         if (!Files.isDirectory(folder)) {
             return List.of();
@@ -431,10 +383,6 @@ public final class PackStore {
         return h;
     }
 
-    /**
-     * Downloads a pick into the folder and checks it. A file with the same name and other content is not overwritten:
-     * the new one gets the start of its hash in its name. Returns the file.
-     */
     public static Path install(Pick pick, Path folder) throws IOException {
         if (pick == null || !safeName(pick.filename()) || !trustedUrl(pick.url()) || !SHA1.matcher(pick.sha1()).matches()
                 || pick.size() <= 0 || pick.size() > MAX_BYTES) {
@@ -463,7 +411,6 @@ public final class PackStore {
         return dest;
     }
 
-    /** Size, SHA-512 when listed, and that the file opens as a zip with something in it. */
     static void verify(Path file, Pick pick) throws IOException {
         if (Files.size(file) > MAX_BYTES) {
             throw new IOException("The pack is larger than Pentecost allows");
@@ -494,7 +441,6 @@ public final class PackStore {
         }
     }
 
-    /** Deletes one pack by name from the folder. Nothing outside the folder is touched. */
     public static void delete(Path folder, String name) throws IOException {
         if (name == null || name.isEmpty() || name.startsWith(".") || name.contains("/") || name.contains("\\") || name.contains(":")) {
             throw new IOException("That is not a pack name");
@@ -520,8 +466,6 @@ public final class PackStore {
         }
     }
 
-    // ------------------------------------------------------------------ small helpers
-
     private static void require(Pattern pattern, String value, String what) {
         if (value == null || !pattern.matcher(value).matches()) {
             throw new IllegalArgumentException("Not a valid " + what + ": " + value);
@@ -539,7 +483,6 @@ public final class PackStore {
                 return e.getAsJsonObject();
             }
         } catch (JsonParseException | IllegalStateException | NullPointerException e) {
-            // falls through
         }
         throw new IOException("Modrinth sent an answer Pentecost could not read");
     }
@@ -551,7 +494,6 @@ public final class PackStore {
                 return e.getAsJsonArray();
             }
         } catch (JsonParseException | IllegalStateException | NullPointerException e) {
-            // falls through
         }
         throw new IOException("Modrinth sent an answer Pentecost could not read");
     }
@@ -583,7 +525,6 @@ public final class PackStore {
         return false;
     }
 
-    /** Text from a stranger, made safe to draw: no control or formatting characters, and not too long. */
     static String clean(String s) {
         String t = s.replaceAll("[\\p{Cntrl}\u00A7]", " ").replaceAll("\\s+", " ").strip();
         return t.length() > 300 ? t.substring(0, 300) : t;

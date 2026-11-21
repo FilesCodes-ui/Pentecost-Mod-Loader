@@ -5,11 +5,6 @@ using System.Windows.Threading;
 
 namespace Pentecost.Manager;
 
-/// <summary>
-/// Walks the whole window without a person: opens every page, hovers every card, presses the buttons that are safe to
-/// press, and writes down anything that looks wrong. Run it with --check DIR. Nothing here starts the game, installs,
-/// downloads, deletes or opens a folder.
-/// </summary>
 public partial class MainWindow
 {
     readonly List<string> findings = new();
@@ -46,12 +41,8 @@ public partial class MainWindow
 
     static bool Shown(FrameworkElement e) => e.IsVisible && e.ActualWidth > 0 && e.ActualHeight > 0;
 
-    // ---------------------------------------------------------------- checks
-
-    /// <summary>The part of the window a page is drawn in.</summary>
     Rect PageArea => new(PageHost.TranslatePoint(new Point(0, 0), Frame), new Size(PageHost.ActualWidth, PageHost.ActualHeight));
 
-    /// <summary>True when the element sits in a strip that scrolls sideways, where running past the edge is the point.</summary>
     bool Scrolls(DependencyObject e)
     {
         for (var up = VisualTreeHelper.GetParent(e); up != null && up != PageHost; up = VisualTreeHelper.GetParent(up))
@@ -59,7 +50,6 @@ public partial class MainWindow
         return false;
     }
 
-    /// <summary>Everything a person can see must sit inside the page, and its text must fit or show an ellipsis.</summary>
     void CheckLayout(string page)
     {
         var area = PageArea;
@@ -68,7 +58,6 @@ public partial class MainWindow
             if (o is not FrameworkElement e || !Shown(e)) continue;
             var r = BoundsIn(e, Frame);
 
-            // A row scrolled out of sight is not a fault, so only what is on screen now is judged.
             if (r.Bottom < area.Top + 1 || r.Top > area.Bottom - 1 || r.Width < 1) continue;
 
             if (e is ButtonBase or TextBox or Image && !Scrolls(e))
@@ -79,7 +68,6 @@ public partial class MainWindow
                     Say($"{page}: {Label(b)} is only {b.ActualWidth:0} by {b.ActualHeight:0}");
             }
 
-            // Text that runs past its box with nothing to show it was cut.
             if (e is TextBlock { TextWrapping: TextWrapping.NoWrap, TextTrimming: TextTrimming.None } t && t.Text.Length > 1 && !IsGlyph(t))
             {
                 t.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
@@ -88,7 +76,6 @@ public partial class MainWindow
             }
         }
     }
-    /// <summary>Hovering a card must not paint outside the list it sits in.</summary>
     async Task CheckHover(string page)
     {
         var lists = Tree(PageHost).OfType<ScrollViewer>().Where(Shown).ToList();
@@ -112,7 +99,6 @@ public partial class MainWindow
         }
     }
 
-    /// <summary>Presses the buttons that only change what is on screen.</summary>
     async Task PressSafe(string page, string[] skip)
     {
         var buttons = Tree(PageHost).OfType<ButtonBase>().Where(Shown).ToList();
@@ -160,7 +146,6 @@ public partial class MainWindow
         return "a " + e.GetType().Name;
     }
 
-    /// <summary>True for an icon: it is drawn in the icon font, or it is one character Windows keeps for symbols.</summary>
     static bool IsGlyph(TextBlock t) =>
         t.FontFamily?.Source?.Contains("Fluent", StringComparison.OrdinalIgnoreCase) == true
         || t.FontFamily?.Source?.Contains("MDL2", StringComparison.OrdinalIgnoreCase) == true
@@ -172,15 +157,12 @@ public partial class MainWindow
         return s.Length > 34 ? s[..34] + "..." : s;
     }
 
-    // ---------------------------------------------------------------- the run
-
     public async Task Check(string dir)
     {
         testing = true;
         Directory.CreateDirectory(dir);
         await Settle(2500);
 
-        // Anything that touches files, the network or the game is left alone.
         var skip = new[]
         {
             "Install", "Update", "Reinstall", "Remove", "Delete", "Play", "Stop", "Check for updates", "Open", "Folder",
@@ -201,7 +183,6 @@ public partial class MainWindow
             Shoot(dir, page);
         }
 
-        // The Manager update notice and settings row, drawn with a made-up release.
         {
             var real = latest;
             latest = new ReleaseInfo("v9.9.9", "https://example.invalid", null, null, 0, null, "", "9.9.9", null, 0, null);
@@ -221,7 +202,6 @@ public partial class MainWindow
             await Settle(600);
         }
 
-        // The boxes.
         Go("Browse");
         await Settle(1200);
         ShowProject("sodium", "mod", "Sodium", null, "jellysquid3", () => { });
@@ -262,7 +242,6 @@ public partial class MainWindow
         HideModal();
         await Settle(300);
 
-        // Searching Browse for a name.
         Go("Browse");
         await Settle(1500);
         searchWith?.Invoke("create");
@@ -271,7 +250,6 @@ public partial class MainWindow
         searchWith?.Invoke("");
         await Settle(2500);
 
-        // A narrow window, to see whether anything breaks.
         Width = 1080;
         Height = 680;
         Go("Browse");
@@ -283,7 +261,6 @@ public partial class MainWindow
         CheckLayout("Mods narrow");
         Shoot(dir, "Narrow-mods");
 
-        // Reading a release: the installer and the newest Manager setup are found among its files.
         {
             const string releaseJson = "{\"tag_name\":\"v1.2.3\",\"html_url\":\"https://x\",\"body\":\"n\",\"assets\":[" +
                 "{\"name\":\"Pentecost-Installer-1.2.3.exe\",\"size\":10,\"browser_download_url\":\"https://github.com/a\",\"digest\":\"sha256:AA\"}," +
@@ -295,7 +272,6 @@ public partial class MainWindow
             if (!Updates.Newer("0.10.1", "0.4.0") || Updates.Newer("0.4.0", "0.4.0")) Say("version order is wrong");
         }
 
-        // A mod the game's Mods screen switched off shows as off, and turning it on here clears only the game's switch for it.
         {
             var keep = Paths.Home;
             var home = Path.Combine(Path.GetTempPath(), "pentecost-gameoff-test-" + Guid.NewGuid().ToString("N"));
@@ -327,7 +303,6 @@ public partial class MainWindow
             }
         }
 
-        // Download rules, pack rules and the memory plan.
         {
             if (!Modrinth.IsModrinthHost("cdn.modrinth.com") || !Modrinth.IsModrinthHost("modrinth.com")) Say("host rule: a real Modrinth host was refused");
             if (Modrinth.IsModrinthHost("evilmodrinth.com") || Modrinth.IsModrinthHost("modrinth.com.evil.net")) Say("host rule: a lookalike host was accepted");
@@ -370,7 +345,6 @@ public partial class MainWindow
             }
         }
 
-        // Set PENTECOST_UPDATE_TEST=1 to download the Manager setup of the live release and check its size and SHA-256.
         if (Environment.GetEnvironmentVariable("PENTECOST_UPDATE_TEST") == "1")
         {
             var live = latest;

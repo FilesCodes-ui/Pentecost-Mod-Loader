@@ -7,15 +7,6 @@ import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
-/**
- * Splits a slow frame into its parts, for the F6 panel. It changes nothing the game does.
- * Held item: the time the game thread spends drawing the first-person hands and what they hold
- * (ItemInHandRenderer.renderHandsWithItems), which is where a weapon model costs.
- * GPU wait: the time spent in Window.updateDisplay, where the game hands the frame to the driver. When the graphics card
- * is behind (a heavy shader pack), the driver makes the game wait here. A high number means the GPU limits the frame
- * rate, not Java code.
- * Each number is an average over the last half second, in milliseconds per frame.
- */
 public final class FrameProbe {
     private static long handStart;
     private static long handSum;

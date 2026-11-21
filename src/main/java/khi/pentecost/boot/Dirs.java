@@ -5,7 +5,6 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/** Every folder the loader uses, under one home folder. */
 public final class Dirs {
     private static final Path HOME =
             Path.of(System.getProperty("pentecost.home", ".")).toAbsolutePath().normalize();

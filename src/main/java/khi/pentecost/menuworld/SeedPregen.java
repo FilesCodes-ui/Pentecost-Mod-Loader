@@ -22,38 +22,22 @@ import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 
-/**
- * Generates the chunks of one seed with an unmodified vanilla 1.20.1 server in its own JVM, then copies the region
- * files into the menu-world cache. Nothing here touches the game or any mod, so no mod biome, block or feature can
- * end up in the cache. Run once per seed and area; later launches only read the cache.
- *
- * The server needs the Mojang EULA accepted. {@link #run} writes eula=true into its own temporary folder, so the
- * caller must have asked the player first.
- *
- * Cache layout: {@code <cacheDir>/meta.json}, {@code <cacheDir>/progress.json} and {@code <cacheDir>/region/r.X.Z.mca}.
- * meta.json is written last and says the area is finished. progress.json lists the chunk rectangles that are
- * finished, so a run for a bigger or moved area, or one that was stopped, carries on instead of starting again.
- */
 public final class SeedPregen {
     private SeedPregen() {}
 
     public static final String MC_VERSION = "1.20.1";
 
-    /** The server being generated with right now, so a newer request can stop it instead of running beside it. */
     private static volatile Process active;
 
     static {
-        // A server left running after the game closes would keep working on a world nobody asked for.
         Runtime.getRuntime().addShutdownHook(new Thread(SeedPregen::cancelRunning, "pregen-stop"));
     }
 
-    /** Stops the server that is generating now, if any. The run that started it then ends with an error. */
     public static void cancelRunning() {
         Process p = active;
         if (p != null) p.destroyForcibly();
     }
 
-    /** Two servers on the default port cannot both start, so each one gets a free port of its own. */
     private static int freePort() {
         try (java.net.ServerSocket s = new java.net.ServerSocket(0)) {
             return s.getLocalPort();
@@ -61,11 +45,9 @@ public final class SeedPregen {
             return 25565;
         }
     }
-    private static final int BLOCK_CHUNKS = 16; // forceload takes at most 256 chunks per command
+    private static final int BLOCK_CHUNKS = 16;
 
-    /** The area is a square of 2 * radiusChunks chunks per side around the centre block. */
     public record Area(long seed, int centerBlockX, int centerBlockZ, int radiusChunks) {
-        /** Pass this as the centre to centre the area on the generated world's spawn point. */
         public static final int SPAWN = Integer.MIN_VALUE;
 
         public boolean centerOnSpawn() { return centerBlockX == SPAWN; }
@@ -95,7 +77,6 @@ public final class SeedPregen {
         }
     }
 
-    /** The vanilla server's classpath: the client jar plus the libraries its version JSON lists for this OS. */
     static List<Path> serverClasspath(Path home) throws IOException {
         Path versionDir = home.resolve("cache").resolve("minecraft").resolve(MC_VERSION);
         JsonObject version = JsonParser.parseString(
@@ -130,20 +111,13 @@ public final class SeedPregen {
         return allowed;
     }
 
-    // ------------------------------------------------------------------ one run, which can be pointed at a new area
-
-    /**
-     * One generation. Its target can change while it runs (a new radius or centre): the run then carries on with the
-     * chunks it has already finished instead of starting again.
-     */
     private static final class Job {
         final long seed;
         volatile Area target;
         volatile Consumer<Progress> progress;
-        /** Finish what is being generated, save it and end. Set by {@link #stopRunning}. */
         volatile boolean stop;
-        /** The loop decided it is done, so a new target can no longer join. Guarded by LOCK. */
         boolean closed;
+        boolean far;
 
         Job(long seed, Area target, Consumer<Progress> progress) {
             this.seed = seed;
@@ -158,19 +132,16 @@ public final class SeedPregen {
     }
 
     private static final Object LOCK = new Object();
-    private static Job job; // guarded by LOCK
+    private static Job job;
 
-    /**
-     * Points the run that is going now at a new area, so it carries on instead of starting again. Returns true when
-     * a run for this seed exists (it takes the new area, or it is already saving and the next run will find the cache
-     * almost done). Returns false when nothing runs or it runs another seed: the caller starts its own.
-     *
-     * @param progress where the run reports from now on, or null to keep the one it has
-     */
     public static boolean retarget(Area area, Consumer<Progress> progress) {
         synchronized (LOCK) {
             Job j = job;
             if (j == null || j.seed != area.seed()) return false;
+            if (j.far) {
+                j.stop = true;
+                return false;
+            }
             if (!j.closed && !j.stop) {
                 j.target = area;
                 if (progress != null) j.progress = progress;
@@ -179,17 +150,12 @@ public final class SeedPregen {
         }
     }
 
-    /**
-     * Asks the run that is going now to stop after the block it is on, keeping everything it has finished. Unlike
-     * {@link #cancelRunning} nothing is lost: the next run for the seed carries on from there.
-     */
     public static void stopRunning() {
         synchronized (LOCK) {
             if (job != null) job.stop = true;
         }
     }
 
-    /** The cache's finished chunks, as chunk rectangles {minX, minZ, maxX, maxZ}, both ends included. */
     private static List<int[]> loadDone(Path cacheDir) {
         List<int[]> done = new ArrayList<>();
         try {
@@ -212,7 +178,7 @@ public final class SeedPregen {
                 }
             }
         } catch (Exception e) {
-            done.clear(); // unreadable bookkeeping: trust nothing, the server still loads what is on disk
+            done.clear();
         }
         return done;
     }
@@ -224,11 +190,6 @@ public final class SeedPregen {
         return false;
     }
 
-    /**
-     * The next block of the area that is not finished, nearest the centre first, or null when the area is done.
-     * Blocks sit on a fixed grid (16 chunks, from chunk 0) and are cut to the area, so a block that was finished for
-     * a smaller area is still finished when the area grows around it. finished[0] gets the chunks already done.
-     */
     private static int[] nextBlock(Area a, List<int[]> done, int[] finished) {
         int minX = a.minChunkX(), minZ = a.minChunkZ();
         int maxX = minX + a.chunksPerSide() - 1, maxZ = minZ + a.chunksPerSide() - 1;
@@ -268,21 +229,39 @@ public final class SeedPregen {
         Files.writeString(cacheDir.resolve("progress.json"), new Gson().toJson(o));
     }
 
-    /**
-     * Generates the area and fills the cache. Blocks until done. Throws if the server fails or stalls.
-     * A cache that is only partly there is carried on, not started again: chunks it already has are not generated.
-     * The progress callback runs on the calling thread, or on the thread of whoever called {@link #retarget}.
-     */
     public static void run(Path home, Path cacheDir, Area requested, Consumer<Progress> progress)
             throws IOException, InterruptedException {
         run(home, cacheDir, requested, progress, 0);
     }
 
-    /** @param cores how many processors the server may use, or 0 for all of them. A game is running: use few. */
     public static void run(Path home, Path cacheDir, Area requested, Consumer<Progress> progress, int cores)
             throws IOException, InterruptedException {
-        Job j = new Job(requested.seed(), requested, progress);
+        run(home, cacheDir, requested, progress, cores, false);
+    }
+
+    public static void runFar(Path home, Path cacheDir, Area requested, int cores) throws IOException, InterruptedException {
         synchronized (LOCK) {
+            if (job != null) return;
+        }
+        run(home, cacheDir, requested, null, cores, true);
+    }
+
+    public static boolean running() {
+        synchronized (LOCK) {
+            return job != null;
+        }
+    }
+
+    public static List<int[]> finished(Path cacheDir) {
+        return loadDone(cacheDir);
+    }
+
+    private static void run(Path home, Path cacheDir, Area requested, Consumer<Progress> progress, int cores, boolean far)
+            throws IOException, InterruptedException {
+        Job j = new Job(requested.seed(), requested, progress);
+        j.far = far;
+        synchronized (LOCK) {
+            if (far && job != null) return;
             job = j;
         }
         try {
@@ -296,17 +275,14 @@ public final class SeedPregen {
 
     private static void runJob(Path home, Path cacheDir, Job j, int cores) throws IOException, InterruptedException {
         Files.createDirectories(cacheDir);
-        // A folder left by a run that was killed (the game closed, a crash) is of no use. Only one run goes at a time.
         try (Stream<Path> old = Files.list(cacheDir)) {
             for (Path d : (Iterable<Path>) old::iterator) {
                 if (Files.isDirectory(d) && d.getFileName().toString().startsWith(".work-")) deleteTree(d);
             }
         }
-        // meta.json stays: what the cache already holds is still good while this run adds to it.
         List<int[]> done = loadDone(cacheDir);
         int[] finished = {0};
 
-        // Everything the cache already covers? Then there is nothing to generate: only the meta changes.
         {
             Area first = j.target;
             JsonObject old = readMeta(cacheDir);
@@ -330,7 +306,6 @@ public final class SeedPregen {
         Path work = Files.createTempDirectory(cacheDir, ".work-");
         Process proc = null;
         try {
-            // The player agreed to the Mojang EULA (https://aka.ms/MinecraftEULA) before this runs.
             Files.writeString(work.resolve("eula.txt"), "eula=true\n");
             Area startArea = j.target;
             Files.writeString(work.resolve("server.properties"),
@@ -338,7 +313,6 @@ public final class SeedPregen {
                             + "simulation-distance=3\nspawn-monsters=false\nspawn-animals=false\nserver-port=" + freePort() + "\n"
                             + "generate-structures=true\nenable-command-block=false\nmax-tick-time=-1\n");
 
-            // Carry on from the cache: the server finds these region files and loads the chunks instead of generating them.
             Path cachedRegion = cacheDir.resolve("region");
             Path workRegion = Files.createDirectories(work.resolve("world").resolve("region"));
             if (Files.isDirectory(cachedRegion)) {
@@ -361,7 +335,7 @@ public final class SeedPregen {
             cmd.add(javaExe);
             cmd.add("-Xmx2G");
             if (cores > 0) {
-                cmd.add("-XX:ActiveProcessorCount=" + cores); // the server sizes its worker pool from this
+                cmd.add("-XX:ActiveProcessorCount=" + cores);
             }
             cmd.addAll(List.of("-cp", cp.toString(), "net.minecraft.server.Main", "--nogui", "--universe", work.toString()));
             proc = new ProcessBuilder(cmd).directory(work.toFile()).redirectErrorStream(true).start();
@@ -389,7 +363,7 @@ public final class SeedPregen {
             Area raw, want = null;
             boolean stopped = false;
             while (true) {
-                raw = j.target; // may be a new area since the last block: carry on towards that one
+                raw = j.target;
                 if (j.stop) {
                     stopped = true;
                     synchronized (LOCK) {
@@ -398,7 +372,6 @@ public final class SeedPregen {
                     break;
                 }
                 if (raw.centerOnSpawn() && spawn == null) {
-                    // The server writes level.dat on a save. Its spawn point is where the player would start.
                     int mark = log.size();
                     send(in, "save-all flush");
                     if (waitFor(log, mark, l -> l.contains("Saved the game"), proc, 120_000) < 0) {
@@ -411,7 +384,7 @@ public final class SeedPregen {
                 int[] block = nextBlock(want, done, finished);
                 if (block == null) {
                     synchronized (LOCK) {
-                        if (j.target == raw) { // nobody pointed the run elsewhere while it checked
+                        if (j.target == raw) {
                             j.closed = true;
                             break;
                         }
@@ -422,7 +395,6 @@ public final class SeedPregen {
                 String span = (x0 * 16) + " " + (z0 * 16) + " " + (x1 * 16 + 15) + " " + (z1 * 16 + 15);
                 j.report("Generating terrain", finished[0], want.totalChunks());
                 send(in, "forceload add " + span);
-                // The chunk is full once "execute if loaded" passes. Check all four corners of the block.
                 int[][] corners = {{x0, z0}, {x1, z1}, {x0, z1}, {x1, z0}};
                 for (int[] c : corners) {
                     long deadline = System.currentTimeMillis() + 180_000;
@@ -451,7 +423,6 @@ public final class SeedPregen {
                 throw new IOException("The server did not stop in time");
             }
 
-            // Keep the region files that hold finished chunks. The spawn area's files are left behind.
             Path srcRegion = work.resolve("world").resolve("region");
             Files.createDirectories(cachedRegion);
             java.util.Set<String> names = new java.util.TreeSet<>();
@@ -465,7 +436,6 @@ public final class SeedPregen {
             for (String name : names) {
                 Path src = srcRegion.resolve(name);
                 if (!Files.isRegularFile(src)) continue;
-                // Copy beside it and move into place, so whoever is reading the cache never sees half a file.
                 Path tmp = cachedRegion.resolve(name + ".tmp");
                 Files.copy(src, tmp, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                 try {
@@ -475,9 +445,9 @@ public final class SeedPregen {
                     Files.move(tmp, cachedRegion.resolve(name), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                 }
             }
-            writeProgress(cacheDir, done); // after the files it describes
+            writeProgress(cacheDir, done);
 
-            if (stopped) return; // an unfinished run leaves the meta as it was; the next run carries on
+            if (stopped) return;
             if (fin == null || done.isEmpty()) throw new IOException("The server wrote no region files for the area");
             boolean any = false;
             for (String name : names) any |= Files.isRegularFile(cachedRegion.resolve(name));
@@ -508,7 +478,6 @@ public final class SeedPregen {
         }
     }
 
-    /** meta.json says the area is finished. Written last, after the files it describes. */
     private static void writeMeta(Path cacheDir, Area area, boolean spawnCentered, int[] spawn, List<int[]> done)
             throws IOException {
         JsonArray regions = new JsonArray();
@@ -544,10 +513,6 @@ public final class SeedPregen {
         Files.writeString(cacheDir.resolve("meta.json"), new Gson().toJson(meta));
     }
 
-    /**
-     * The world spawn {x, y, z} from a level.dat, or null. level.dat is gzip NBT. This only needs three int tags, so
-     * it looks for them by name instead of parsing the whole file (this class has no game code to parse NBT with).
-     */
     static int[] readSpawn(Path levelDat) {
         try (java.util.zip.GZIPInputStream in = new java.util.zip.GZIPInputStream(Files.newInputStream(levelDat))) {
             byte[] b = in.readAllBytes();
@@ -558,7 +523,6 @@ public final class SeedPregen {
         }
     }
 
-    /** Value of the first int tag with this name: tag id 3, a two-byte name length, the name, then four bytes. */
     private static Integer findInt(byte[] b, String name) {
         byte[] n = name.getBytes(StandardCharsets.UTF_8);
         outer:
@@ -576,7 +540,6 @@ public final class SeedPregen {
         in.flush();
     }
 
-    /** Index of the first line at or after {@code from} that matches, or -1 on timeout or when the process ends. */
     private static int waitFor(List<String> log, int from, Predicate<String> match, Process p, long timeoutMs)
             throws InterruptedException {
         long end = System.currentTimeMillis() + timeoutMs;
@@ -604,10 +567,8 @@ public final class SeedPregen {
         }
     }
 
-    /** Command line use: SeedPregen seed centerBlockX centerBlockZ radiusChunks. Paths come from pentecost.home. */
     public static void main(String[] args) throws Exception {
         long seed = Long.parseLong(args[0]);
-        // SeedPregen <seed> spawn <radius>   or   SeedPregen <seed> <blockX> <blockZ> <radius>
         Area area = args[1].equalsIgnoreCase("spawn")
                 ? new Area(seed, Area.SPAWN, Area.SPAWN, Integer.parseInt(args[2]))
                 : new Area(seed, Integer.parseInt(args[1]), Integer.parseInt(args[2]), Integer.parseInt(args[3]));

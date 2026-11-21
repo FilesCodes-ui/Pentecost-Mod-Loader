@@ -16,10 +16,8 @@
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <!-- The slow dithered backdrop of the game's boot splash, behind everything. -->
             <local:DitherBackdrop Grid.RowSpan="2"/>
 
-            <!-- Title bar -->
             <Grid Grid.Row="0" Background="Transparent" MouseLeftButtonDown="TitleBar_MouseDown">
                 <StackPanel Orientation="Horizontal" Margin="20,0,0,0" VerticalAlignment="Center">
                     <local:PixelLogo Pixel="1" Margin="0,0,10,0" VerticalAlignment="Center"/>
@@ -39,7 +37,6 @@
 
             <Grid Grid.Row="1" Margin="42,30,42,32">
 
-                <!-- Home -->
                 <Grid x:Name="HomePanel">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -92,7 +89,6 @@
                     </Grid>
                 </Grid>
 
-                <!-- Remove? -->
                 <Grid x:Name="ConfirmPanel" Visibility="Collapsed">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -116,7 +112,6 @@
                     </Grid>
                 </Grid>
 
-                <!-- Working: the game's loading screen, the logo, a word, a thin line and a status. -->
                 <Grid x:Name="ProgressPanel" Visibility="Collapsed">
                     <StackPanel VerticalAlignment="Center" Margin="0,-10,0,0">
                         <StackPanel Orientation="Horizontal">
@@ -133,7 +128,6 @@
                     </StackPanel>
                 </Grid>
 
-                <!-- Done -->
                 <Grid x:Name="DonePanel" Visibility="Collapsed">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -158,7 +152,6 @@
                     </Grid>
                 </Grid>
 
-                <!-- Problem -->
                 <Grid x:Name="ErrorPanel" Visibility="Collapsed">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>

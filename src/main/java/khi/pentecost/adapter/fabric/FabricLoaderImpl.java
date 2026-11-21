@@ -43,7 +43,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
-/** Pentecost's answer to every FabricLoader call. Reads the shared mod list. */
 public final class FabricLoaderImpl implements FabricLoader {
     public static final FabricLoaderImpl INSTANCE = new FabricLoaderImpl();
 
@@ -54,9 +53,6 @@ public final class FabricLoaderImpl implements FabricLoader {
 
     private FabricLoaderImpl() {}
 
-    // ---------------------------------------------------------------- entrypoints
-
-    /** Creates the object an entrypoint string names: "pkg.Class", "pkg.Class::field", or "pkg.Class::method". */
     public <T> T create(String value, Class<T> type) throws Exception {
         int sep = value.indexOf("::");
         String className = sep < 0 ? value : value.substring(0, sep);
@@ -99,7 +95,6 @@ public final class FabricLoaderImpl implements FabricLoader {
             if (m.loader() != LoaderKind.FABRIC && m.loader() != LoaderKind.QUILT) {
                 continue;
             }
-            // A mod that failed to start hands nothing to other mods.
             if (khi.pentecost.core.Hooks.modFailed(m.id())) {
                 continue;
             }
@@ -149,8 +144,6 @@ public final class FabricLoaderImpl implements FabricLoader {
         }
     }
 
-    // ---------------------------------------------------------------- mods
-
     private Container container(ModInfo m) {
         return containers.computeIfAbsent(m.id(), k -> new Container(m));
     }
@@ -161,15 +154,10 @@ public final class FabricLoaderImpl implements FabricLoader {
         if (b.isPresent() && !"minecraft".equals(id)) {
             return b;
         }
-        // Exact id, then provides, then the same mod under a Forge or Quilt spelling.
         Optional<ModInfo> m = khi.pentecost.mods.ModFinder.find(PentecostRuntime.mods, id, false);
         return m.isPresent() ? Optional.of(container(m.get())) : b;
     }
 
-    /**
-     * Minecraft, Java and the loader itself. Fabric answers a lookup for these like for any mod, and mods
-     * such as Presence Footsteps ask for the Minecraft version this way. Without an answer they shut themselves off.
-     */
     private Optional<ModContainer> builtin(String id) {
         ModInfo info;
         switch (id) {
@@ -220,8 +208,6 @@ public final class FabricLoaderImpl implements FabricLoader {
         }
         return getModContainer(id).isPresent();
     }
-
-    // ---------------------------------------------------------------- environment
 
     @Override
     public ObjectShare getObjectShare() {
@@ -278,8 +264,6 @@ public final class FabricLoaderImpl implements FabricLoader {
         return sanitize ? new String[0] : PentecostRuntime.launchArgs.clone();
     }
 
-    // ---------------------------------------------------------------- versions
-
     public static Version parseVersion(String s) throws VersionParsingException {
         if (s == null || s.isEmpty()) {
             throw new VersionParsingException("Version must be a non-empty string");
@@ -318,8 +302,6 @@ public final class FabricLoaderImpl implements FabricLoader {
             return text;
         }
     }
-
-    // ---------------------------------------------------------------- object share
 
     private static final class Share implements ObjectShare {
         private final Map<String, Object> values = new ConcurrentHashMap<>();
@@ -371,9 +353,6 @@ public final class FabricLoaderImpl implements FabricLoader {
         }
     }
 
-    // ---------------------------------------------------------------- mapping resolver
-
-    /** The game runs in Mojang names. Mods ask in intermediary names, and this converts. */
     private static final class Resolver implements MappingResolver {
         static final Resolver INSTANCE = new Resolver();
         private Mappings.NameTable table;
@@ -439,8 +418,6 @@ public final class FabricLoaderImpl implements FabricLoader {
             return table.methods().getOrDefault(name, name);
         }
     }
-
-    // ---------------------------------------------------------------- containers and metadata
 
     private static final class Container implements ModContainer {
         private final ModInfo mod;
@@ -727,7 +704,6 @@ public final class FabricLoaderImpl implements FabricLoader {
         }
     }
 
-    /** A value from the "custom" block of fabric.mod.json. */
     private static class Cv implements CustomValue {
         final JsonElement e;
 

@@ -17,38 +17,27 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 
-/**
- * What Minecraft Services says about the signed in account, for the account screen.
- * Every part is optional: a failed or missing answer leaves its fields empty and adds a line to {@link #problems}.
- * No game classes in here, so it can be tested without the game. The access token is only used to ask; it is never stored here.
- */
 public final class AccountInfo {
     public record Cape(String id, String alias, boolean active, String url) {}
 
     public String name = "";
-    /** The id as 32 hex characters, no dashes. */
     public String id = "";
     public String skinVariant = "";
     public String skinUrl = "";
     public final List<Cape> capes = new ArrayList<>();
 
-    /** When the profile was made. Null if unknown. */
     public Instant createdAt;
     public Instant nameChangedAt;
-    /** Null if unknown. */
     public Boolean nameChangeAllowed;
 
-    /** Null if the answer was not read. */
     public Boolean ownsJava;
     public Boolean onlineChat;
     public Boolean multiplayer;
     public Boolean realms;
     public Boolean telemetry;
     public Boolean profanityFilter;
-    /** True if any ban scope was listed. */
     public boolean banned;
 
-    /** When the Minecraft token stops working. Null if it could not be read. */
     public Instant tokenExpires;
 
     public final List<String> problems = new ArrayList<>();
@@ -62,9 +51,6 @@ public final class AccountInfo {
         return null;
     }
 
-    // ------------------------------------------------------------------ parsing
-
-    /** Any argument can be null (the call failed). */
     public static AccountInfo parse(String profile, String nameChange, String entitlements, String attributes, String token) {
         AccountInfo a = new AccountInfo();
         a.tokenExpires = jwtExpiry(token);
@@ -158,7 +144,6 @@ public final class AccountInfo {
                 return null;
             }
             JsonObject o = e.getAsJsonObject();
-            // Minecraft Services answers errors as an object with "error" and no data.
             return o.has("error") && o.size() <= 4 && !o.has("id") && !o.has("items") && !o.has("privileges") ? null : o;
         } catch (RuntimeException e) {
             return null;
@@ -184,9 +169,6 @@ public final class AccountInfo {
         }
     }
 
-    // ------------------------------------------------------------------ helpers for the screen
-
-    /** The expiry of a JWT access token, or null if the token is not a readable JWT. */
     public static Instant jwtExpiry(String jwt) {
         if (jwt == null) {
             return null;
@@ -202,12 +184,10 @@ public final class AccountInfo {
                 return Instant.ofEpochSecond(o.get("exp").getAsLong());
             }
         } catch (RuntimeException e) {
-            // Not a JWT.
         }
         return null;
     }
 
-    /** 32 hex characters to the usual 8-4-4-4-12 form. Anything else comes back unchanged. */
     public static String dashed(String id) {
         if (id == null || id.length() != 32) {
             return id == null ? "" : id;
@@ -215,7 +195,6 @@ public final class AccountInfo {
         return id.substring(0, 8) + "-" + id.substring(8, 12) + "-" + id.substring(12, 16) + "-" + id.substring(16, 20) + "-" + id.substring(20);
     }
 
-    /** "3 years, 2 months" style age, or "today". */
     public static String age(Instant from, Instant now) {
         if (from == null) {
             return "";
@@ -236,7 +215,6 @@ public final class AccountInfo {
         return years + (years == 1 ? " year" : " years") + (restMonths > 0 ? ", " + restMonths + (restMonths == 1 ? " month" : " months") : "");
     }
 
-    /** "in 5 h 12 min" or "ended" for a token expiry. */
     public static String until(Instant to, Instant now) {
         if (to == null) {
             return "unknown";
@@ -251,12 +229,9 @@ public final class AccountInfo {
         return "in " + (minutes / 60) + " h " + (minutes % 60) + " min";
     }
 
-    // ------------------------------------------------------------------ asking
-
     private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
     private static final String BASE = "https://api.minecraftservices.com";
 
-    /** Asks the four Minecraft Services pages. Blocking: call it off the game thread. */
     public static AccountInfo fetch(String token) {
         return parse(get(BASE + "/minecraft/profile", token), get(BASE + "/minecraft/profile/namechange", token),
                 get(BASE + "/entitlements/mcstore", token), get(BASE + "/player/attributes", token), token);

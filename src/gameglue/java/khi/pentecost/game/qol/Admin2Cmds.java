@@ -38,7 +38,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
-/** More for admins: healing everyone, looking into other players' things, clean-ups, personal time and weather, items. */
 final class Admin2Cmds {
     private static final String C = "Admin";
 
@@ -59,7 +58,6 @@ final class Admin2Cmds {
         PWEATHER.clear();
     }
 
-    /** Driven by Qol.tick: keeps personal time and weather in place. */
     static void tick(MinecraftServer server) {
         long t = server.getTickCount();
         if (!PTIME.isEmpty() && t % 5L == 0L) {
@@ -143,7 +141,6 @@ final class Admin2Cmds {
     }
 
     static void add() {
-        // ---- everyone at once
         Qol.none(C, "healall", 2, "Fully heal everyone", c -> {
             int n = 0;
             for (ServerPlayer p : c.getSource().getServer().getPlayerList().getPlayers()) {
@@ -166,7 +163,6 @@ final class Admin2Cmds {
             return Qol.ok(c, "Fed " + n + " player" + (n == 1 ? "" : "s") + ".");
         });
 
-        // ---- looking into other players' things
         Qol.playerReq(C, "ecsee", 2, "Open a player's ender chest", (c, t) -> {
             ServerPlayer me = Qol.me(c);
             me.openMenu(new SimpleMenuProvider((id, inv, pl) -> ChestMenu.threeRows(id, inv, t.getEnderChestInventory()),
@@ -195,7 +191,6 @@ final class Admin2Cmds {
             return Qol.ok(c, name(t) + (out.isEmpty() ? " has no effects." : ": " + String.join(", ", out)));
         });
 
-        // ---- other players' homes
         Qol.playerReq(C, "homesof", 2, "List a player's homes", (c, t) -> {
             var names = Store.homeNames(t);
             return Qol.ok(c, name(t) + (names.isEmpty() ? " has no homes." : " has: " + String.join(", ", names)));
@@ -219,7 +214,6 @@ final class Admin2Cmds {
             return Qol.ok(c, "Deleted " + name(t) + "'s home " + home.trim() + ".");
         });
 
-        // ---- clean-ups
         Qol.none(C, "killpassive", 3, "Remove every farm animal that has no name and is not tamed, in every loaded dimension", c -> {
             int n = 0;
             for (ServerLevel l : c.getSource().getServer().getAllLevels()) {
@@ -249,7 +243,6 @@ final class Admin2Cmds {
             return Qol.ok(c, "Removed " + count + " creatures.");
         });
 
-        // ---- personal time and weather
         Qol.custom(C, "ptime", 2, "<0-24000|day|noon|night|midnight|reset> [player]", "Show a player their own time of day (nobody else sees it)",
                 Qol.lit("ptime", 2).then(Commands.argument("word", StringArgumentType.word())
                         .suggests(Qol.options("day", "noon", "sunset", "night", "midnight", "sunrise", "reset"))
@@ -266,7 +259,6 @@ final class Admin2Cmds {
                                 .executes(Qol.guard(c -> setPweather(c.getSource(), new java.util.ArrayList<>(EntityArgument.getPlayers(c, "player")),
                                         StringArgumentType.getString(c, "word")))))));
 
-        // ---- the item in your hand
         Qol.none("Items", "stack", 2, "Fill the stack in your hand to its largest size", c -> {
             ItemStack s = held(Qol.me(c));
             s.setCount(s.getMaxStackSize());

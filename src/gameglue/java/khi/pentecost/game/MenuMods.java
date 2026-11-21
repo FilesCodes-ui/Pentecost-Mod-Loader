@@ -13,23 +13,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * The main menus mods bring, and the player's pick between them (Settings, Interface, Menu Mods).
- *
- * Two kinds of mod menu exist.
- * A swap: a mod shows its own screen in place of the game's main menu. Pentecost sees these through
- * {@link ModsScreens#settle} and the choice is the per-mod switch in Choices.
- * A Cumulus menu: mods such as Aether register a menu with Cumulus, which swaps it in. The choice is Cumulus's own
- * active menu, set the same way Cumulus's menu list sets it.
- *
- * Pentecost is the first entry. It turns every swap off and sets Cumulus to its Minecraft menu,
- * which is the title screen Pentecost draws. The game's own menu is the "Pentecost menus" switch under Menus.
- */
 final class MenuMods {
-    /** One line of the Menu Mods list. */
     record Entry(String id, String title, String note, Runnable select) {}
 
-    /** A menu from Cumulus's list. */
     private record Cumulus(Object menu, String key, String name, String screenClass, boolean vanilla) {}
 
     private static final String TITLE = TitleScreen.class.getName();
@@ -41,12 +27,10 @@ final class MenuMods {
 
     private MenuMods() {}
 
-    /** The id of the entry in use, as of the last time the list was built or a pick was made. */
     static String selected() {
         return selected;
     }
 
-    /** True once, after a pick. The main menu is then opened again so the pick shows at once. */
     static boolean takeChanged() {
         boolean c = changed;
         changed = false;
@@ -58,11 +42,9 @@ final class MenuMods {
         return m != null ? m.name() : id == null ? "a mod" : id;
     }
 
-    /** Every main menu the player can pick, Pentecost first. */
     static List<Entry> entries() {
         List<Cumulus> cumulus = cumulusMenus();
         Map<String, String> swaps = new LinkedHashMap<>(Choices.swapsOf(TITLE));
-        // Cumulus menus come with their own screens. They are listed once, as Cumulus menus.
         for (Cumulus c : cumulus) {
             swaps.values().remove(c.screenClass());
         }
@@ -107,7 +89,6 @@ final class MenuMods {
         return out;
     }
 
-    /** Makes one menu the one in use: swapOwner for a swap, cum for a Cumulus menu, neither for Pentecost. */
     private static void pick(String swapOwner, Cumulus cum, List<Cumulus> all, Map<String, String> swaps) {
         for (String owner : swaps.keySet()) {
             Choices.setOff(owner, SWAP, !owner.equals(swapOwner));
@@ -126,7 +107,6 @@ final class MenuMods {
         if (cum != null && !cum.screenClass().isEmpty() && PentecostRuntime.loader != null) {
             String owner = PentecostRuntime.loader.modOf(cum.screenClass());
             if (owner != null) {
-                // A switch left off in the Mods screen would send this menu straight back.
                 Choices.setOff(owner, SWAP, false);
             }
         }
@@ -137,7 +117,6 @@ final class MenuMods {
     private static final String[] PLACES = {"", "topLeft", "bottomRight", "bottomLeft", "off"};
     private static final String[] PLACE_NAMES = {"Top right", "Top left", "Bottom right", "Bottom left", "Off"};
 
-    /** Where the small Pentecost button sits on a mod's main menu, as the player reads it. */
     static String placeLabel() {
         String now = khi.pentecost.control.Settings.get(khi.pentecost.control.Settings.MENU_BUTTONS);
         for (int i = 0; i < PLACES.length; i++) {
@@ -148,7 +127,6 @@ final class MenuMods {
         return PLACE_NAMES[0];
     }
 
-    /** Moves the button to the next place. It shows there the next time a mod menu opens. */
     static void nextPlace() {
         String now = khi.pentecost.control.Settings.get(khi.pentecost.control.Settings.MENU_BUTTONS);
         int at = 0;
@@ -159,8 +137,6 @@ final class MenuMods {
         }
         khi.pentecost.control.Settings.set(khi.pentecost.control.Settings.MENU_BUTTONS, PLACES[(at + 1) % PLACES.length]);
     }
-
-    // ---------------------------------------------------------------- Cumulus, by reflection
 
     private static Class<?> find(String name) {
         try {
@@ -210,7 +186,6 @@ final class MenuMods {
         }
     }
 
-    /** What Cumulus's own menu list does when its Launch button is pressed, without opening the screen. */
     private static void setActive(Cumulus c) {
         try {
             Object value = activeValue();
@@ -218,7 +193,6 @@ final class MenuMods {
             try {
                 value.getClass().getMethod("save").invoke(value);
             } catch (NoSuchMethodException e) {
-                // The value saves with the next config write.
             }
             Class<?> clientClass = find("com.aetherteam.cumulus.client.CumulusClient");
             Class<?> menuClass = find("com.aetherteam.cumulus.api.Menu");

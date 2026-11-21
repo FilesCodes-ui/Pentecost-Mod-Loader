@@ -25,12 +25,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
-/**
- * Finds, installs, updates and deletes resource packs or shader packs, in Pentecost's look.
- * Files come from Modrinth through {@link PackStore}: https, modrinth.com only, hashes checked.
- * Two tabs: Browse searches Modrinth, Installed lists the pack folder and says which files Modrinth has a newer version of.
- * Network work runs on its own threads. The screen only reads what they leave behind.
- */
 final class PackStoreScreen extends Screen {
     private enum Tab { BROWSE, INSTALLED }
 
@@ -66,15 +60,12 @@ final class PackStoreScreen extends Screen {
     private volatile boolean loading;
     private volatile String error = "";
 
-    /** Project id to what its Install button shows: Installing, Installed or Failed with a reason. */
     private final Map<String, String> status = new ConcurrentHashMap<>();
     private volatile List<PackStore.Local> locals = List.of();
-    /** SHA-1 of an installed file to what Modrinth knows about it. */
     private volatile Map<String, PackStore.Known> known = Map.of();
     private volatile boolean checking;
     private volatile boolean needRefresh;
     private volatile String knownError = "";
-    /** Names of installed packs being updated or deleted right now. */
     private final Set<String> busy = ConcurrentHashMap.newKeySet();
     private String sure = "";
     private long sureUntil;
@@ -118,8 +109,6 @@ final class PackStoreScreen extends Screen {
     public boolean isPauseScreen() {
         return true;
     }
-
-    // ---------------------------------------------------------------- work on other threads
 
     private void search(int offset) {
         int seq = searchSeq.incrementAndGet();
@@ -226,7 +215,6 @@ final class PackStoreScreen extends Screen {
                 String newName = made.getFileName().toString();
                 swapSelection(l.name(), newName);
                 if (!newName.equals(l.name())) {
-                    // The old file may still be open for a moment while the game reloads.
                     Thread.sleep(1500);
                     deleteWithRetry(dir, l.name());
                 }
@@ -285,7 +273,6 @@ final class PackStoreScreen extends Screen {
         throw new IOException("The file is still in use. Close this screen and try again. " + (last == null ? "" : last.getMessage()));
     }
 
-    /** Puts the new file where the old one was in the packs in use, on the game thread. */
     private void swapSelection(String oldName, String newName) throws InterruptedException {
         CountDownLatch finished = new CountDownLatch(1);
         minecraft.execute(() -> {
@@ -310,7 +297,6 @@ final class PackStoreScreen extends Screen {
         finished.await(10, TimeUnit.SECONDS);
     }
 
-    /** Takes a pack out of use before its file is deleted, on the game thread. */
     private void dropSelection(String name) throws InterruptedException {
         CountDownLatch finished = new CountDownLatch(1);
         minecraft.execute(() -> {
@@ -345,11 +331,9 @@ final class PackStoreScreen extends Screen {
         return m.length() > 140 ? m.substring(0, 140) : m;
     }
 
-    // ---------------------------------------------------------------- drawing
-
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-        g.fill(0, 0, width, height, minecraft.level == null ? 0xFF0A0A0B : 0xD80A0A0B);
+        g.fill(0, 0, width, height, Ui.back(minecraft));
         Ui.dither(g, width, height);
         float ui = Ui.scale(minecraft);
         int vw = (int) (width / ui);
@@ -371,7 +355,6 @@ final class PackStoreScreen extends Screen {
 
         top = 136;
         bottom = vh - 44;
-        // The list is cut off at its own edges, so rows never slide under the header or the footer. No cover bars.
         g.enableScissor(0, Math.round(top * ui), width, Math.round(bottom * ui));
         if (tab == Tab.BROWSE) {
             browse(g, vw, mx, my);
@@ -401,7 +384,6 @@ final class PackStoreScreen extends Screen {
             boolean caret = focus && (System.currentTimeMillis() / 500) % 2 == 0;
             String shownQuery = query.isEmpty() && !focus ? "Search" : query;
             int color = query.isEmpty() && !focus ? Ui.FAINT : Ui.TEXT;
-            // Long text shows its end, where the player is typing.
             String fit = font.plainSubstrByWidth(shownQuery, boxW - 24, true);
             g.drawString(font, fit + (caret ? "_" : ""), boxX + 7, boxY + 6, color, false);
         }
@@ -553,7 +535,6 @@ final class PackStoreScreen extends Screen {
             source = checking ? "Checking..." : "Not from Modrinth";
         }
 
-        // Buttons from the right edge.
         int bx = x + w;
         int by = y + 8;
         boolean room = by >= top && by + 20 <= bottom;
@@ -596,7 +577,6 @@ final class PackStoreScreen extends Screen {
                 bx -= 12;
             }
         }
-        // The pack's own pack.png, or the Modrinth icon once Modrinth told us which project it is.
         Path dir = folder.get();
         String iconUrl = k != null ? k.icon() : "";
         boolean drawn = Icons.draw(g, "l:" + l.name() + ":" + l.size() + ":" + iconUrl.isEmpty(), () -> {
@@ -680,8 +660,6 @@ final class PackStoreScreen extends Screen {
         }
         return Math.max(1, bytes / 1024) + " KB";
     }
-
-    // ---------------------------------------------------------------- input
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {

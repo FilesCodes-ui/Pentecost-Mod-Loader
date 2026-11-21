@@ -1,6 +1,5 @@
 package khi.pentecost.core;
 
-/** Headless check for spreading room codes across several rendezvous scripts. */
 public final class WwlsShardCheck {
     private static int failures;
 

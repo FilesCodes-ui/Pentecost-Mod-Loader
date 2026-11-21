@@ -20,7 +20,6 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Starts Mixin, registers every mod's Mixin configs, and plugs Mixin into the class loader. */
 public final class MixinHost {
     private static final Pattern VERSION = Pattern.compile("(\\d+)\\.(\\d+)(?:\\.(\\d+))?");
 
@@ -45,8 +44,6 @@ public final class MixinHost {
             }
         }
 
-        // Each config carries its mod id and the Mixin behavior its mod was built for.
-        // Older mods rely on the older way Mixin finds local variables.
         for (Config raw : Mixins.getConfigs()) {
             ModInfo m = owner.get(raw.getName());
             if (m == null) {
@@ -57,7 +54,6 @@ public final class MixinHost {
             config.decorate(FabricUtil.KEY_COMPATIBILITY, compatibility(m));
         }
 
-        // Mixin starts in an early phase. Move it to the normal phase so every config applies.
         Method gotoPhase = MixinEnvironment.class.getDeclaredMethod("gotoPhase", MixinEnvironment.Phase.class);
         gotoPhase.setAccessible(true);
         gotoPhase.invoke(null, MixinEnvironment.Phase.INIT);
@@ -68,21 +64,15 @@ public final class MixinHost {
         }
         IMixinTransformer transformer = PentecostMixinService.factory.createTransformer();
 
-        // MixinExtras adds extra injector types many mods use. It needs the transformer to exist first.
         try {
             Class.forName("com.llamalad7.mixinextras.MixinExtrasBootstrap").getMethod("init").invoke(null);
         } catch (ClassNotFoundException absent) {
-            // MixinExtras is not on the classpath. Mods that need it will say so.
         }
 
         loader.setMixin((name, bytes) -> transformer.transformClassBytes(name, name, bytes));
         Log.info("Mixin host ready with " + configs + " config(s)");
     }
 
-    /**
-     * Picks the Mixin behavior level from the Fabric Loader version a mod asks for.
-     * Fabric Loader uses the same rule: 0.16.0 and up, 0.12.0 and up, or older.
-     */
     private static int compatibility(ModInfo m) {
         if (m.loader() == LoaderKind.FORGE) {
             return FabricUtil.COMPATIBILITY_0_10_0;

@@ -3,15 +3,10 @@ package khi.pentecost.game.pregen;
 import java.util.HashSet;
 import java.util.Set;
 
-/**
- * Headless check of {@link PregenPlan}, no game and no server. Usage: PregenPlanCheck
- * Exits with 1 and says what was wrong when any area fails.
- */
 public final class PregenPlanCheck {
     private static int failures;
 
     public static void main(String[] args) {
-        // centre x, centre z, radius: small and odd, negative, on a region border, bigger than one region.
         int[][] cases = {
                 {0, 0, 1}, {0, 0, 5}, {-1, -1, 7}, {31, 31, 3}, {-33, 100, 20}, {1000, -2000, 33}, {0, 0, 64}, {5, -5, 100}
         };
@@ -60,7 +55,6 @@ public final class PregenPlanCheck {
                 lastRegion = region;
                 regionsStarted++;
             }
-            // The chunk must really be inside the region file the plan says it is in.
             if (Math.floorDiv(x, PregenPlan.REGION) * PregenPlan.REGION > x) {
                 fail(label + "region maths wrong at " + x);
                 return;
@@ -74,19 +68,16 @@ public final class PregenPlanCheck {
             fail(label + "started " + regionsStarted + " regions, plan says " + plan.regions());
             return;
         }
-        // Resume: asking for any number gives the same chunk as walking up to it.
         long mid = plan.total() / 2;
         if (plan.chunkAt(mid) != new PregenPlan(cx, cz, r).chunkAt(mid)) {
             fail(label + "a second plan of the same area gives a different order");
             return;
         }
-        // The first chunk must be in the region nearest the centre.
         long first = plan.chunkAt(0);
         long centre = PregenPlan.pack(cx, cz);
         boolean sameRegion = Math.floorDiv(PregenPlan.x(first), PregenPlan.REGION) == Math.floorDiv(PregenPlan.x(centre), PregenPlan.REGION)
                 && Math.floorDiv(PregenPlan.z(first), PregenPlan.REGION) == Math.floorDiv(PregenPlan.z(centre), PregenPlan.REGION);
         if (plan.regions() > 1 && !sameRegion && r >= 2) {
-            // With a centre on a region corner several regions tie for nearest, so only complain when it is far off.
             int dx = Math.abs(Math.floorDiv(PregenPlan.x(first), PregenPlan.REGION) - Math.floorDiv(cx, PregenPlan.REGION));
             int dz = Math.abs(Math.floorDiv(PregenPlan.z(first), PregenPlan.REGION) - Math.floorDiv(cz, PregenPlan.REGION));
             if (dx > 1 || dz > 1) {

@@ -18,45 +18,35 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * The pregenerator's front door: the runs that exist, the command, and the tick that drives them.
- * <p>
- * It is started by the game's server tick (see ServerTuning.serverTick), so it exists on every kind of server and
- * needs no client code. Commands, all for operators (permission level 2):
- * <pre>
- *   /pentecost pregen start (radius in chunks) [x z]   the area is a square of 2 * radius chunks, around you or x z
- *   /pentecost pregen pause | resume | stop | status
- *   /pentecost pregen speed auto | full                full keeps every core busy even with players online
- *   /pentecost pregen follow on | off | status         make the chunks ahead of a player flying fast and high
- * </pre>
- * On a dedicated server a run that was going when the server stopped carries on by itself at the next start
- * (setting pregen.autoResume overrides this either way). In a single player world it waits for the command.
- */
 public final class Pregen {
-    /** How many chunks may be saved and unloaded per tick while a run is going. The game's normal amount is far lower. */
     private static final int UNLOAD_BOOST = 96;
+    private static final int LOOKAHEAD_UNLOAD = 40;
 
     private static final Map<ServerLevel, ChunkPregen> RUNS = new ConcurrentHashMap<>();
-    /** The last server that ticked. Weak, so a world the player left can be freed. */
     private static java.lang.ref.WeakReference<MinecraftServer> known = new java.lang.ref.WeakReference<>(null);
     private static int sinceCheck = 1000;
 
     private Pregen() {}
 
-    /** Called once, by reflection, the first time a server ticks. */
-    public static void install() {
-        ServerTuning.ticker = Pregen::tick;
+    public static boolean fastTravel() {
+        return Lookahead.fastTravel();
     }
 
-    /**
-     * Client side, once per frame. When no world is open, the runs and the flight follower let go of the last server.
-     * They hold its levels, and a closed world would otherwise stay in memory until the next one starts.
-     */
+    public static double[] lookaheadNumbers() {
+        return Lookahead.numbers();
+    }
+
+    public static void install() {
+        ServerTuning.ticker = Pregen::tick;
+        ServerTuning.drain = khi.pentecost.game.ChunkDrain::tick;
+        khi.pentecost.game.FluidDeferImpl.install();
+    }
+
     public static void forgetStoppedServer(net.minecraft.client.Minecraft mc) {
         if (mc.getSingleplayerServer() == null && (known.get() != null || !RUNS.isEmpty())) {
             known.clear();
             RUNS.clear();
-            FlightFollow.reset();
+            Lookahead.reset();
         }
     }
 
@@ -65,17 +55,17 @@ public final class Pregen {
         if (server != known.get()) {
             known = new java.lang.ref.WeakReference<>(server);
             RUNS.clear();
-            FlightFollow.reset();
+            Lookahead.reset();
             sinceCheck = 1000;
             autoResume(server);
         }
         if (++sinceCheck >= 200) {
             sinceCheck = 0;
-            ensureCommand(server); // a /reload throws registered commands away, so look again now and then
+            ensureCommand(server);
             khi.pentecost.game.qol.Qol.ensure(server);
         }
         khi.pentecost.game.qol.Qol.tick(server);
-        boolean following = FlightFollow.tick(server);
+        boolean following = Lookahead.tick(server);
         boolean running = false;
         for (ChunkPregen run : RUNS.values()) {
             run.setYielding(following);
@@ -84,10 +74,8 @@ public final class Pregen {
                 running = true;
             }
         }
-        ServerTuning.unloadBoost = running || following ? UNLOAD_BOOST : 0;
+        ServerTuning.unloadBoost = running ? UNLOAD_BOOST : following ? LOOKAHEAD_UNLOAD : 0;
     }
-
-    // ---- Runs ----
 
     private static Path fileFor(MinecraftServer server, ServerLevel level) {
         String name = level.dimension().location().toString().replace(':', '_').replace('/', '_');
@@ -121,8 +109,6 @@ public final class Pregen {
             }
         }
     }
-
-    // ---- Command ----
 
     private static void ensureCommand(MinecraftServer server) {
         try {
@@ -205,14 +191,15 @@ public final class Pregen {
 
     private static int follow(CommandContext<CommandSourceStack> c, boolean on) {
         Settings.set("pregen.follow", on ? "true" : "false");
+        Settings.set(Settings.FOLLOW_SOLO, on ? "true" : "false");
         c.getSource().sendSuccess(() -> Component.literal(on
-                ? "Pregen follow is on: while a player flies fast and high, the chunks ahead of them are made first."
-                : "Pregen follow is off."), true);
+                ? "Lookahead is on: while a player moves fast, the land ahead of them is made before they get there."
+                : "Lookahead is off."), true);
         return 1;
     }
 
     private static int followStatus(CommandContext<CommandSourceStack> c) {
-        c.getSource().sendSuccess(() -> Component.literal("Pregen " + FlightFollow.status()), false);
+        c.getSource().sendSuccess(() -> Component.literal("Pregen " + Lookahead.status()), false);
         return 1;
     }
 

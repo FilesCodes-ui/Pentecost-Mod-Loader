@@ -12,11 +12,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.stream.Stream;
 
-/**
- * Sets up Forge for a copy of Pentecost that has no Gradle and no source:
- * downloads Forge's official installer from Forge's Maven (checked against the hash Forge publishes next to it)
- * and runs it into cache/forge-install. Nothing of Forge or Minecraft ships inside Pentecost; it all comes from their own servers.
- */
 public final class ForgeSetup {
     private static final String VERSION = ForgeFiles.VERSION;
 
@@ -30,15 +25,10 @@ public final class ForgeSetup {
         return new ForgeFiles().installed();
     }
 
-    /**
-     * Makes sure Forge is installed. Returns true if it had to install it now (the first run takes a few minutes).
-     */
     public static boolean ensure() throws IOException, InterruptedException {
         if (installed()) {
             return false;
         }
-        // A jar that exists but does not open is left over from a setup that was cut off. Remove it so Forge's installer
-        // rebuilds it (the installer checks each file's hash and redoes the ones that do not match).
         for (Path broken : new ForgeFiles().brokenFiles()) {
             Log.info("A Forge file is damaged, setting it up again: " + broken.getFileName());
             Files.deleteIfExists(broken);
@@ -77,10 +67,6 @@ public final class ForgeSetup {
         return true;
     }
 
-    /**
-     * Where Forge's securejarhandler jar is, as a Java classpath wildcard, or null if it is not there. The JVM needs it
-     * on its own classpath at start, so a first run that just installed Forge starts itself once more with it added.
-     */
     public static String secureJarHandlerClasspath() throws IOException {
         Path base = dir().resolve("libraries/cpw/mods/securejarhandler");
         if (!Files.isDirectory(base)) {

@@ -1,6 +1,5 @@
 package khi.pentecost.game.menuworld.camera;
 
-/** A point or direction in world space. Pure maths, so the camera stack runs without the game. */
 public record Vec(double x, double y, double z) {
     public static final Vec ZERO = new Vec(0, 0, 0);
 

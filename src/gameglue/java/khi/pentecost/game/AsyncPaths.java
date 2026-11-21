@@ -26,19 +26,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Runs mob path searches on the messenger's workers.
- *
- * Each search gets its own PathFinder and its own node evaluator, so two searches never share working memory.
- * Only the game's own walking and flying evaluators are copied: a mod's evaluator may keep state Pentecost cannot copy,
- * so mobs with one keep the old way. The search reads a region of the world that the server thread made, and
- * the answer is applied by the server thread at the start of the next tick.
- * The sender name is the mob type, so a mob type whose search keeps failing is quarantined and goes back to the old way alone.
- */
 public final class AsyncPaths implements PathHooks.Impl {
     private static final long TIMEOUT_MS = 500;
     private static final Map<EntityType<?>, String> NAMES = new ConcurrentHashMap<>();
-    /** Mob classes whose pathfinding start and end hooks are the plain ones from Mob, so a worker may call them. */
     private static final Map<Class<?>, Boolean> PLAIN = new ConcurrentHashMap<>();
 
     private static Field maxNodes;
@@ -123,10 +113,6 @@ public final class AsyncPaths implements PathHooks.Impl {
         return path;
     }
 
-    /**
-     * The search calls mob.onPathfindingStart and onPathfindingDone. Mob's own versions do nothing. A class that
-     * overrides them (the Sniffer, and any mod mob) may change the mob there, which a worker must not do.
-     */
     private static boolean plainHooks(Class<?> type) {
         return PLAIN.computeIfAbsent(type, t -> {
             try {
@@ -140,7 +126,6 @@ public final class AsyncPaths implements PathHooks.Impl {
 
     private static final StackWalker WALK = StackWalker.getInstance();
 
-    /** The first frame outside Pentecost and the game's path code: the goal or behavior that asked for the path. */
     static String callerSite() {
         return WALK.walk(s -> s.map(f -> f.getClassName() + "." + f.getMethodName())
                 .filter(n -> !n.startsWith("khi.pentecost.") && !n.startsWith("net.minecraft.world.entity.ai.navigation.")
@@ -153,11 +138,9 @@ public final class AsyncPaths implements PathHooks.Impl {
             return false;
         }
         MinecraftServer server = mob.level().getServer();
-        // The game's profiler is not made for many threads. While someone is profiling, search the old way.
         return server != null && server.isSameThread() && mob.level().getProfiler() == InactiveProfiler.INSTANCE;
     }
 
-    /** On the server thread: takes the answer, and if the mob still follows this path, finishes what moveTo skipped. */
     private static void apply(PathNavigation nav, Mob mob, AsyncPath path, Path result) {
         if (!path.settle(result)) {
             return;

@@ -4,28 +4,15 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-/**
- * The order the pregenerator makes chunks in. No game classes, so it can be checked on its own.
- * <p>
- * The area is a square of 2 * radius chunks per side around a centre chunk. It is cut into region files (32 x 32
- * chunks), regions go from the middle outward, and the chunks of one region go row by row. Two reasons:
- * - the chunks being made at the same moment sit next to each other, so they share neighbours (a chunk needs its
- *   neighbours partly made first, so a compact working set wastes the least),
- * - one region file is finished before the next is started, so writes stay together on disk.
- * <p>
- * Every chunk has a fixed number in that order. The progress file keeps one number, so a run can stop at any point
- * and carry on from there without a list of what is done.
- */
 public final class PregenPlan {
     public static final int REGION = 32;
 
     private final int minX;
     private final int minZ;
-    private final int maxX; // exclusive
-    private final int maxZ; // exclusive
+    private final int maxX;
+    private final int maxZ;
     private final int[] regionX;
     private final int[] regionZ;
-    /** first[i] is the number of the first chunk of region i; first[regions] is the total. */
     private final long[] first;
 
     public PregenPlan(int centerChunkX, int centerChunkZ, int radiusChunks) {
@@ -47,7 +34,6 @@ public final class PregenPlan {
                 regions.add(new int[] {rx, rz});
             }
         }
-        // Nearest the centre first. Squared distance of the region's middle to the centre chunk.
         final double cx = centerChunkX;
         final double cz = centerChunkZ;
         regions.sort(Comparator
@@ -94,7 +80,6 @@ public final class PregenPlan {
         return regionX.length;
     }
 
-    /** The chunk with this number, as a packed long: x in the low 32 bits, z in the high 32 bits. */
     public long chunkAt(long index) {
         if (index < 0 || index >= total()) {
             throw new IndexOutOfBoundsException("chunk number " + index + " of " + total());
@@ -116,7 +101,6 @@ public final class PregenPlan {
         return pack(x, z);
     }
 
-    /** The number of the region file this chunk number is in, 0 for the first one made. */
     public int regionOf(long index) {
         int lo = 0;
         int hi = regionX.length - 1;

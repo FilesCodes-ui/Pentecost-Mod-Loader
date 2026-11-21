@@ -7,15 +7,9 @@ import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
-/**
- * What the player and tools see as the name of the game. Forge's own files stay as they are (and so does its licence);
- * only the text shown for the window title and for spark's platform name says Pentecost.
- * Protocol values, like the brand a server is told, are left alone.
- */
 public final class Branding {
     private Branding() {}
 
-    /** The window title: "Minecraft* Forge 1.20.1 - Singleplayer" becomes "Pentecost 1.20.1 - Singleplayer". */
     public static String title(String title) {
         if (title == null || !title.startsWith("Minecraft")) {
             return title;
@@ -24,7 +18,6 @@ public final class Branding {
         return s.replace(" Forge ", " ");
     }
 
-    /** Puts {@link #title} in front of the title that Window.setTitle receives. */
     public static ClassTransformer titleTransformer() {
         return (name, bytes) -> {
             if (!name.equals("com.mojang.blaze3d.platform.Window")) {
@@ -55,7 +48,6 @@ public final class Branding {
         };
     }
 
-    /** spark names its platform "Forge" in the Forge build. Inside spark's own Forge classes the name becomes Pentecost. */
     public static ClassTransformer sparkTransformer() {
         return (name, bytes) -> {
             if (!name.startsWith("me.lucko.spark.forge.")) {

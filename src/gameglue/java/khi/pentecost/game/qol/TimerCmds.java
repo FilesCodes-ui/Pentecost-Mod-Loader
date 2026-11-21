@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** Later, repeating and counting: timers that run a command, reminders, countdowns and a stopwatch. */
 final class TimerCmds {
     private static final String C = "Timers";
     private static final Map<UUID, Long> WATCH = new HashMap<>();

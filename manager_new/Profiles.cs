@@ -2,15 +2,14 @@ using System.Text.Json;
 
 namespace Pentecost.Manager;
 
-/// <summary>A saved setup: memory, extra Java arguments and which mods are switched on.</summary>
 public sealed class ModProfile
 {
     public string Name { get; set; } = "";
-    /// <summary>Heap in GB. 0 means automatic, from this computer's memory.</summary>
+    public string Folder { get; set; } = "";
     public int MemoryGb { get; set; }
-    /// <summary>Backup memory in GB, on top of the heap, for spikes. -1 means automatic, 0 means none.</summary>
     public int ReserveGb { get; set; } = -1;
     public string JvmArgs { get; set; } = "";
+    public string FromPack { get; set; } = "";
     public List<string> On { get; set; } = new();
     public List<string> Off { get; set; } = new();
 }
@@ -53,10 +52,10 @@ public static class ProfileStore
         get { var f = Load(); return f.Profiles.First(p => p.Name == f.Active); }
     }
 
-    public static void SetActive(string name)
+    public static string? SetActive(string name)
     {
-        var f = Load();
-        if (f.Profiles.Any(p => p.Name == name)) { f.Active = name; Save(); }
+        var p = Load().Profiles.FirstOrDefault(q => q.Name == name);
+        return p == null ? "There is no profile called " + name + "." : Instances.Switch(p);
     }
 
     public static string UniqueName(string wanted)
@@ -68,25 +67,26 @@ public static class ProfileStore
         return n;
     }
 
-    public static ModProfile Add(string name, bool copyMods)
+    public static ModProfile Add(string name, bool copyActive)
     {
         var p = new ModProfile { Name = UniqueName(name) };
-        if (copyMods) Capture(p);
+        Instances.Create(p, copyActive);
         Load().Profiles.Add(p);
         Save();
         return p;
     }
 
-    public static void Remove(ModProfile p)
+    public static string? Remove(ModProfile p)
     {
         var f = Load();
-        if (f.Profiles.Count <= 1) return;
+        if (f.Profiles.Count <= 1) return "The last profile cannot be deleted.";
+        var err = Instances.Delete(p);
+        if (err != null) return err;
         f.Profiles.Remove(p);
-        if (f.Active == p.Name) f.Active = f.Profiles[0].Name;
         Save();
+        return null;
     }
 
-    /// <summary>Remembers which mods are on and off right now.</summary>
     public static void Capture(ModProfile p)
     {
         p.On.Clear();
@@ -95,7 +95,6 @@ public static class ProfileStore
             (m.Enabled ? p.On : p.Off).Add(m.BaseName);
     }
 
-    /// <summary>Every mod switched off, so the profile is built up from nothing.</summary>
     public static void CaptureNone(ModProfile p)
     {
         p.On.Clear();
@@ -103,7 +102,6 @@ public static class ProfileStore
         foreach (var m in ModScan.Scan()) p.Off.Add(m.BaseName);
     }
 
-    /// <summary>Switches mods to match the profile. Mods the profile has never seen stay as they are.</summary>
     public static (int Changed, List<string> Failed) Apply(ModProfile p)
     {
         var on = new HashSet<string>(p.On, StringComparer.OrdinalIgnoreCase);

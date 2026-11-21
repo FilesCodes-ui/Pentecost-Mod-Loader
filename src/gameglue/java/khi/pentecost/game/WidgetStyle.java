@@ -15,11 +15,6 @@ import net.minecraft.client.gui.screens.Screen;
 
 import java.lang.reflect.Field;
 
-/**
- * Pentecost's look for the game's standard parts: buttons, sliders, checkboxes, list and screen backgrounds.
- * Every screen built from them changes at once, the game's and mods' alike.
- * Parts that draw their own pictures (icon buttons, mod-made widgets) keep their look.
- */
 final class WidgetStyle implements Hooks.Style {
     private static Field sliderValue;
     private static Field checkboxLabel;
@@ -73,8 +68,6 @@ final class WidgetStyle implements Hooks.Style {
             Ui.outline(g, x, y, x + w, y + h, b.active ? 0x47FFFFFF : 0x1AFFFFFF);
             text = b.active ? Ui.TEXT : Ui.FAINT;
         }
-        // A button with its own label code draws it (mods put icons there, like Create's menu button).
-        // Plain buttons get Pentecost's label: no drop shadow, so dark text on the hover bar stays crisp.
         if (!drawsOwnLabel(b) || !ownLabel(b, g, font, text)) {
             label(g, font, b.getMessage().getString(), x, y, w, h, text);
         }
@@ -82,7 +75,6 @@ final class WidgetStyle implements Hooks.Style {
 
     private static final java.util.Map<Class<?>, Boolean> OWN_LABEL = new java.util.concurrent.ConcurrentHashMap<>();
 
-    /** True when the button's class, or a parent below AbstractButton, has its own label code. */
     private static boolean drawsOwnLabel(AbstractButton b) {
         return OWN_LABEL.computeIfAbsent(b.getClass(), c -> {
             for (Class<?> k = c; k != null && k != AbstractButton.class; k = k.getSuperclass()) {
@@ -156,7 +148,6 @@ final class WidgetStyle implements Hooks.Style {
         }
     }
 
-    /** A tab: quiet text, a white line under the chosen one. */
     private static void tab(GuiGraphics g, net.minecraft.client.gui.components.TabButton t) {
         Font font = Minecraft.getInstance().font;
         int x = t.getX();
@@ -180,10 +171,6 @@ final class WidgetStyle implements Hooks.Style {
     private static final ThreadLocal<Boolean> INSIDE_EDIT = ThreadLocal.withInitial(() -> false);
     private static Field bordered;
 
-    /**
-     * A text box: Pentecost's frame, then the box draws its own text and cursor inside it.
-     * Returns false when the box has no frame of its own; then it is left as it is.
-     */
     private static boolean editBox(GuiGraphics g, net.minecraft.client.gui.components.EditBox e, int mx, int my, float pt)
             throws ReflectiveOperationException {
         if (INSIDE_EDIT.get()) {
@@ -217,10 +204,6 @@ final class WidgetStyle implements Hooks.Style {
         return true;
     }
 
-    /**
-     * The F3 screen. On the game's own path the lines come from its debug overlay. On Forge's path,
-     * Pentecost asks Forge's overlay for its lines and posts Forge's event, so mods add their lines as usual.
-     */
     @Override
     @SuppressWarnings("unchecked")
     public boolean debug(Object source, Object graphics) {
@@ -289,13 +272,11 @@ final class WidgetStyle implements Hooks.Style {
                 f.setAccessible(true);
                 return f;
             } catch (NoSuchFieldException next) {
-                // Look in the parent.
             }
         }
         throw new NoSuchFieldException(name);
     }
 
-    /** Posts Forge's debug text event, so mods add their lines to these lists. */
     private static void postDebugEvent(Minecraft mc, GuiGraphics g, java.util.ArrayList<String> left,
                                        java.util.ArrayList<String> right) {
         try {
@@ -318,11 +299,9 @@ final class WidgetStyle implements Hooks.Style {
                 }
             }
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
-            // Without the event, the panels show the game's lines only.
         }
     }
 
-    /** Tooltips: a dark box with a thin light line, in place of the purple frame. */
     @Override
     public boolean tooltip(Object graphics, int x, int y, int width, int height, int z) {
         if (!on() || !(graphics instanceof GuiGraphics g)) {
@@ -360,13 +339,11 @@ final class WidgetStyle implements Hooks.Style {
     private static Object shownScreen;
     private static long shownAt;
 
-    /** Screens fade in from dark over a short moment when they open. */
     @Override
     public void drawn(Object screen, Object graphics) {
         if (!on() || !(graphics instanceof GuiGraphics g) || !(screen instanceof Screen s)) {
             return;
         }
-        // The chat sits over the world and is not a menu: no fade from dark when T opens it.
         if (screen instanceof net.minecraft.client.gui.screens.ChatScreen) {
             shownScreen = screen;
             return;
@@ -392,14 +369,9 @@ final class WidgetStyle implements Hooks.Style {
     private static java.lang.reflect.Method addWidget;
     private static boolean cornerOpen;
 
-    /**
-     * A mod's own main menu has none of Pentecost's entries. A small Pentecost button in its top right corner
-     * opens a short list: Mods, Join a friend and Settings.
-     */
     private static void cornerButtons(Screen s) {
         String where = Settings.get(Settings.MENU_BUTTONS);
         String cls = s.getClass().getName();
-        // A mod's main menu is a TitleScreen, or a screen the mod swapped in for it (Management Wanted).
         boolean mainMenu = s instanceof net.minecraft.client.gui.screens.TitleScreen
                 || khi.pentecost.control.Choices.swapsOf(net.minecraft.client.gui.screens.TitleScreen.class.getName())
                         .containsValue(cls);
@@ -456,10 +428,6 @@ final class WidgetStyle implements Hooks.Style {
     private static final String[] DIRT = {"textures/gui/options_background.png", "textures/gui/light_dirt_background.png"};
     private static boolean darkDirt;
 
-    /**
-     * Lists and some screens tile the dirt picture behind themselves. While the restyle is on,
-     * Pentecost swaps those pictures for near-black ones, so every list keeps a solid background.
-     */
     @Override
     public void inited(Object screen) {
         Minecraft mc = Minecraft.getInstance();
@@ -477,7 +445,6 @@ final class WidgetStyle implements Hooks.Style {
                 com.mojang.blaze3d.platform.NativeImage img = new com.mojang.blaze3d.platform.NativeImage(16, 16, false);
                 for (int y = 0; y < 16; y++) {
                     for (int x = 0; x < 16; x++) {
-                        // Near black, with a faint dot pattern. Pixels are stored ABGR.
                         int v = ((x * 7 + y * 13) % 11 == 0) ? 0x3A : 0x2C;
                         img.setPixelRGBA(x, y, 0xFF000000 | (v + 2) << 16 | v << 8 | v);
                     }

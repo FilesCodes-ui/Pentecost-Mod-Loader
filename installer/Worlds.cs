@@ -8,7 +8,6 @@ public sealed record WorldEntry(string Seed, string Asset, long Size, string Sha
 
 public sealed record WorldManifest(string BaseUrl, List<WorldEntry> Worlds);
 
-/// <summary>The pregenerated main menu worlds. They are too large for the repository, so they sit on the release page.</summary>
 public static class Worlds
 {
     static readonly JsonSerializerOptions Options = new() { PropertyNameCaseInsensitive = true };
@@ -22,7 +21,6 @@ public static class Worlds
 
     public static long TotalBytes() => Load().Worlds.Sum(w => w.Size);
 
-    /// <summary>The worlds that are not in menu_world yet. A world counts as installed when its zip has the expected size, the same check the download uses.</summary>
     public static List<WorldEntry> Missing(string home)
     {
         var dir = Path.Combine(home, "menu_world");
@@ -33,7 +31,6 @@ public static class Worlds
         }).ToList();
     }
 
-    /// <summary>Downloads every missing world. Returns how many could not be downloaded; those do not fail the install.</summary>
     public static async Task<int> DownloadAsync(string home, Action<double, string> report, CancellationToken ct)
     {
         var m = Load();

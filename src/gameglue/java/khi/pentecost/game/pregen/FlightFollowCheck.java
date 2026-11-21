@@ -1,11 +1,5 @@
 package khi.pentecost.game.pregen;
 
-/**
- * Headless check of follow mode's game-free parts ({@link FlightPath} and {@link FlightCone}), no game and no server.
- * Usage: FlightFollowCheck
- * Exits with 1 and says what was wrong when anything fails. Tickets and chunk futures need a live server and are
- * exercised in a test world instead.
- */
 public final class FlightFollowCheck {
     private static final double ENTER = 12;
     private static final double MIN_HEIGHT = 8;
@@ -20,7 +14,6 @@ public final class FlightFollowCheck {
         }
     }
 
-    /** Moves along x at the given blocks per second for the given ticks, at the given height. Returns the new x. */
     private static double fly(FlightPath p, double x, int ticks, double bps, double height) {
         for (int i = 0; i < ticks; i++) {
             x += bps / 20.0;

@@ -15,32 +15,15 @@ import java.util.Locale;
 import java.util.Random;
 import java.util.Set;
 
-/**
- * Chooses where the camera goes next, following the player's profile. It picks a point of interest by weight, makes
- * a vantage around it, tries a few camera moves the point allows and plays the best one, and decides how to get
- * there: a flight from the end of the last shot, or a cut. With no active points (or REGION_ONLY) it falls back to
- * finding good views around the centre, like the plain shot director.
- *
- * Villages can also get a walk down their streets, and underground structures (mineshafts, strongholds, ancient
- * cities) a trip through their passages. Both are planned through the real blocks, off the render thread, and always
- * begin and end with a cut, because a flight cannot get into a tunnel.
- *
- * Not thread safe: use it from one thread (the shot sequencer's planning thread).
- */
 public final class ProfileDirector {
 
-    /**
-     * @param transit a flight from the last shot to this one, or null
-     * @param poi     the place being shown, null when the director found the view itself
-     * @param cut     true when there is no flight, so the picture fades down and up around the jump
-     */
     public record Step(Shot transit, Shot shot, Poi poi, boolean cut) {}
 
-    private static final double FLY_MAX = 2600;        // in FLY mode, farther than this is a cut
+    private static final double FLY_MAX = 2600;
     private static final double STAY_CHANCE = 0.3;
-    private static final int STAY_MAX = 3;             // shots at one place in a row, at most
-    private static final int CANDIDATES = 3;           // views compared for each open-air shot
-    private static final double STREET_CHANCE = 0.5;   // at a village, how often the shot is a walk down its streets
+    private static final int STAY_MAX = 3;
+    private static final int CANDIDATES = 3;
+    private static final double STREET_CHANCE = 0.5;
 
     private final MenuProfile profile;
     private final Terrain terrain;
@@ -56,9 +39,7 @@ public final class ProfileDirector {
     private Vec endLook;
     private int counter;
     private Voxels.Provider voxels;
-    /** {minX, minZ, maxX, maxZ} in blocks: the places the camera may go to. Null means anywhere. */
     private int[] area;
-    /** {minX, minZ, maxX, maxZ} in blocks: where the camera itself may be. Null means anywhere. */
     private int[] eyeBox;
 
     public ProfileDirector(long masterSeed, MenuProfile profile, Terrain terrain, int centerX, int centerZ) {
@@ -68,22 +49,18 @@ public final class ProfileDirector {
         this.rnd = new Random(masterSeed ^ 0x9E3779B97F4A7C15L);
     }
 
-    /** Lets the director plan walks through blocks. Without it there are no tunnel and street shots. */
     public void voxels(Voxels.Provider provider) {
         this.voxels = provider;
     }
 
-    /** Only places inside this block box are shown. Places left over from an older centre stay in the profile but are skipped. */
     public void area(int minX, int minZ, int maxX, int maxZ) {
         area = minX < maxX && minZ < maxZ ? new int[] {minX, minZ, maxX, maxZ} : null;
     }
 
-    /** The camera stays inside this block box. A shot that would leave it is not played. */
     public void eyeBox(int minX, int minZ, int maxX, int maxZ) {
         eyeBox = minX < maxX && minZ < maxZ ? new int[] {minX, minZ, maxX, maxZ} : null;
     }
 
-    /** The next step. timeOfDay is in game ticks, as for {@link ShotDirector#next}. */
     public Step next(double timeOfDay) {
         Set<MoveType> global = parseMoves(profile.moves);
         List<Poi> candidates = new ArrayList<>(inside(profile.activePoints()));
@@ -142,7 +119,7 @@ public final class ProfileDirector {
             }
         }
         if (shot.guided()) {
-            endEye = null; // the next shot cuts: the camera cannot fly out of a tunnel
+            endEye = null;
             endLook = null;
         } else {
             endEye = shot.eye().at(1);
@@ -155,9 +132,6 @@ public final class ProfileDirector {
         return allowed == null || allowed.contains(type);
     }
 
-    // ------------------------------------------------------------------ open-air shots
-
-    /** Tries a few moves for the place (or the open land) and returns the one that looks best from the camera. */
     private Shot bestOpenShot(Poi poi, double tod, Set<MoveType> allowed) {
         Shot best = null;
         double bestScore = -1e18;
@@ -180,12 +154,11 @@ public final class ProfileDirector {
                 bestScore = rating.score();
                 bestRejected = rating.reject();
             }
-            if (!rating.reject() && rating.score() > 0.85) break; // good enough: do not look further
+            if (!rating.reject() && rating.score() > 0.85) break;
         }
         return best;
     }
 
-    /** Plans the height over the land, frames the subject off centre, and keeps the shot inside the player's length limits. */
     private Shot polish(Shot s) {
         if (s.guided()) return s;
         double clear = Math.max(3, s.clearance() > 0 ? s.clearance() : profile.clearance);
@@ -193,8 +166,6 @@ public final class ProfileDirector {
         Shot fitted = s.withRails(PathFit.fit(s.eye(), terrain, lim), s.look());
         return clampLength(ShotCheck.frame(fitted, rnd));
     }
-
-    // ------------------------------------------------------------------ shots through blocks
 
     private static boolean isVillage(Poi p) {
         return p.structureId != null && p.structureId.contains("village");
@@ -225,7 +196,6 @@ public final class ProfileDirector {
         if (voxels == null) return null;
         int rx = Math.min(56, Math.max(24, p.sizeX / 2 + 6));
         int rz = Math.min(56, Math.max(24, p.sizeZ / 2 + 6));
-        // The point's own height may be a roof or the middle of the village box: search around the ground instead.
         int cy = (int) ground(p.x, p.z) - 6;
         Voxels vox = voxels.around(p.x, p.z, Math.max(rx, rz) + 16);
         if (vox == null) return null;
@@ -239,8 +209,6 @@ public final class ProfileDirector {
                 fov, fov, 0, handheld, bank, 0, true);
     }
 
-    // ------------------------------------------------------------------ choosing places
-
     private List<Poi> inside(List<Poi> all) {
         if (area == null) return all;
         List<Poi> out = new ArrayList<>();
@@ -250,7 +218,6 @@ public final class ProfileDirector {
         return out;
     }
 
-    /** The camera always flies. Only a place too far for a flight (or a walk through blocks) gets a cut. */
     private boolean wantsFlight(double dist) {
         return dist <= FLY_MAX;
     }
@@ -269,7 +236,6 @@ public final class ProfileDirector {
                 Poi p = active.get(i);
                 w[i] = Math.max(0, p.weight);
                 if (active.size() > 1) w[i] *= recencyFactor(p.id);
-                // After a few shots in a row at one place, move on.
                 if (active.size() > 1 && last != null && atLast >= STAY_MAX && p.id.equals(last.id)) w[i] = 0;
                 total += w[i];
             }
@@ -295,7 +261,6 @@ public final class ProfileDirector {
         return pick;
     }
 
-    /** The place shown last is nearly ruled out, the ones before it are only less likely. */
     private double recencyFactor(String id) {
         int age = 0;
         for (String r : recent) {
@@ -305,7 +270,6 @@ public final class ProfileDirector {
         return 1;
     }
 
-    /** A camera position around the point, looking at it. Another side than the last shot here, so shots differ. */
     private Vantage vantage(Poi p) {
         double r = Math.max(100, Math.min(260, Math.max(p.sizeX, p.sizeZ) * 0.8 + 50));
         double a = rnd.nextDouble() * Math.PI * 2;
@@ -318,18 +282,12 @@ public final class ProfileDirector {
         int ex = p.x + (int) (Math.cos(a) * r);
         int ez = p.z + (int) (Math.sin(a) * r);
         double focusGround = ground(p.x, p.z);
-        // A point below the surface (an underground structure) cannot be seen from outside, so look at the surface above it.
         double fy = p.y >= focusGround - 4 ? p.y + Math.min(p.sizeY, 60) * 0.3 : focusGround + Math.min(p.sizeY, 40) * 0.4;
         double rise = Math.min(profile.maxHeight * 0.6, 10 + rnd.nextDouble() * (p.sizeY * 0.5 + 25));
         double eyeY = Math.min(Math.max(ground(ex, ez), focusGround) + rise, ground(ex, ez) + profile.maxHeight);
         return new Vantage(new Vec(ex, eyeY, ez), new Vec(p.x, fy, p.z), 1.0);
     }
 
-    /**
-     * The stock moves were made for views hundreds of blocks off. Pushing in or rising over a place 100 blocks away
-     * can carry the camera over the target, where the aim would spin around. Shorten those two moves so the
-     * camera stops at least 80 blocks short, so it never looks steeply down at the target.
-     */
     static Shot limitApproach(Shot s, Vec focus) {
         if (s.type() != MoveType.PUSH_IN && s.type() != MoveType.REVEAL) return s;
         Vec start = s.eye().at(0);
@@ -343,19 +301,16 @@ public final class ProfileDirector {
         return s.withRails(Rail.line(start, shorter), s.look());
     }
 
-    /** The camera moves a point allows. Null means any. Unknown names are ignored. */
     static Set<MoveType> moves(Poi p) {
         return parseMoves(p.moves);
     }
 
-    /** Keeps a shot between the profile's shortest and longest shot length. */
     private Shot clampLength(Shot s) {
         double seconds = Math.max(profile.shotSecondsMin, Math.min(profile.shotSecondsMax, s.seconds()));
         if (Math.abs(seconds - s.seconds()) < 1e-9) return s;
         return s.withSeconds(seconds);
     }
 
-    /** Camera move names to moves. Null means any. Unknown names are ignored. */
     static Set<MoveType> parseMoves(List<String> names) {
         if (names == null || names.isEmpty()) return null;
         Set<MoveType> out = EnumSet.noneOf(MoveType.class);
@@ -374,18 +329,11 @@ public final class ProfileDirector {
                 MoveType t = MoveType.valueOf(n);
                 if (t != MoveType.TRACK && t != MoveType.TRANSIT) out.add(t);
             } catch (IllegalArgumentException unknown) {
-                // a typo in a hand-edited profile must not stop the camera
             }
         }
         return out.isEmpty() ? null : out;
     }
 
-    // ------------------------------------------------------------------ flights between places
-
-    /**
-     * A flight from where the last shot ended to where this one starts. Its height is planned like any shot's: it
-     * starts climbing before a ridge, clears it, and settles gently on the other side.
-     */
     private Shot transit(Shot to, double dist) {
         Vec toEye = to.eye().at(0);
         Vec toLook = to.look().at(0);
@@ -409,8 +357,6 @@ public final class ProfileDirector {
         List<Vec> eye = new ArrayList<>(m);
         for (int i = 0; i < m; i++) eye.add(new Vec(x[i], y[i], z[i]));
 
-        // The aim turns from the old direction to the new one by the short way round, at the camera's own position.
-        // Sliding the aim point between the two targets instead would swing it past the camera when they face opposite ways.
         Vec off0 = endLook.sub(endEye);
         Vec off1 = toLook.sub(toEye);
         double a0 = Math.atan2(off0.z(), off0.x());
@@ -424,7 +370,6 @@ public final class ProfileDirector {
             double dy = off0.y() + (off1.y() - off0.y()) * f;
             look.add(new Vec(e.x() + Math.cos(a) * h, e.y() + dy, e.z() + Math.sin(a) * h));
         }
-        // Slow enough that the land under the camera has time to load and draw.
         double seconds = Math.max(8, Math.min(60, dist / 40));
         return new Shot("transit-" + counter++, MoveType.TRANSIT, Rail.uniform(eye), Rail.uniform(look), seconds,
                 Ease.CRUISE, 70, 70, 0, 0.5, 0.8, 0, false);

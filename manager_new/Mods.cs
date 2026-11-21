@@ -10,24 +10,19 @@ public sealed record ModUpdate(string FileName, string Url, string Sha1, string 
 public sealed class ModEntry
 {
     public string File = "", Name = "", Id = "", Version = "", Loader = "Unknown", Authors = "", Summary = "";
-    /// <summary>On means the jar is on and the game's own Mods screen has not turned the mod off.</summary>
     public bool Enabled;
-    /// <summary>The game's Mods screen has this mod switched off. The jar itself may still be on.</summary>
     public bool GameOff;
     public long Size;
     public DateTime Stamp;
     public string? Sha1;
-    /// <summary>The mod's own picture, taken out of its jar. Every mod ships one, so this works with no internet.</summary>
     public byte[]? IconData;
-    /// <summary>Kept once it has been decoded, so scrolling does not decode it again.</summary>
     public object? IconCache;
-    /// <summary>Filled by the Modrinth lookup.</summary>
     public string? ProjectId, IconUrl, Desc, FileUrl, Sha512;
     public ModUpdate? Update;
     public bool Looked;
     public List<string> Requires = new();
-    /// <summary>Mod ids this jar says it needs, read out of the jar itself.</summary>
     public List<string> Needs = new();
+    public List<string> Bundled = new();
 
     public string BaseName
     {
@@ -39,7 +34,6 @@ public sealed class ModEntry
     }
 }
 
-/// <summary>Reads the jars in run\mods. A jar renamed to .jar.disabled is a mod that is switched off.</summary>
 public static class ModScan
 {
     static readonly object Gate = new();
@@ -89,6 +83,7 @@ public static class ModScan
         try
         {
             using var z = ZipFile.OpenRead(f);
+            ReadBundled(z, e);
             var fab = z.GetEntry("fabric.mod.json");
             var quilt = z.GetEntry("quilt.mod.json");
             var forge = z.GetEntry("META-INF/mods.toml") ?? z.GetEntry("META-INF/neoforge.mods.toml");
@@ -105,7 +100,6 @@ public static class ModScan
                     e.Authors = Names(o["authors"]);
                     if (o["depends"] is JsonObject dep)
                         foreach (var kv in dep) if (Wanted(kv.Key)) e.Needs.Add(kv.Key);
-                    // "icon" is either a path or a map from size to path; the biggest one wins.
                     icon = o["icon"] switch
                     {
                         JsonValue v2 => v2.ToString(),
@@ -156,13 +150,42 @@ public static class ModScan
         return e;
     }
 
+    static void ReadBundled(ZipArchive z, ModEntry e)
+    {
+        foreach (var inner in z.Entries)
+        {
+            var n = inner.FullName;
+            if (!(n.StartsWith("META-INF/jarjar/", StringComparison.OrdinalIgnoreCase) || n.StartsWith("META-INF/jars/", StringComparison.OrdinalIgnoreCase))) continue;
+            if (!n.EndsWith(".jar", StringComparison.OrdinalIgnoreCase) || inner.Length > 60_000_000) continue;
+            try
+            {
+                using var s = inner.Open();
+                using var ms = new MemoryStream();
+                s.CopyTo(ms);
+                ms.Position = 0;
+                using var nz = new ZipArchive(ms);
+                if (nz.GetEntry("fabric.mod.json") is { } fe)
+                {
+                    using var r = new StreamReader(fe.Open());
+                    if (JsonNode.Parse(r.ReadToEnd()) is JsonObject o && o["id"]?.ToString() is { Length: > 0 } id) e.Bundled.Add(id);
+                }
+                if ((nz.GetEntry("META-INF/mods.toml") ?? nz.GetEntry("META-INF/neoforge.mods.toml")) is { } te)
+                {
+                    using var r = new StreamReader(te.Open());
+                    foreach (System.Text.RegularExpressions.Match m in Regex.Matches(r.ReadToEnd(), "\\[\\[mods\\]\\][^\\[]*?modId\\s*=\\s*\"([^\"]+)\""))
+                        e.Bundled.Add(m.Groups[1].Value);
+                }
+            }
+            catch { }
+        }
+    }
+
     static string Match(string text, string pattern)
     {
         try { return Regex.Match(text, pattern, RegexOptions.Singleline).Groups[1].Value.Trim(); }
         catch { return ""; }
     }
 
-    /// <summary>The loader and the game itself are always there, so they are not worth listing.</summary>
     static bool Wanted(string id) => id is not ("minecraft" or "java" or "forge" or "neoforge" or "fabricloader" or "fabric" or "fabric-api" or "quilt_loader" or "quilt_base");
 
     static string Tidy(string s) => Regex.Replace(s, "\\s+", " ").Trim();
@@ -179,7 +202,6 @@ public static class ModScan
         return string.Join(", ", names);
     }
 
-    /// <summary>Pulls the mod's own picture out of its jar. Falls back to the places mods usually keep one.</summary>
     static byte[]? Picture(ZipArchive z, string? declared, string id)
     {
         var tries = new List<string>();
@@ -208,7 +230,6 @@ public static class ModScan
                 using var ms = new MemoryStream();
                 s.CopyTo(ms);
                 var bytes = ms.ToArray();
-                // Only a real PNG; anything else is not worth showing.
                 if (bytes.Length > 8 && bytes[0] == 0x89 && bytes[1] == 'P' && bytes[2] == 'N' && bytes[3] == 'G') return bytes;
             }
             catch { }
@@ -216,14 +237,11 @@ public static class ModScan
         return null;
     }
 
-    /// <summary>Set by the main window, so a switch kept by the running game is not changed from under it.</summary>
     public static Func<bool>? GameRunning;
 
     public static void SetEnabled(ModEntry m, bool on)
     {
         if (on == m.Enabled) return;
-        // The game's Mods screen keeps its own switch for a mod. Turning the mod on here turns that switch on too, so the
-        // two never disagree.
         if (on && m.GameOff)
         {
             if (GameRunning?.Invoke() == true) throw new IOException("The game keeps its own copy of this switch while it runs.");
@@ -240,7 +258,6 @@ public static class ModScan
         m.Enabled = on;
     }
 
-    /// <summary>Moves the jar to the Recycle Bin, so a wrong click can be undone.</summary>
     public static void Delete(ModEntry m)
     {
         Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(m.File,
@@ -256,7 +273,6 @@ public static class ModScan
         return m.Sha1;
     }
 
-    /// <summary>Copies jars into the mods folder. Returns the names added.</summary>
     public static List<string> AddFiles(IEnumerable<string> paths)
     {
         var added = new List<string>();
@@ -274,10 +290,6 @@ public static class ModScan
     }
 }
 
-/// <summary>
-/// The game's own Mods screen keeps its switches in run\config\pentecost\choices.json. A mod listed there under modsOff does
-/// not load, so the Manager shows it as off.
-/// </summary>
 public static class GameChoices
 {
     static DateTime stamp;
@@ -290,10 +302,8 @@ public static class GameChoices
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    /// <summary>The game writes ids in lower case with underscores, so "fabric-api" is "fabric_api" there.</summary>
     public static string Norm(string id) => id.ToLowerInvariant().Replace('-', '_');
 
-    /// <summary>The ids of the mods the game has switched off, normalised.</summary>
     public static HashSet<string> ModsOff()
     {
         try
@@ -319,7 +329,6 @@ public static class GameChoices
         return off;
     }
 
-    /// <summary>True when the game's file changed since the mods were last read, for example after a switch in the game.</summary>
     public static bool Changed()
     {
         try
@@ -330,7 +339,6 @@ public static class GameChoices
         catch { return false; }
     }
 
-    /// <summary>Takes a mod off the game's list of switched-off mods. Nothing else in the file changes.</summary>
     public static void TurnOn(string id)
     {
         var path = Paths.Choices;

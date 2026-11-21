@@ -12,10 +12,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/**
- * The zoom key. Hold it to zoom in, turn the mouse wheel to change how far, let go to zoom back out.
- * The key is a normal game key bind, so it shows up in the controls and saves with the other keys.
- */
 public final class Zoom {
     static final String NAME = "Pentecost Zoom";
     static final String CATEGORY = "Pentecost";
@@ -29,21 +25,15 @@ public final class Zoom {
 
     private Zoom() {}
 
-    /** Hands the game's interface drawing to the slide-away below. Called once at startup. */
     public static void install() {
         ZoomHooks.guiPass = Zoom::drawInterface;
     }
 
-    /** How far the interface has slid away: 0 shown, 1 gone. Follows the zoom, so it moves with it. */
     private static float slide() {
         double t = Math.max(0.0, Math.min(1.0, (ZoomHooks.factor - 1.0) / 0.5));
         return (float) (t * t * (3.0 - 2.0 * t));
     }
 
-    /**
-     * The whole interface, the game's and the mods', slides away while you zoom: what is in the top half goes up,
-     * what is in the bottom half goes down. Only while it moves is the interface drawn twice, once per half.
-     */
     private static void drawInterface(Object gui, Object graphics, float partialTick) {
         net.minecraft.client.gui.Gui g = (net.minecraft.client.gui.Gui) gui;
         net.minecraft.client.gui.GuiGraphics gg = (net.minecraft.client.gui.GuiGraphics) graphics;
@@ -82,7 +72,6 @@ public final class Zoom {
         return key;
     }
 
-    /** Called once per frame. */
     public static void frame() {
         Minecraft mc = Minecraft.getInstance();
         if (!ready && !failed) {
@@ -139,7 +128,6 @@ public final class Zoom {
         }
     }
 
-    /** The game read its key binds before this one existed, so read this one's saved key by hand. */
     private static void restoreSaved(Minecraft mc) {
         try {
             Path file = mc.gameDirectory.toPath().resolve("options.txt");

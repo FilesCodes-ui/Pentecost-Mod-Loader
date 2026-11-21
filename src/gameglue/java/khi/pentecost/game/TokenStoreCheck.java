@@ -4,7 +4,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/** Headless check for TokenStore. It needs no game and writes only to a temporary folder. */
 public final class TokenStoreCheck {
     private static int failures;
 
@@ -23,7 +22,6 @@ public final class TokenStoreCheck {
             Path file = dir.resolve("pentecost-account.json");
             String secret = "M.C509_BAY.0.U.-Check-Refresh-Token-1234567890abcdef";
 
-            // Saved, then read back whole.
             TokenStore.save(file, "Steve", "069a79f444e94726a5befca90e38aaf5", secret);
             String onDisk = Files.readString(file, StandardCharsets.UTF_8);
             boolean windows = System.getProperty("os.name", "").toLowerCase().contains("win");
@@ -38,7 +36,6 @@ public final class TokenStoreCheck {
             expect(back != null && back.uuid().equals("069a79f444e94726a5befca90e38aaf5"), "uuid comes back");
             expect(!Files.exists(dir.resolve("pentecost-account.json.tmp")), "no temporary file left behind");
 
-            // An old plain text file is read once and rewritten protected.
             Files.writeString(file, "{\"refresh\":\"" + secret + "\",\"name\":\"Alex\",\"uuid\":\"abc\"}", StandardCharsets.UTF_8);
             TokenStore.Saved old = TokenStore.load(file);
             expect(old != null && old.refresh().equals(secret) && old.name().equals("Alex"), "old file still signs in");
@@ -48,7 +45,6 @@ public final class TokenStoreCheck {
             }
             expect(!migrated.contains("\"refresh\""), "old plain field is gone");
 
-            // A damaged protected file is removed, not trusted.
             if (windows) {
                 Files.writeString(file, "{\"v\":2,\"name\":\"Bad\",\"uuid\":\"x\",\"protection\":\"dpapi\",\"token\":\"AAAA\"}",
                         StandardCharsets.UTF_8);

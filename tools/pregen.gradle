@@ -1,7 +1,3 @@
-// Generates a menu-world seed with a vanilla server in its own JVM. Applied from build.gradle.
-// Centred on the world spawn by default:   gradle pregenSeed -Pseed=4556775 -Pradius=32
-// Or on a chosen block:                    gradle pregenSeed -Pseed=4556775 -Pcx=-1792 -Pcz=544 -Pradius=32
-// The Mojang EULA must be accepted first: this task writes eula=true for its own temporary server folder.
 tasks.register('pregenSeed', JavaExec) {
     javaLauncher = javaToolchains.launcherFor(java.toolchain)
     classpath = sourceSets.main.runtimeClasspath

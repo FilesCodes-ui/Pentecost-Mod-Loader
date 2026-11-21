@@ -18,17 +18,10 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
-/**
- * What the player decided. The player has the last word on what every mod does:
- * whole mods can be off, and so can single things a mod changes.
- * Saved in config/pentecost/choices.json.
- */
 public final class Choices {
     private static final Set<String> MODS_OFF = new TreeSet<>();
     private static final Map<String, Set<String>> FEATURES_OFF = new TreeMap<>();
-    /** Mod id, then the vanilla screen class it replaced, then the mod's screen class. */
     private static final Map<String, Map<String, String>> SEEN_SCREENS = new TreeMap<>();
-    /** Mod id, then the menus ("title", "pause") where the mod put a button. */
     private static final Map<String, Set<String>> SEEN_BUTTONS = new TreeMap<>();
     private static Set<String> atLaunch = Set.of();
     private static boolean loaded;
@@ -136,7 +129,6 @@ public final class Choices {
         }
     }
 
-    /** Records that a mod showed its own screen in place of a vanilla one. */
     public static synchronized void seeScreen(String modId, String vanillaClass, String modClass) {
         Map<String, String> m = SEEN_SCREENS.computeIfAbsent(modId, k -> new TreeMap<>());
         if (!modClass.equals(m.put(vanillaClass, modClass))) {
@@ -146,7 +138,6 @@ public final class Choices {
         }
     }
 
-    /** Every mod seen replacing the given vanilla screen, with the screen class it showed instead. */
     public static synchronized Map<String, String> swapsOf(String vanillaClass) {
         Map<String, String> out = new TreeMap<>();
         SEEN_SCREENS.forEach((mod, m) -> {
@@ -163,7 +154,6 @@ public final class Choices {
         return m == null ? Map.of() : new TreeMap<>(m);
     }
 
-    /** Records that a mod put a button on one of Pentecost's menus ("title" or "pause"). */
     public static synchronized void seeButton(String modId, String where) {
         if (SEEN_BUTTONS.computeIfAbsent(modId, k -> new TreeSet<>()).add(where)) {
             Log.info(modId + " adds a button to the " + (where.equals("title") ? "main" : where) + " menu."
@@ -177,12 +167,10 @@ public final class Choices {
         return s == null ? Set.of() : new TreeSet<>(s);
     }
 
-    /** True unless the player turned this one off. */
     public static synchronized boolean isEnabled(String modId, String key) {
         return !isOff(modId, key);
     }
 
-    /** Every choice that only takes effect on the next launch. Screen swaps apply right away, so they are left out. */
     private static Set<String> restartState() {
         Set<String> out = new HashSet<>();
         MODS_OFF.forEach(m -> out.add("mod:" + m));
@@ -194,12 +182,10 @@ public final class Choices {
         return out;
     }
 
-    /** The choices that change what a launch builds, as one sorted string. Keys the class cache. */
     public static synchronized String launchFingerprint() {
         return String.join(",", new TreeSet<>(atLaunch));
     }
 
-    /** How many choices wait for a restart. */
     public static synchronized int pendingRestart() {
         Set<String> now = restartState();
         int n = 0;

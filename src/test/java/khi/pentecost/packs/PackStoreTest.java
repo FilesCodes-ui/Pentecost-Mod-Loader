@@ -217,7 +217,6 @@ class PackStoreTest {
         java.awt.image.BufferedImage back = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(icon));
         org.junit.jupiter.api.Assertions.assertEquals(64, back.getWidth());
         org.junit.jupiter.api.Assertions.assertEquals(64, back.getHeight());
-        // Fitted and centred: a 2 to 1 image fills the middle rows only.
         org.junit.jupiter.api.Assertions.assertEquals(0, back.getRGB(32, 2) >>> 24);
         org.junit.jupiter.api.Assertions.assertEquals(0xFF, back.getRGB(32, 32) >>> 24);
         org.junit.jupiter.api.Assertions.assertNull(PackStore.toIcon(new byte[] {1, 2, 3}));

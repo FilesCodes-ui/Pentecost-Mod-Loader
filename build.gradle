@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'khi.pentecost'
-version = '0.7.0'
+version = '1.0.0'
 
 java {
     toolchain {
@@ -29,7 +29,6 @@ dependencies {
     implementation 'org.ow2.asm:asm-tree:9.7.1'
     implementation 'org.ow2.asm:asm-analysis:9.7.1'
     implementation 'org.ow2.asm:asm-util:9.7.1'
-    // The Mixin library (MIT). Pentecost hosts it. Forge and Fabric both ship a copy of it.
     implementation 'net.fabricmc:sponge-mixin:0.15.4+mixin.0.8.7'
     implementation 'io.github.llamalad7:mixinextras-fabric:0.4.1'
     implementation 'com.google.guava:guava:31.1-jre'
@@ -69,7 +68,6 @@ tasks.register('testmods') {
     dependsOn 'testmodFabricJar', 'testmodForgeJar', 'testmodQuiltJar'
 }
 
-// The Forge glue compiles against Forge's own jars, so it exists only after the setup command ran.
 def forgeLibs = file('cache/forge-install/libraries')
 def forgeNamed = fileTree('cache/remapped') { include 'forge-*-universal-named.jar', 'client-*-forge-named.jar' }
 def forgeReady = forgeLibs.isDirectory() && !forgeNamed.isEmpty()
@@ -86,7 +84,6 @@ if (forgeReady) {
     }
 }
 
-// The game glue is Pentecost's own in-game code (screens). It compiles against the converted game jar.
 def gameNamed = fileTree('cache/remapped') { include 'client-*-named.jar'; exclude '*-forge-named.jar' }
 def gameReady = !gameNamed.isEmpty()
 if (gameReady) {
@@ -106,18 +103,12 @@ def pentecostExec = { String taskName, List<String> taskArgs ->
         args taskArgs
         workingDir = file('run')
         systemProperty 'pentecost.home', rootDir.path
-        // Laptops with two graphics cards: tells NVIDIA's driver to run the game on the NVIDIA card, not the
-        // integrated one (the same switch Prism Launcher's "Use discrete GPU" sets). Only this process sees it.
-        // PENTECOST_IGPU=1 leaves the choice to Windows.
         if (System.getProperty('os.name', '').toLowerCase().contains('win') && !System.getenv('PENTECOST_IGPU')) {
             environment 'SHIM_MCCOMPAT', '0x800000001'
         }
-        // A large young area makes memory cleanups rarer. At 4 GB the game stuttered about every 4 s; at 6 GB with
-        // a 3 GB young area, shaders on, it went from about 40 to about 60 fps.
         def pentecostSettings = file('run/config/pentecost/settings.json')
         def saved = pentecostSettings.isFile() ? new groovy.json.JsonSlurper().parseText(pentecostSettings.text) : [:]
         int heapGb = Math.max(2, (saved['java.memory'] ?: '6') as int)
-        // Backup memory: room above the working size for spikes. The game never goes past the two added together.
         int reserveGb = Math.max(0, (saved['java.reserve'] ?: '2') as int)
         int youngSaved = (saved['java.young'] ?: '0') as int
         int youngGb = youngSaved > 0 ? Math.max(1, Math.min(youngSaved, heapGb - 1)) : Math.max(1, heapGb.intdiv(2))
@@ -137,10 +128,7 @@ def pentecostExec = { String taskName, List<String> taskArgs ->
         if (flagFile.isFile()) {
             flagFile.readLines().collect { it.trim() }.findAll { it && !it.startsWith('#') }.each { jvmArgs it }
         }
-        // The JVM never compiles a method over 8000 bytes of bytecode, so it runs in the slow interpreter.
-        // Some mods ship such methods (Management Wanted has a 25000 byte one that runs for every living entity every tick).
         jvmArgs '-XX:-DontCompileHugeMethods'
-        // Extra flags for tests, for example PENTECOST_JVM=-Xmx8G -Xmn4G. They come after the defaults, so they win.
         if (System.getenv('PENTECOST_JVM')) {
             jvmArgs System.getenv('PENTECOST_JVM').trim().split(/\s+/).toList()
         }
@@ -169,29 +157,22 @@ def pentecostExec = { String taskName, List<String> taskArgs ->
     }
 }
 
-// Loads the converted game through the Pentecost class loader and starts the three test mods. No game window.
 pentecostExec('selftest', ['check', '--mods', layout.buildDirectory.dir('testmods').get().asFile.path, '--selftest'])
 tasks.named('selftest') { dependsOn 'testmods' }
 
-// Starts the game with the mods in cache/try. Put jars there to test them.
 pentecostExec('runTry', ['launch', '--mods', file('cache/try').path])
-// The same, with Forge's real code loaded so Forge mods run.
 pentecostExec('runForge', ['launch', '--forge', '--mods', file('cache/try').path])
-// Headless check of the mods in cache/try with the Forge layer: no window.
 pentecostExec('verifyTry', ['verify', '--forge', '--mods', file('cache/try').path])
 pentecostExec('runPlay', ['launch', '--forge', '--mods', file('mods').path])
 
-// Test suite. Example: gradle fetchMods -Pcount=25, then gradle verifyMods
 def modCount = (findProperty('count') ?: '25').toString()
 pentecostExec('fetchFabric', ['fetch', '--loader', 'fabric', '--count', modCount])
 pentecostExec('fetchForge', ['fetch', '--loader', 'forge', '--count', modCount])
 tasks.register('fetchMods') { dependsOn 'fetchFabric', 'fetchForge' }
-// Checks the mods in cache/testmods/target, the pack Gabriel wants to run.
 pentecostExec('verifyTarget', ['verify', '--mods', file('cache/testmods/target').path])
 pentecostExec('verifyTargetForge', ['verify', '--forge', '--mods', file('cache/testmods/target').path])
 pentecostExec('verifyMods', ['verify', '--mods', file('cache/testmods/fabric').path, '--mods', file('cache/testmods/forge').path])
- 
-// The version the game reports comes from here (build.gradle's version), written into the main jar as boot/version.txt.
+
 def versionDir = layout.buildDirectory.dir('generated/version')
 def writeVersion = tasks.register('writeVersion') {
     def out = versionDir.map { it.file('khi/pentecost/boot/version.txt') }

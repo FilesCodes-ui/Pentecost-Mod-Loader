@@ -8,16 +8,10 @@ import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
-/**
- * Hooks for the [dev] tag. The game's name tag, player list and display name pass through here;
- * the code that draws and decides lives in the game glue and is set into these fields.
- * Each hook renames the game's method and puts a short wrapper in its place.
- */
 public final class TagHooks {
     public interface Drawer {
         void nameTag(Object renderer, Object entity, Object pose, Object buffer, int light);
 
-        /** True when the game's own name tag is not drawn for this entity because the drawer draws its own. */
         boolean replaces(Object entity);
     }
 
@@ -86,7 +80,6 @@ public final class TagHooks {
                     "()Lnet/minecraft/network/chat/Component;", Kind.DISPLAY_NAME),
             new Target("net.minecraft.world.entity.player.Player", "getDisplayName",
                     "()Lnet/minecraft/network/chat/Component;", Kind.DISPLAY_NAME),
-            // Command feedback is "[name: did something]". The tag has its own brackets, so it stays off the name there.
             new Target("net.minecraft.commands.CommandSourceStack", "getDisplayName",
                     "()Lnet/minecraft/network/chat/Component;", Kind.SOURCE_NAME),
     };

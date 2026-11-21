@@ -14,17 +14,6 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Base64;
 
-/**
- * Where the saved sign in lives on disk.
- *
- * The Microsoft refresh token lasts for months and lets anyone who holds it sign in as the player,
- * so it is never written as plain text.
- *  - Windows: encrypted with the player's Windows account (DPAPI). Another Windows user, another computer
- *    or a copied file cannot read it.
- *  - Other systems: the file is created readable by its owner only.
- * If Windows cannot protect the token, nothing is saved and the player signs in again next time.
- * The name and UUID are not secret and stay readable.
- */
 final class TokenStore {
     record Saved(String refresh, String name, String uuid) {}
 
@@ -59,7 +48,6 @@ final class TokenStore {
         Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
     }
 
-    /** Returns the saved sign in, or null when there is none that can be read. A plain text file from an older version is protected on the spot. */
     static Saved load(Path file) throws IOException {
         JsonObject o = JsonParser.parseString(Files.readString(file, StandardCharsets.UTF_8)).getAsJsonObject();
         String name = o.get("name").getAsString();
@@ -70,7 +58,6 @@ final class TokenStore {
             try {
                 save(file, name, uuid, refresh);
             } catch (IOException e) {
-                // Never leave the plain text behind. The player stays signed in for this run only.
                 Files.deleteIfExists(file);
                 Log.error("Cannot protect the old saved sign in, so it was removed: " + e.getMessage());
             }
@@ -88,7 +75,6 @@ final class TokenStore {
                 byte[] plain = Crypt32Util.cryptUnprotectData(Base64.getDecoder().decode(token));
                 return new Saved(new String(plain, StandardCharsets.UTF_8), name, uuid);
             } catch (RuntimeException | LinkageError e) {
-                // Copied from another account or computer, or damaged. It cannot be used, so remove it.
                 Log.warn("The saved sign in cannot be read on this account, so it was removed.");
                 Files.deleteIfExists(file);
                 return null;

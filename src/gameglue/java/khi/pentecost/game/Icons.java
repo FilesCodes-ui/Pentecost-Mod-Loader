@@ -18,11 +18,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Small square pictures for lists (pack icons), loaded off the game thread. The first frames draw nothing for an icon,
- * then it appears. A loader returns a 64 by 64 PNG, or null for "no icon" (asked once, not again). The newest 200
- * textures are kept, older ones are released. Draw calls happen on the render thread only.
- */
 final class Icons {
     private static final byte[] NONE = new byte[0];
     private static final ResourceLocation BAD = new ResourceLocation("pentecost", "icons/none");
@@ -51,7 +46,6 @@ final class Icons {
 
     private Icons() {}
 
-    /** The texture for this key, starting a load when needed. Null while loading or when there is no icon. */
     static ResourceLocation get(String key, Callable<byte[]> loader) {
         ResourceLocation t = TEXTURES.get(key);
         if (t != null) {
@@ -88,7 +82,6 @@ final class Icons {
         return id == BAD ? null : id;
     }
 
-    /** Draws the icon at x, y, size by size. False when there is none (yet), so the caller draws its own tile. */
     static boolean draw(GuiGraphics g, String key, Callable<byte[]> loader, int x, int y, int size) {
         ResourceLocation t = get(key, loader);
         if (t == null) {

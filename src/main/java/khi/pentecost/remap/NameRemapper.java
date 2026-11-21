@@ -2,7 +2,6 @@ package khi.pentecost.remap;
 
 import org.objectweb.asm.commons.Remapper;
 
-/** Renames a mod from intermediary or SRG names to readable names. Each of those names is unique. */
 public final class NameRemapper extends Remapper {
     private final Mappings.NameTable t;
 

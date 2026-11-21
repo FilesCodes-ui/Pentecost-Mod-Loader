@@ -8,11 +8,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 
-/**
- * Small logger with a time stamp since launch. Every line goes to the console and to run/logs/pentecost.log.
- * The file matters: a launcher that starts the game without a console (the Manager, a shortcut) throws the console away,
- * and with it every Mixin warning and every loader message. The last launch's file is kept as pentecost-previous.log.
- */
 public final class Log {
     private static final long START = System.nanoTime();
     private static PrintWriter file;
@@ -45,7 +40,6 @@ public final class Log {
         }
     }
 
-    /** Opens the file. A failure here must never stop the game, so it only means no file. */
     private static PrintWriter open() {
         try {
             Path dir = Dirs.home().resolve("run").resolve("logs");

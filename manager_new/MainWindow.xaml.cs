@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 
@@ -21,7 +21,7 @@ public partial class MainWindow : Window
     ProgressBar? installBar;
     TextBlock? installLabel;
     string current = "";
-    readonly TextBox logBox;
+    readonly List<string> logLines = new();
     readonly DispatcherTimer toastTimer = new() { Interval = TimeSpan.FromSeconds(4) };
     readonly DispatcherTimer updateTimer = new() { Interval = TimeSpan.FromMinutes(30) };
     readonly Dictionary<string, FrameworkElement> kept = new();
@@ -29,17 +29,12 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        SourceInitialized += (_, _) => Anim.Hook(this);
+        Anim.Fps = Settings.Fps;
+        Anim.Paused = () => (Settings.PausePlaying && game.Running) || (Settings.PauseBattery && Power.OnBattery);
         InitExtras();
         mode = Enum.TryParse<LaunchMode>(Paths.Mode, out var m) ? m : LaunchMode.Standalone;
         if (mode == LaunchMode.Source && Paths.DevSource.Length == 0) mode = LaunchMode.Standalone;
-
-        logBox = new TextBox
-        {
-            IsReadOnly = true, BorderThickness = new Thickness(0), Background = Brushes.Transparent, Padding = new Thickness(16, 12, 16, 12),
-            FontFamily = (FontFamily)FindResource("Mono"), FontSize = 12, Foreground = Ui.Br("Soft"),
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            TextWrapping = TextWrapping.NoWrap,
-        };
 
         game.Line += s => Dispatcher.BeginInvoke(() => AppendLog(s));
         game.Exited += code => Dispatcher.BeginInvoke(() => OnExited(code));
@@ -52,7 +47,6 @@ public partial class MainWindow : Window
         Closing += (_, _) => updateTimer.Stop();
         Closed += (_, _) => InstallOnClose();
         ModScan.GameRunning = () => game.Running;
-        // A switch turned in the game's Mods screen shows here the moment the player comes back to the Manager.
         Activated += (_, _) =>
         {
             if (testing || inFull || Modal.Visibility == Visibility.Visible || current is not ("Mods" or "Play")) return;
@@ -61,65 +55,90 @@ public partial class MainWindow : Window
         Closing += (_, _) => Paths.Window = $"{(int)Left},{(int)Top},{(int)Width},{(int)Height},{(WindowState == WindowState.Maximized ? 1 : 0)}";
         Loaded += async (_, _) =>
         {
+            Instances.GameRunning = () => game.Running;
+            if (!testing)
+            {
+                var err = Instances.Migrate();
+                if (err != null) Toast(err, "Warn");
+            }
             RestoreWindow();
             StartIconSpin();
+            DevTab.Visibility = DevAccess.Unlocked ? Visibility.Visible : Visibility.Collapsed;
+            RefreshInstalledProjects();
+            InitOnline();
             RefreshBar();
-            Go(Pages.Contains(Paths.LastTab) ? Paths.LastTab : "Play");
+            Go(Settings.OpenOn != "Last" && Pages.Contains(Settings.OpenOn) ? Settings.OpenOn : Pages.Contains(Paths.LastTab) ? Paths.LastTab : "Play");
             RefreshAccount();
+            ShowWhatsNew();
+            if (!testing)
+                _ = Task.Run(() => CrashScan.Recent(ModScan.Scan(), 10)).ContinueWith(t => { if (!t.IsFaulted) _ = Online.ReportCrashes(t.Result); });
+            if (App.Demo)
+            {
+                Title = "Pentecost Manager (installer demo)";
+                OfferSelfInstall();
+                Toast("Installer demo: every step is faked, nothing is installed.");
+                return;
+            }
             if (!testing && SelfInstall.ShouldOffer) OfferSelfInstall();
             java = await Task.Run(JavaFinder.Find);
             javaDone = true;
             Refresh();
-            await CheckUpdates(false);
-            if (!testing) updateTimer.Start();
+            if (Settings.AutoUpdate)
+            {
+                await CheckUpdates(false);
+                if (!testing) updateTimer.Start();
+            }
             if (App.Welcome && !testing && Paths.Version == null) AskInstall(true);
         };
     }
 
-    // ---------------------------------------------------------------- the taskbar icon turns too
-
     readonly DateTime iconStart = DateTime.UtcNow;
     readonly DispatcherTimer iconTimer = new() { Interval = TimeSpan.FromMilliseconds(50) };
 
-    /// <summary>Draws the mark as it is at this moment, twenty times a second: the same free turn the Manager shows on screen.</summary>
     void StartIconSpin()
     {
         try
         {
-            iconTimer.Tick += (_, _) => Icon = IconMaker.FrameAt(32, (DateTime.UtcNow - iconStart).TotalSeconds);
+            var direct = true;
+            iconTimer.Tick += (_, _) =>
+            {
+                var s = (DateTime.UtcNow - iconStart).TotalSeconds;
+                if (direct)
+                {
+                    try { IconSpin.Show(this, s); return; }
+                    catch (Exception ex) { direct = false; AppLog.Write("taskbar icon: " + ex.Message); }
+                }
+                Icon = IconMaker.FrameAt(32, s);
+            };
             iconTimer.Start();
         }
         catch (Exception ex) { AppLog.Write("icon spin: " + ex.Message); }
     }
 
-    // ---------------------------------------------------------------- window chrome
     void Min_Click(object s, RoutedEventArgs e) => WindowState = WindowState.Minimized;
     void Close_Click(object s, RoutedEventArgs e) => Close();
 
-    // ---------------------------------------------------------------- navigation
     void Nav_Checked(object s, RoutedEventArgs e)
     {
         if (PageHost == null) return;
         ShowPage(((RadioButton)s).Uid, true);
     }
 
-    static readonly string[] Pages = { "Play", "Mods", "Browse", "Profiles", "Crashes", "Log", "Settings" };
+    static readonly string[] Pages = { "Play", "Mods", "Browse", "Profiles", "Friends", "Crashes", "Log", "Settings", "Dev" };
 
-    /// <summary>Selects a tab, which opens its page.</summary>
     public void Go(string page)
     {
+        DiscordPresence.Page = page;
         foreach (var rb in NavPanel.Children.OfType<RadioButton>())
             if (rb.Uid == page) { if (rb.IsChecked == true) ShowPage(page, true); else rb.IsChecked = true; return; }
     }
 
-    /// <summary>Builds the current page again, without the slide-in.</summary>
     void Refresh()
     {
         RefreshBar();
         if (current.Length > 0) ShowPage(current, false);
     }
 
-    /// <summary>Puts the window back where it was last time, as long as that spot is still on a screen.</summary>
     void RestoreWindow()
     {
         var parts = Paths.Window.Split(',');
@@ -153,6 +172,8 @@ public partial class MainWindow : Window
                 "Mods" => BuildMods(),
                 "Browse" => Kept("Browse", BuildBrowse),
                 "Profiles" => BuildProfiles(),
+                "Friends" => BuildFriends(),
+                "Dev" => BuildDev(),
                 "Crashes" => BuildCrashes(),
                 "Log" => BuildLog(),
                 "Settings" => BuildSettings(),
@@ -175,16 +196,41 @@ public partial class MainWindow : Window
         return el;
     }
 
-    // ---------------------------------------------------------------- shared page pieces
     static ScrollViewer Scroll(UIElement content) => new()
     {
         VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
         Content = content, Padding = new Thickness(0, 0, 10, 28),
     };
 
-    // ---------------------------------------------------------------- toast and dialogs
+    Action? toastAction;
+
+    public void Toast(string text, string kind, string action, Action onAction)
+    {
+        Toast(text, kind);
+        toastAction = onAction;
+        ToastAction.Content = action;
+        ToastAction.Visibility = Visibility.Visible;
+        toastTimer.Stop();
+        toastTimer.Interval = TimeSpan.FromSeconds(8);
+        toastTimer.Start();
+    }
+
+    void ToastAction_Click(object s, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        var a = toastAction;
+        toastAction = null;
+        ToastAction.Visibility = Visibility.Collapsed;
+        toastTimer.Stop();
+        Toast_Hide();
+        a?.Invoke();
+    }
+
     public void Toast(string text, string kind = "Ok")
     {
+        toastAction = null;
+        ToastAction.Visibility = Visibility.Collapsed;
+        toastTimer.Interval = TimeSpan.FromSeconds(4);
         ToastText.Text = text;
         ToastDot.Background = TryFindResource(kind) as Brush ?? Ui.Br("Ok");
         ToastBox.BeginAnimation(OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(140)));
@@ -222,7 +268,6 @@ public partial class MainWindow : Window
         ModalHost.Content = null;
     }
 
-    /// <summary>A small yes or no box.</summary>
     void Confirm(string title, string body, string yes, Action onYes, bool danger = false)
     {
         var no = Ui.Btn("Cancel", "Secondary", (_, _) => HideModal());
@@ -236,19 +281,39 @@ public partial class MainWindow : Window
         modalEnter = () => { HideModal(); onYes(); };
     }
 
-    // ---------------------------------------------------------------- account
     void RefreshAccount()
     {
         var name = Paths.AccountName();
         AccountName.Text = name ?? "Offline";
-        AccountSub.Text = name != null ? "Signed in with Microsoft" : "Sign in inside the game";
+        var online = Online.State == "online" ? Online.OnlineCount : -1;
+        var unread = Online.UnreadTotal;
+        AccountSub.Text = name == null ? "Sign in inside the game"
+            : unread > 0 ? unread + " new from friends"
+            : online > 0 ? online + (online == 1 ? " friend online" : " friends online")
+            : "Signed in with Microsoft";
         AccountLetter.Text = name != null ? char.ToUpperInvariant(name[0]).ToString() : "?";
         AccountLetter.Foreground = Ui.Br(name != null ? "Text" : "Muted");
+        var hosting = Online.Friends.Count(f => f.Online && f.Status?["server"] != null);
+        if (name != null && hosting > 0) AccountSub.Text += ", " + hosting + " hosting";
+        if (name != null && AccountTile.Tag as string != name)
+        {
+            AccountTile.Tag = name;
+            var grid = new Grid();
+            grid.Children.Add(DetachLetter());
+            grid.Children.Add(Heads.Tile(name, 34));
+            AccountTile.Child = grid;
+        }
     }
 
-    void Account_Click(object s, MouseButtonEventArgs e) => Go("Settings");
+    void Account_Click(object s, MouseButtonEventArgs e) => Go("Friends");
 
-    // ---------------------------------------------------------------- drag and drop of mod jars
+    UIElement DetachLetter()
+    {
+        if (AccountLetter.Parent is Panel p) p.Children.Remove(AccountLetter);
+        else if (AccountLetter.Parent == AccountTile) AccountTile.Child = null;
+        return AccountLetter;
+    }
+
     void Window_DragOver(object s, DragEventArgs e)
     {
         var jars = e.Data.GetDataPresent(DataFormats.FileDrop)
@@ -286,24 +351,26 @@ public partial class MainWindow : Window
         catch (Exception ex) { AppLog.Write("add jars: " + ex); Toast("Could not add the mod: " + ex.Message, "Bad"); }
     }
 
-    // ---------------------------------------------------------------- launching
-    void StartGame()
+    DateTime gameStart;
+
+    void StartGame() => StartGame(null);
+
+    void StartGame(string? world)
     {
         if (testing) { AppLog.Write("self-test: did not start the game"); return; }
         if (game.Running) { game.Stop(); return; }
         if (installing) return;
         var profile = ProfileStore.Active;
-        if (profile.On.Count + profile.Off.Count > 0)
-        {
-            var (changed, failed) = ProfileStore.Apply(profile);
-            if (failed.Count > 0) { Toast("Could not switch some mods: " + failed[0], "Bad"); return; }
-            if (changed > 0) AppendLog($"Profile {profile.Name}: switched {changed} mods.");
-        }
-        logBox.Clear();
-        var err = game.Start(mode, java, profile);
+        var linkErr = Instances.Switch(profile);
+        if (linkErr != null) { Toast(linkErr, "Bad"); return; }
+        ClearLog();
+        var err = game.Start(mode, java, profile, world);
         if (err != null) { Toast(err, "Bad"); Refresh(); return; }
-        AppendLog($"Starting ({mode}, profile {profile.Name}).");
+        AppendLog($"Starting ({mode}, profile {profile.Name}{(world != null ? ", world " + world : "")}).");
+        gameStart = DateTime.Now;
+        SideMast.StartedAt = SideMast.Clock;
         Toast(mode == LaunchMode.Launcher ? "Minecraft Launcher opened. Press Play there." : "Starting Pentecost");
+        if (Settings.OnLaunch == "minimize") { minimizedForGame = true; WindowState = WindowState.Minimized; }
         Refresh();
     }
 
@@ -311,14 +378,18 @@ public partial class MainWindow : Window
     {
         AppendLog($"The game ended with code {code}.");
         if (code != 0) Toast($"The game stopped with code {code}. See Crashes.", "Warn");
+        if (minimizedForGame)
+        {
+            minimizedForGame = false;
+            WindowState = WindowState.Normal;
+            Activate();
+        }
+        if (code != 0 && Settings.CrashJump && !testing)
+        {
+            if (!IsVisible) ShowFromTray();
+            Go("Crashes");
+        }
         Refresh();
-    }
-
-    void AppendLog(string line)
-    {
-        logBox.AppendText(line + "\n");
-        if (logBox.Text.Length > 300_000) logBox.Text = logBox.Text[^150_000..];
-        logBox.ScrollToEnd();
     }
 
     void SetMode(LaunchMode m)
@@ -328,7 +399,6 @@ public partial class MainWindow : Window
         Refresh();
     }
 
-    // ---------------------------------------------------------------- install and update
     async Task CheckUpdates(bool announce)
     {
         var before = (latest?.Tag, latest?.ManagerVersion);
@@ -353,25 +423,18 @@ public partial class MainWindow : Window
             AppLog.Write("update check: " + ex.Message);
             if (announce) Toast("Could not reach GitHub.", "Warn");
         }
-        // The half hourly check must not rebuild a page the player is working in, unless something new showed up.
         if (announce || !updatesChecked) Refresh();
         else if (before != (latest?.Tag, latest?.ManagerVersion)) RefreshUpdateViews();
         updatesChecked = true;
     }
 
-    /// <summary>True when a newer Manager is on the release and this copy can show or apply it.</summary>
     bool ManagerUpdate => latest != null && Updates.ManagerNewer(latest) && (SelfInstall.CanUpdate || testing);
 
-    /// <summary>Only Home and Settings show update state, so only they are rebuilt.</summary>
     void RefreshUpdateViews()
     {
         if (current is "Play" or "Settings" && !inFull && Modal.Visibility != Visibility.Visible) ShowPage(current, false);
     }
 
-    /// <summary>
-    /// Fetches the newest Manager setup in the background, so the update is ready when the player presses Update now
-    /// or closes the Manager. Only the installed copy does this.
-    /// </summary>
     void FetchManager()
     {
         var r = latest;
@@ -391,7 +454,6 @@ public partial class MainWindow : Window
         });
     }
 
-    /// <summary>Update now: the checked Setup replaces the installed Manager and starts it again.</summary>
     async Task UpdateManagerNow()
     {
         if (testing) { AppLog.Write("self-test: did not update the Manager"); return; }
@@ -419,38 +481,91 @@ public partial class MainWindow : Window
         finally { managerBusy = false; }
     }
 
-    /// <summary>A checked update that was not applied with the button installs now, without a window and without starting again.</summary>
     void InstallOnClose()
     {
-        if (testing || managerHandedOver || managerSetup == null || managerSetupVersion == null) return;
+        if (testing || managerHandedOver || managerSetup == null || managerSetupVersion == null || !Settings.UpdateOnClose) return;
         if (!SelfInstall.CanUpdate) return;
         AppLog.Write("installing Manager " + managerSetupVersion + " on close");
         SelfUpdate.Run(managerSetup, false);
     }
 
-    async Task RunInstall(bool worlds)
+    async Task RunInstall(bool worlds, ReleaseInfo? pick = null)
     {
         if (testing) { AppLog.Write("self-test: did not install"); return; }
-        if (latest == null) { await CheckUpdates(false); if (latest == null) { Toast("Could not reach GitHub.", "Bad"); return; } }
+        if (App.Demo)
+        {
+            installing = true;
+            Refresh();
+            await DemoInstall.Pentecost(worlds, (text, f) => Dispatcher.BeginInvoke(() =>
+            {
+                if (installLabel != null) installLabel.Text = text;
+                if (installBar != null) { installBar.IsIndeterminate = false; installBar.Value = f; }
+            }));
+            installing = false;
+            installBar = null;
+            installLabel = null;
+            Refresh();
+            Toast("Pentecost is installed. (Demo: nothing was installed.)");
+            return;
+        }
+        if (pick == null && latest == null) { await CheckUpdates(false); if (latest == null) { Toast("Could not reach GitHub.", "Bad"); return; } }
         if (game.Running) { Toast("Close the game first.", "Warn"); return; }
+        var rel = pick ?? latest!;
         installing = true;
         Refresh();
-        var err = await InstallService.Run(latest!, worlds, (text, f) => Dispatcher.BeginInvoke(() =>
+        var starter = StarterPicks();
+        var bothVideo = starter == null || (starter.Contains("embeddium") && starter.Contains("oculus"));
+        var err = await InstallService.Run(rel, worlds, (text, f) => Dispatcher.BeginInvoke(() =>
         {
             if (installLabel != null) installLabel.Text = text;
             if (installBar != null) { installBar.IsIndeterminate = false; installBar.Value = f; }
-        }), CancellationToken.None);
+        }), CancellationToken.None, bothVideo);
         installing = false;
         installBar = null;
         installLabel = null;
         Refresh();
         if (err == null)
         {
-            AppendLog($"Pentecost {latest!.Version} installed.");
-            Toast($"Pentecost {latest.Version} is installed.");
+            AppendLog($"Pentecost {rel.Version} installed.");
+            Toast($"Pentecost {rel.Version} is installed.");
+            _ = InstallStarterMods(bothVideo);
             _ = Task.Run(JavaFinder.Find).ContinueWith(t => Dispatcher.BeginInvoke(() => { java = t.Result; Refresh(); }));
         }
         else Toast(err, "Bad");
+    }
+
+    static string StarterFile => Path.Combine(SelfInstall.Target, "first-mods.txt");
+
+    static List<string>? StarterPicks()
+    {
+        try
+        {
+            if (!File.Exists(StarterFile)) return null;
+            return File.ReadAllLines(StarterFile).Select(l => l.Trim())
+                .Where(l => l.Length > 0 && !l.StartsWith('#') && l.All(c => char.IsLetterOrDigit(c) || c is '-' or '_')).ToList();
+        }
+        catch (Exception ex) { AppLog.Write("starter mods: " + ex.Message); return null; }
+    }
+
+    async Task InstallStarterMods(bool videoDone)
+    {
+        var file = StarterFile;
+        var picks = StarterPicks();
+        if (picks == null) return;
+        var slugs = picks.Where(s => !(videoDone && s is "embeddium" or "oculus")).ToList();
+        if (slugs.Count == 0) { try { File.Delete(file); } catch { } return; }
+        Toast($"Installing your {slugs.Count} starter mods.");
+        int done = 0;
+        var failed = new List<string>();
+        foreach (var slug in slugs)
+        {
+            try { await Modrinth.Install(slug, "forge", _ => { }, CancellationToken.None); done++; }
+            catch (Exception ex) { failed.Add(slug); AppLog.Write("starter mod " + slug + ": " + ex.Message); }
+        }
+        try { File.Delete(file); } catch { }
+        AppendLog($"Starter mods: {done} installed" + (failed.Count > 0 ? ", could not get " + string.Join(", ", failed) : "") + ".");
+        Toast(failed.Count == 0 ? $"Your {done} starter mods are installed." : $"{done} starter mods installed. Could not get: {string.Join(", ", failed)}.", failed.Count == 0 ? "Ok" : "Warn");
+        Refresh();
     }
 
     void OpenPath(string path)

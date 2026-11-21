@@ -7,13 +7,7 @@ import org.lwjgl.glfw.GLFWImage;
 
 import java.nio.ByteBuffer;
 
-/**
- * The window and taskbar icon: Pentecost's white sailboat on a black rounded tile.
- * The boat stays still and only the waves move, in 8 frames that loop.
- * The same art is drawn by .tools\make_icon.py for pentecost.ico. Change both together.
- */
 final class WindowIcon {
-    /** Same boat as the logo in Ui. 12 pixels wide, 11 tall. */
     private static final String[] BOAT = {
             ".....#......",
             ".....##.....",
@@ -44,7 +38,6 @@ final class WindowIcon {
 
     private WindowIcon() {}
 
-    /** Called every frame. Moves to the next wave frame about seven times a second. */
     static void frame() {
         if (failed) {
             return;
@@ -66,7 +59,6 @@ final class WindowIcon {
         }
     }
 
-    /** Puts the next wave frame on the window. */
     private static void show(long handle) {
         if (frames == null) {
             frames = new ByteBuffer[FRAMES][SIZES.length];
@@ -89,7 +81,6 @@ final class WindowIcon {
         next = (next + 1) % FRAMES;
     }
 
-    /** Called by the game right after it set its own icon. Puts the boat on the window at boot. */
     static void apply(Object window) {
         if (failed) {
             return;
@@ -103,7 +94,6 @@ final class WindowIcon {
         }
     }
 
-    /** One frame at one size, as RGBA bytes. Size must be a multiple of 16. */
     private static ByteBuffer render(int size, int frame) {
         int[] grid = new int[GRID * GRID];
         for (int r = 0; r < BOAT.length; r++) {
@@ -139,7 +129,6 @@ final class WindowIcon {
         return out;
     }
 
-    /** True when the point is inside a square of this size with rounded corners. */
     private static boolean inside(double x, double y, int size, double radius) {
         double dx = Math.max(Math.max(radius - x, x - (size - radius)), 0);
         double dy = Math.max(Math.max(radius - y, y - (size - radius)), 0);

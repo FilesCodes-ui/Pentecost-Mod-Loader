@@ -2,10 +2,6 @@ package khi.pentecost.game;
 
 import net.minecraft.client.gui.GuiGraphics;
 
-/**
- * A thin scroll thumb that grows when the pointer is near it and can be dragged.
- * Coordinates are the screen's own drawing units, the same ones its widgets use.
- */
 final class Scrollbar {
     private static int counter;
 
@@ -20,7 +16,6 @@ final class Scrollbar {
     private boolean drag;
     private double grab;
 
-    /** Call every frame, after the scroll position is clamped. */
     void draw(GuiGraphics g, int x, int top, int bottom, double scroll, int max, int mx, int my) {
         this.x = x;
         this.top = top;
@@ -48,7 +43,6 @@ final class Scrollbar {
         return active && mx >= x - 8 && mx <= x + 8 && my >= top && my < bottom;
     }
 
-    /** True when the press landed on the thumb or its track. The caller then sets its scroll from scrollAt. */
     boolean press(int mx, int my) {
         if (!near(mx, my)) {
             return false;
@@ -62,7 +56,6 @@ final class Scrollbar {
         return drag;
     }
 
-    /** The scroll position for a pointer at this height while dragging. */
     double scrollAt(int my) {
         int span = Math.max(1, (bottom - top) - bar);
         double t = Math.max(0, Math.min(1, (my - grab - top) / span));

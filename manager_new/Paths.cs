@@ -4,7 +4,6 @@ namespace Pentecost.Manager;
 
 public enum LaunchMode { Standalone, Launcher, Source }
 
-/// <summary>The manager's own log, in its data folder. Never throws.</summary>
 public static class AppLog
 {
     static readonly object Gate = new();
@@ -26,23 +25,19 @@ public static class AppLog
     }
 }
 
-/// <summary>Where things are. The Pentecost home is the folder that holds lib, cache and run.</summary>
 public static class Paths
 {
     static readonly string AppData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-    public static string Data => Directory.CreateDirectory(Path.Combine(AppData, "PentecostManager")).FullName;
+    public static string Data => Directory.CreateDirectory(Environment.GetEnvironmentVariable("PENTECOST_MANAGER_DATA") is { Length: > 0 } d ? d : Path.Combine(AppData, "PentecostManager")).FullName;
     public static string DefaultHome => Path.Combine(AppData, ".minecraft", "pentecost");
     public static string Home { get; set; } = DefaultHome;
-    /// <summary>The .minecraft folder (the parent of the Pentecost home).</summary>
     public static string McDir => Path.GetDirectoryName(Home.TrimEnd('\\', '/')) ?? Home;
-    /// <summary>Set only when dev.json names an existing source folder. Unlocks "Run from source".</summary>
-    public static string DevSource { get; private set; } = "";
+    public static string DevSource => devSource.Length > 0 && DevAccess.Unlocked ? devSource : "";
+    static string devSource = "";
 
     public static string Mods => Path.Combine(Home, "run", "mods");
     public static string Crashes => Path.Combine(Home, "run", "crash-reports");
-    /// <summary>Where the game's own Mods screen keeps its switches, among them the list of mods turned off.</summary>
     public static string Choices => Path.Combine(Home, "run", "config", "pentecost", "choices.json");
-    /// <summary>The game's own settings. The memory numbers of a profile are written here, so the game agrees with the Manager.</summary>
     public static string GameSettings => Path.Combine(Home, "run", "config", "pentecost", "settings.json");
     public static string Logs => Path.Combine(Home, "run", "logs");
     public static bool Installed => Directory.Exists(Path.Combine(Home, "lib"));
@@ -57,7 +52,7 @@ public static class Paths
             var dev = Path.Combine(Data, "dev.json");
             if (File.Exists(dev) && JsonNode.Parse(File.ReadAllText(dev)) is JsonObject d
                 && d["source"]?.ToString() is { Length: > 0 } s && Directory.Exists(s))
-                DevSource = s;
+                devSource = s;
         }
         catch (Exception ex) { AppLog.Write("Paths.Load: " + ex.Message); }
     }
@@ -74,14 +69,12 @@ public static class Paths
         set { try { File.WriteAllText(Path.Combine(Data, "mode.txt"), value); } catch { } }
     }
 
-    /// <summary>Where the window was last time, as x,y,width,height,maximised.</summary>
     public static string Window
     {
         get => Read("window.txt", "");
         set => Store("window.txt", value);
     }
 
-    /// <summary>The tab that was open last time.</summary>
     public static string LastTab
     {
         get => Read("tab.txt", "Play");
@@ -99,7 +92,6 @@ public static class Paths
         try { File.WriteAllText(Path.Combine(Data, file), value); } catch { }
     }
 
-    /// <summary>Installed Pentecost version: version.txt (written by the installer), else lib\pentecost-X.jar.</summary>
     public static string? Version
     {
         get
@@ -122,11 +114,24 @@ public static class Paths
         }
     }
 
-    /// <summary>The saved sign-in file the game writes. Only the name is read here; the token stays encrypted and untouched.</summary>
     public static IEnumerable<string> AccountFiles()
     {
         yield return Path.Combine(Home, "pentecost-account.json");
         yield return Path.Combine(Home, "run", "pentecost-account.json");
+    }
+
+    public static string? AccountUuid()
+    {
+        foreach (var f in AccountFiles())
+        {
+            try
+            {
+                if (File.Exists(f) && JsonNode.Parse(File.ReadAllText(f)) is JsonObject o && o["uuid"]?.ToString() is { Length: > 0 } id)
+                    return id;
+            }
+            catch { }
+        }
+        return null;
     }
 
     public static string? AccountName()
@@ -146,6 +151,49 @@ public static class Paths
     public static void SignOut()
     {
         foreach (var f in AccountFiles())
-            try { if (File.Exists(f)) File.Delete(f); } catch (Exception ex) { AppLog.Write("SignOut: " + ex.Message); }
+        {
+            try
+            {
+                if (!File.Exists(f)) continue;
+                if (JsonNode.Parse(File.ReadAllText(f)) is JsonObject o && o["uuid"]?.ToString() is { Length: > 0 } id
+                    && !id.Contains('/') && !id.Contains('\\') && !id.Contains(".."))
+                {
+                    var copy = Path.Combine(Path.GetDirectoryName(f)!, "pentecost-accounts", id + ".json");
+                    if (File.Exists(copy)) File.Delete(copy);
+                }
+                File.Delete(f);
+            }
+            catch (Exception ex) { AppLog.Write("SignOut: " + ex.Message); }
+        }
+    }
+
+    public static List<string> SavedAccounts()
+    {
+        var names = new List<string>();
+        foreach (var dir in new[] { Path.Combine(Home, "run", "pentecost-accounts"), Path.Combine(Home, "pentecost-accounts") })
+        {
+            try
+            {
+                if (!Directory.Exists(dir)) continue;
+                foreach (var f in Directory.GetFiles(dir, "*.json"))
+                    if (JsonNode.Parse(File.ReadAllText(f)) is JsonObject o && o["name"]?.ToString() is { Length: > 0 } n && !names.Contains(n))
+                        names.Add(n);
+            }
+            catch { }
+        }
+        names.Sort(StringComparer.OrdinalIgnoreCase);
+        return names;
+    }
+
+    public static string? FriendCode()
+    {
+        try
+        {
+            var f = Path.Combine(Home, "run", "config", "pentecost", "friends.json");
+            if (File.Exists(f) && JsonNode.Parse(File.ReadAllText(f)) is JsonObject o && o["myCode"]?.ToString() is { Length: 10 } c)
+                return c;
+        }
+        catch { }
+        return null;
     }
 }

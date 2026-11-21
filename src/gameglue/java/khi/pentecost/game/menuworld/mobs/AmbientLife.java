@@ -25,45 +25,26 @@ import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 
-/**
- * Life in the menu world. The kinds of mob come from each biome's own spawn list, so cows and sheep stand in grass,
- * polar bears on snow and camels in the desert, in the group sizes the game uses. Only vanilla mobs ever appear.
- * They are client-only entities with no AI and never look at the viewer.
- *
- * Movement is the game's own way of moving mobs it does not control: each tick the mob is told where it should be and
- * the game eases it there while it plays the walking animation. A mob walks to a spot nearby, turns before it walks,
- * stands for a while, then walks on. Flyers (bees, parrots) circle over the ground.
- *
- * Mobs appear far from the camera, some in the picture and some just outside it, biased to where the camera is
- * heading, and never nearer than {@link #MIN_DISTANCE} blocks. Hostile mobs only show at night, a few at a time.
- *
- * Call {@link Crowd#update} once per frame from the render thread.
- */
 public final class AmbientLife {
     private AmbientLife() {}
 
-    /** Never nearer than this to the camera, so nothing is ever seen up close or notices the viewer. */
     public static final double MIN_DISTANCE = 24.0;
 
     public static final double SPAWN_MARGIN_DEGREES = 8.0;
     public static final double DESPAWN_MARGIN_DEGREES = 25.0;
 
     private static final double MAX_DISTANCE = 110.0;
-    /** In view, nothing appears nearer than this: far enough that appearing is not noticed. */
     private static final double VIEW_SPAWN_MIN = 55.0;
     private static final int CAP = 30;
     private static final int HOSTILE_CAP = 4;
     private static final int MAX_GROUP = 4;
 
-    /** Ids that need water, a rider or a fight to make sense, and the bosses. */
     private static final Set<String> NEVER = Set.of(
             "player", "marker", "armor_stand", "ender_dragon", "wither", "giant", "illusioner", "guardian",
             "elder_guardian", "squid", "glow_squid", "cod", "salmon", "pufferfish", "tropical_fish", "tadpole",
             "dolphin", "axolotl", "shulker");
-    /** Mobs that hang in the air: they circle above the ground. */
     private static final Set<String> FLYERS = Set.of("bee", "parrot", "bat", "ghast", "phantom", "vex", "allay", "blaze");
 
-    /** Ground a mob may stand on, by block name. Names, not tags: tags are not bound until a real world is joined. */
     private static final Set<String> NATURAL = Set.of(
             "grass_block", "dirt", "coarse_dirt", "podzol", "mycelium", "rooted_dirt", "moss_block", "mud", "sand",
             "red_sand", "snow", "snow_block", "powder_snow", "stone", "granite", "diorite", "andesite", "deepslate",
@@ -102,7 +83,6 @@ public final class AmbientLife {
         }
     }
 
-    /** The mobs in one menu level. */
     public static final class Crowd {
         private final ClientLevel level;
         private final Random rnd = new Random();
@@ -114,10 +94,8 @@ public final class AmbientLife {
         private double acc;
         private int failures;
         private boolean off;
-        // where the camera is heading, so mobs appear ahead of it
         private boolean haveCam;
         private double lastX, lastZ, velX, velZ;
-        // set when the level turns out not to tick these mobs: they are then moved and animated here
         private boolean selfTick;
         private boolean warned;
         private int tried, noList, badType, spawned, notNatural;
@@ -131,14 +109,6 @@ public final class AmbientLife {
             return live.size();
         }
 
-        /**
-         * @param camX,camY,camZ camera position
-         * @param yaw            camera yaw in degrees, as the game uses it
-         * @param fov            vertical field of view in degrees
-         * @param aspect         window width over height
-         * @param gameTicks      unused: mobs step on their own 20 per second clock
-         * @param dayTicks       time of day in ticks
-         */
         public void update(double camX, double camY, double camZ, double yaw, double fov, double aspect, int gameTicks,
                            long dayTicks, double dt) {
             if (off) return;
@@ -195,13 +165,10 @@ public final class AmbientLife {
             }
         }
 
-        /** Removes every mob. Call before the level is dropped. */
         public void clear() {
             for (Active a : live) remove(a);
             live.clear();
         }
-
-        // ------------------------------------------------------------------ appearing and leaving
 
         private void trySpawn(double camX, double camZ, double yaw, double half, boolean night) {
             if (live.size() >= CAP) return;
@@ -222,7 +189,6 @@ public final class AmbientLife {
                 dist = MIN_DISTANCE + 8 + rnd.nextDouble() * (MAX_DISTANCE - MIN_DISTANCE - 8);
             }
             double bearing = Math.toRadians(yaw + off);
-            // Shift toward where the camera is going, so there is life where it arrives.
             double lx = velX * 2.0, lz = velZ * 2.0;
             double ll = Math.hypot(lx, lz);
             if (ll > 60) {
@@ -279,7 +245,6 @@ public final class AmbientLife {
                     attr = mob.getAttributeValue(Attributes.MOVEMENT_SPEED);
                 }
             } catch (RuntimeException ignored) {
-                // the default stands
             }
             double speed = flies ? 3.5 : Mth.clamp(attr * 13.0, 1.2, 3.4) * (0.8 + rnd.nextDouble() * 0.2);
             int eid = nextId++;
@@ -311,7 +276,7 @@ public final class AmbientLife {
                 return true;
             }
             if (dist < MIN_DISTANCE - 6) {
-                return true; // the camera flew toward it
+                return true;
             }
             double bearing = Math.toDegrees(Math.atan2(-dx, dz));
             double diff = Math.abs(Mth.wrapDegrees(bearing - yaw));
@@ -322,11 +287,8 @@ public final class AmbientLife {
             try {
                 level.removeEntity(a.id, Entity.RemovalReason.DISCARDED);
             } catch (RuntimeException e) {
-                // the level is being dropped
             }
         }
-
-        // ------------------------------------------------------------------ one tick of a mob
 
         private void step(Active a) {
             Mob m = a.mob;
@@ -338,7 +300,6 @@ public final class AmbientLife {
                 double dx = a.tx - x, dz = a.tz - z;
                 double d = Math.hypot(dx, dz);
                 if (d < 0.7) {
-                    // arrived: stand a while, then choose somewhere else to go
                     a.wait = a.flies ? 0.4 : 3 + rnd.nextDouble() * 9;
                     double r = a.flies ? 18 : 5 + rnd.nextDouble() * 9;
                     double ang = rnd.nextDouble() * Math.PI * 2;
@@ -348,18 +309,16 @@ public final class AmbientLife {
                         a.tz = nz;
                     } else {
                         a.tx = x;
-                        a.tz = z; // water or no land that way: stand and choose again
+                        a.tz = z;
                         a.wait = 1 + rnd.nextDouble() * 2;
                     }
                 } else {
-                    // turn first, then walk: nothing slides sideways
                     float want = (float) Math.toDegrees(Math.atan2(-dx, dz));
                     float diff = Mth.wrapDegrees(want - a.yaw);
                     a.yaw = Mth.wrapDegrees(a.yaw + Mth.clamp(diff, -12F, 12F));
                     walking = Math.abs(diff) < 45F;
                 }
             }
-            // ease the pace in and out, so a mob never starts or stops at full speed
             a.cur += ((walking ? a.speed : 0) - a.cur) * 0.2;
             if (a.cur > 0.03) {
                 double stepLen = a.cur / 20.0;
@@ -378,7 +337,6 @@ public final class AmbientLife {
             a.px = x;
             a.pz = z;
 
-            // Height follows the land smoothly: a step up is climbed, never a pop.
             double ty = height(x, z);
             if (a.flies) {
                 a.phase += 0.05;
@@ -404,16 +362,12 @@ public final class AmbientLife {
                 m.setOnGround(!a.flies);
                 m.calculateEntityAnimation(a.flies);
             } else {
-                // The game moves and animates the mob from here during its own tick.
                 m.lerpTo(x, a.py, z, a.yaw, 0F, 3, false);
                 m.lerpHeadTo(a.yaw, 3);
                 m.setOnGround(!a.flies);
             }
         }
 
-        // ------------------------------------------------------------------ the land
-
-        /** Dry, loaded, natural ground at this spot: not a roof, a wall top or a cliff edge. */
         private boolean ground(double x, double z) {
             int bx = Mth.floor(x), bz = Mth.floor(z);
             if (!level.hasChunk(bx >> 4, bz >> 4)) return false;
@@ -429,7 +383,6 @@ public final class AmbientLife {
                 notNatural++;
                 return false;
             }
-            // A roof or a wall top stands above its surroundings; open ground does not.
             for (int k = 0; k < 4; k++) {
                 int ox = bx + (k == 0 ? 3 : k == 1 ? -3 : 0), oz = bz + (k == 2 ? 3 : k == 3 ? -3 : 0);
                 if (!level.hasChunk(ox >> 4, oz >> 4)) return false;
@@ -444,7 +397,6 @@ public final class AmbientLife {
         }
     }
 
-    /** Names of the kinds of mob that can never appear, for the settings page and checks. */
     public static Set<String> neverIds() {
         return new HashSet<>(NEVER);
     }

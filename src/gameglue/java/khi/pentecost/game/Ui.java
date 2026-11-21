@@ -21,10 +21,6 @@ import java.util.Optional;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-/**
- * The look shared by Pentecost's own screens: black and white, flat shapes, one scale.
- * Nothing here uses game textures, so no mod or resource pack restyles it.
- */
 final class Ui {
     static final int BG = 0xFF0A0A0B;
     static final int LINE = 0x24FFFFFF;
@@ -42,7 +38,6 @@ final class Ui {
 
     private Ui() {}
 
-    /** Pentecost screens draw at about two screen pixels per pixel, whatever the GUI scale is. */
     static float scale(Minecraft mc) {
         double gui = mc.getWindow().getGuiScale();
         return gui > 2 ? (float) (2.0 / gui) : 1f;
@@ -67,7 +62,6 @@ final class Ui {
         return mx >= x && mx < x + w && my >= y && my < y + h;
     }
 
-    /** The translation key of a widget's label, or "" when the label is plain text. */
     static String key(AbstractWidget w) {
         return w.getMessage().getContents() instanceof TranslatableContents t ? t.getKey() : "";
     }
@@ -81,10 +75,6 @@ final class Ui {
         return null;
     }
 
-    /**
-     * The mod that put this widget on a screen, or null for the game's own widgets.
-     * A mod either uses its own widget class, or a game button whose click code lives in the mod.
-     */
     static String ownerOf(AbstractWidget w) {
         if (PentecostRuntime.loader == null) {
             return null;
@@ -120,7 +110,6 @@ final class Ui {
         return id == null || id.equals("forge") || id.equals("minecraft") ? null : id;
     }
 
-    /** A mod's icon in black and white. */
     static Optional<Gray> grayIcon(String modId) {
         return GRAY.computeIfAbsent(modId, id -> {
             ModInfo m = mod(id);
@@ -168,8 +157,6 @@ final class Ui {
         });
     }
 
-    // ---------------------------------------------------------------- wordmark
-
     private static final Map<Character, String[]> GLYPHS = new HashMap<>();
     static {
         GLYPHS.put('A', new String[]{"01110", "10001", "10001", "11111", "10001", "10001", "10001"});
@@ -213,10 +200,6 @@ final class Ui {
 
     private static final Map<Character, boolean[][]> FINE = new HashMap<>();
 
-    /**
-     * A letter at twice the resolution: each pixel becomes four, and inside corners get filled,
-     * so diagonals and curves come out smooth while the letter stays pixel art.
-     */
     private static boolean[][] fine(char ch) {
         return FINE.computeIfAbsent(ch, c -> {
             String[] g = GLYPHS.get(c);
@@ -253,15 +236,10 @@ final class Ui {
         return r >= 0 && r < 7 && c >= 0 && c < 5 && g[r].charAt(c) == '1';
     }
 
-    /** Width of a word in wordmark letters, at px screen units per fine pixel. */
     static int wordmarkWidth(String word, int px) {
         return Math.max(0, word.length() * 12 - 2 + 4) * px;
     }
 
-    /**
-     * Draws a word in Pentecost's thick, slanted pixel letters, the same letters as the boot splash.
-     * px: size of one fine pixel. A letter is 10 by 14 fine pixels.
-     */
     static void wordmark(GuiGraphics g, String word, int x, int y, int px, int color) {
         g.drawManaged(() -> {
             int cx = x;
@@ -287,7 +265,12 @@ final class Ui {
         });
     }
 
-    // ---------------------------------------------------------------- background
+    static int back(Minecraft mc) {
+        if (khi.pentecost.game.menuworld.MenuHost.showing()) {
+            return 0xB00A0A0B;
+        }
+        return mc.level == null ? 0xFF0A0A0B : 0xD80A0A0B;
+    }
 
     private static final int[][] BAYER = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
     private static DynamicTexture dither;
@@ -295,11 +278,10 @@ final class Ui {
     private static int ditherCols;
     private static int ditherRows;
     private static int ditherFrame;
+    private static double[] ditherBase;
+    private static double[] ditherSin;
+    private static double[] ditherCos;
 
-    /**
-     * The boot splash's dithered backdrop: a slow pattern of light pixels, strongest on the right,
-     * away from the menu text. Drawn in plain GUI space over the whole screen.
-     */
     static void dither(GuiGraphics g, int width, int height) {
         if (!khi.pentecost.control.Settings.on(khi.pentecost.control.Settings.PATTERN)) {
             return;
@@ -320,11 +302,25 @@ final class Ui {
         }
         NativeImage image = dither.getPixels();
         if (image != null && ditherFrame++ % 2 == 0) {
+            if (ditherBase == null || ditherBase.length != cols) {
+                ditherBase = new double[cols];
+                ditherSin = new double[cols];
+                ditherCos = new double[cols];
+                for (int x = 0; x < cols; x++) {
+                    ditherBase[x] = Math.pow((double) x / cols, 2.2) * 0.40;
+                    ditherSin[x] = Math.sin(x * 0.5);
+                    ditherCos[x] = Math.cos(x * 0.5);
+                }
+            }
             double t = net.minecraft.Util.getMillis() * 0.0012;
             for (int y = 0; y < rows; y++) {
+                double c = y * 0.3 - t;
+                double sc = Math.sin(c);
+                double cc = Math.cos(c);
+                int[] bayer = BAYER[y & 3];
                 for (int x = 0; x < cols; x++) {
-                    double v = Math.pow((double) x / cols, 2.2) * 0.40 + 0.05 * Math.sin(x * 0.5 + y * 0.3 - t);
-                    image.setPixelRGBA(x, y, v * 16 > BAYER[y & 3][x & 3] ? 0x10FFFFFF : 0);
+                    double v = ditherBase[x] + 0.05 * (ditherSin[x] * cc + ditherCos[x] * sc);
+                    image.setPixelRGBA(x, y, v * 16 > bayer[x & 3] ? 0x10FFFFFF : 0);
                 }
             }
             dither.upload();
@@ -335,9 +331,6 @@ final class Ui {
         com.mojang.blaze3d.systems.RenderSystem.disableBlend();
     }
 
-    // ---------------------------------------------------------------- logo
-
-    /** The boat, 12 pixels wide. The hull's last row sits under the first wave, so the boat floats in the water. */
     private static final String[] BOAT = {
             ".....#......",
             ".....##.....",
@@ -352,14 +345,9 @@ final class Ui {
             ".##########."
     };
 
-    /** Width and height of the logo in logo pixels. */
     static final int LOGO_W = 16;
     static final int LOGO_H = 13;
 
-    /**
-     * Draws Pentecost's logo: a still sailboat in the water and two thin waves that drift slowly.
-     * px: screen units per logo pixel.
-     */
     static void logo(GuiGraphics g, int x, int y, int px, int color) {
         double t = net.minecraft.Util.getMillis() / 1000.0;
         g.drawManaged(() -> {
@@ -388,7 +376,6 @@ final class Ui {
         });
     }
 
-    /** Small pixel text in Pentecost's own letters, 5 by 7 pixels each. Works before the game's fonts load. */
     static void pixelText(GuiGraphics g, String text, int x, int y, int px, int color) {
         g.drawManaged(() -> {
             int cx = x;
@@ -412,10 +399,6 @@ final class Ui {
 
     private static final Map<String, float[]> SWITCHES = new HashMap<>();
 
-    /**
-     * A switch that slides. key: anything unique to this switch, so its position carries over between frames.
-     * Box is 24 by 11.
-     */
     static void toggle(GuiGraphics g, String key, int x, int y, boolean on) {
         float[] state = SWITCHES.computeIfAbsent(key, k -> new float[]{on ? 1f : 0f, net.minecraft.Util.getMillis()});
         long now = net.minecraft.Util.getMillis();
@@ -433,7 +416,6 @@ final class Ui {
         g.fill(knob, y + 2, knob + 8, y + 9, border);
     }
 
-    /** Blends two colors, t from 0 (a) to 1 (b). */
     static int mix(int a, int b, float t) {
         int r = 0;
         for (int shift = 0; shift <= 24; shift += 8) {
@@ -446,10 +428,6 @@ final class Ui {
 
     private static final Map<String, float[]> EASED = new HashMap<>();
 
-    /**
-     * A value that glides toward its target instead of jumping. key: unique per animated thing.
-     * speed: how quickly it closes the gap, about 12 to 20 feels smooth.
-     */
     static float ease(String key, float target, float speed) {
         long now = net.minecraft.Util.getMillis();
         float[] st = EASED.computeIfAbsent(key, k -> new float[]{target, now});
@@ -462,7 +440,6 @@ final class Ui {
         return st[0];
     }
 
-    /** Wraps text into lines no wider than width. */
     static java.util.List<String> wrap(net.minecraft.client.gui.Font font, String text, int width) {
         java.util.List<String> out = new java.util.ArrayList<>();
         for (net.minecraft.util.FormattedCharSequence line : font.split(net.minecraft.network.chat.Component.literal(text), width)) {

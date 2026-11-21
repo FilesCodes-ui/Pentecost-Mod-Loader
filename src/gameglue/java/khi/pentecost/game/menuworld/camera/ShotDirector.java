@@ -12,14 +12,6 @@ import java.util.List;
 import java.util.Random;
 import java.util.Set;
 
-/**
- * Decides the next shot. It keeps a pool of scored vantage points, picks one, picks a camera move that suits the
- * time of day and the pacing, and composes the shot. The same master seed gives the same sequence, so a bad shot can
- * be found again.
- *
- * Pacing: moves are calm (slow, wide, still) or energetic (fast, close to the land). After two of one kind in a row
- * the other kind is favoured, so the menu breathes instead of running on at one speed.
- */
 public final class ShotDirector {
     private static final int POOL = 48;
     private static final Set<MoveType> ENERGETIC = EnumSet.of(MoveType.SKIM, MoveType.FLYBY, MoveType.FLY_THROUGH,
@@ -44,19 +36,16 @@ public final class ShotDirector {
         this.radius = radius;
     }
 
-    /** The next shot. timeOfDay is in game ticks, 0 at sunrise, 6000 noon, 12000 sunset, 18000 midnight. */
     public Shot next(double timeOfDay) {
         return next(timeOfDay, null);
     }
 
-    /** Same, limited to the given moves. Null or empty means any. */
     public Shot next(double timeOfDay, Set<MoveType> allowed) {
         Shot s = candidate(timeOfDay, allowed, Set.of());
         note(s.type());
         return s;
     }
 
-    /** A shot of the next good view in the pool, not yet counted as played. Call {@link #note} for the one that is. */
     public Shot candidate(double timeOfDay, Set<MoveType> allowed, Set<MoveType> skip) {
         if (pool.isEmpty()) {
             List<Vantage> found = Vantage.scan(terrain, centerX, centerZ, radius, POOL, rnd);
@@ -66,22 +55,15 @@ public final class ShotDirector {
         return nextAt(pool.poll(), timeOfDay, allowed, skip);
     }
 
-    /**
-     * A shot of a given vantage, for a place the caller chose (a point of interest). {@code allowed} limits the camera
-     * moves; null or empty means any move except the ones that need other systems. Does not count as played: call
-     * {@link #note} for the shot that is.
-     */
     public Shot nextAt(Vantage v, double tod, Set<MoveType> allowed) {
         return nextAt(v, tod, allowed, Set.of());
     }
 
-    /** Same, never using the moves in {@code skip} (a candidate for each move is tried once) unless nothing else is left. */
     public Shot nextAt(Vantage v, double tod, Set<MoveType> allowed, Set<MoveType> skip) {
         Templates.Template t = pick(tod, allowed, skip);
         return t.compose(v, terrain, rnd, "shot-" + counter++, tod);
     }
 
-    /** Records that a shot of this move was played, for the "never twice in a row" rule and the pacing. */
     public void note(MoveType type) {
         boolean energetic = ENERGETIC.contains(type);
         streak = (last != null && energetic == lastEnergetic) ? streak + 1 : 1;
@@ -90,7 +72,6 @@ public final class ShotDirector {
     }
 
     private Templates.Template pick(double tod, Set<MoveType> allowed, Set<MoveType> skip) {
-        // Never the same move twice in a row, unless the allowed list leaves no other choice.
         for (int relax = 0; relax < 3; relax++) {
             List<Templates.Template> options = new ArrayList<>();
             List<Double> weights = new ArrayList<>();

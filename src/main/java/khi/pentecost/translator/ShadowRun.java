@@ -11,11 +11,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
-/**
- * Runs the shadow translator once per session, on a low priority thread, after the game reached the main menu,
- * so it never slows the launch. Only while the messenger prototype is on. The answer goes to
- * logs/pentecost-translator-shadow.txt.
- */
 public final class ShadowRun {
     private static volatile boolean started;
 
@@ -28,7 +23,6 @@ public final class ShadowRun {
         started = true;
         Thread t = new Thread(() -> {
             try {
-                // The mods the game runs, with the jars it really loads (Fabric jars are already renamed to the game's names).
                 List<ModInfo> mods = PentecostRuntime.mods.isEmpty() ? PentecostRuntime.allMods : PentecostRuntime.mods;
                 ClassLoader cl = PentecostRuntime.loader != null ? PentecostRuntime.loader : ShadowRun.class.getClassLoader();
                 Shadow.Result r = Shadow.analyze(mods, name -> cl.getResource(name + ".class") != null);
@@ -41,6 +35,9 @@ public final class ShadowRun {
                 Path planFile = file.resolveSibling("pentecost-thread-plan.txt");
                 Files.writeString(planFile, khi.pentecost.messenger.ThreadPlan.text(plan), StandardCharsets.UTF_8);
                 Log.info("Mod thread plan made in " + plan.millis() + " ms. Report: " + planFile);
+                if (khi.pentecost.messenger.ModThreads.owners == null) {
+                    khi.pentecost.messenger.ModThreads.owners = khi.pentecost.core.ModOwners.build(mods, cl);
+                }
                 if (khi.pentecost.messenger.ModThreads.shared == null) {
                     khi.pentecost.messenger.ModThreads.shared = new khi.pentecost.messenger.ModThreads(plan, 2000,
                             khi.pentecost.messenger.Messenger.get()::note);

@@ -1,6 +1,3 @@
-# Builds the one-file Manager that players download: build\release\Pentecost-Manager-Setup-<version>.exe
-# It needs neither .NET nor Java. Run it, it installs the Manager, and the Manager installs Pentecost.
-#   powershell -ExecutionPolicy Bypass -File manager_new\publish.ps1
 $ErrorActionPreference = 'Stop'
 
 $project = Join-Path $PSScriptRoot 'Pentecost.Manager.csproj'
@@ -9,7 +6,6 @@ $version = ([regex]::Match((Get-Content $project -Raw), '<Version>([^<]+)</Versi
 if (-not $version) { throw 'Cannot read the version from the project file.' }
 Write-Host "Pentecost Manager $version"
 
-# The program draws its own icon, so build once, ask it for the icon, then publish.
 Write-Host 'Drawing the icon'
 dotnet build $project -c Release --nologo -v q
 if ($LASTEXITCODE -ne 0) { throw 'The build failed.' }

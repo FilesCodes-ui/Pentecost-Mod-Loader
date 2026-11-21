@@ -21,16 +21,9 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
 
-/**
- * Microsoft sign in for Minecraft, by device code: the game shows a short code, the player types it
- * at microsoft.com/link, and the game gets a Minecraft session. Only a refresh token is saved to disk,
- * and TokenStore protects it (encrypted to the player's Windows account, owner-only file elsewhere).
- * The app registration (client ID) comes from PENTECOST_MS_CLIENT_ID or the file pentecost-client-id.txt in the game folder.
- */
 public final class Account {
     public enum State { OUT, WAITING, WORKING, IN, FAILED }
 
-    /** Where the signed in session came from. A launcher session cannot be signed out from inside the game. */
     public enum Source { NONE, LAUNCHER, PENTECOST }
 
     private static final String DEVICE = "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode";
@@ -48,8 +41,13 @@ public final class Account {
     private static volatile String uuid = "";
     private static volatile boolean cancelled;
     private static boolean started;
-    private static String refresh;
+    private static volatile String refresh;
     private static volatile Source source = Source.NONE;
+    private static volatile long signedInAt;
+    private static volatile boolean renewerStarted;
+    private static final long RENEW_AFTER_MS = 12L * 3600_000L;
+
+    public record Saved(String name, String uuid) {}
     private static volatile AccountInfo info;
     private static volatile boolean infoLoading;
     private static volatile boolean skinLoaded;
@@ -61,7 +59,6 @@ public final class Account {
     public static String message() { return message; }
     public static String userCode() { return userCode; }
     public static String verifyUrl() { return verifyUrl; }
-    /** The signed in name. For a launcher session that was not adopted (so name is empty) it is the game's own user, never blank. */
     public static String name() { return name.isBlank() && launched() ? launchUser(true) : name; }
     public static String uuid() { return uuid.isBlank() && launched() ? launchUser(false) : uuid; }
 
@@ -74,18 +71,28 @@ public final class Account {
             return "";
         }
     }
-    public static boolean signedIn() { return state == State.IN || launched(); }
+    public static boolean signedIn() {
+        restoreSoon();
+        return state == State.IN || launched();
+    }
 
-    /** True when a launcher (the official one, the Modrinth App) started the game with a real Minecraft session. */
+    public static boolean restoring() {
+        restoreSoon();
+        return state == State.WORKING && refresh != null && userCode.isEmpty();
+    }
+
+    private static void restoreSoon() {
+        if (!started && com.mojang.blaze3d.systems.RenderSystem.isOnRenderThread()) {
+            frame();
+        }
+    }
+
     public static boolean launched() { return System.getProperty("pentecost.fromLauncher") != null; }
     public static Source source() { return source == Source.NONE && launched() ? Source.LAUNCHER : source; }
-    /** What Minecraft Services said about the account, or null before the first answer. */
     public static AccountInfo info() { return info; }
     public static boolean infoLoading() { return infoLoading; }
-    /** Milliseconds since the details were last loaded, or -1 if never. */
     public static long infoAge() { return infoAt == 0 ? -1 : System.currentTimeMillis() - infoAt; }
 
-    /** Screens that talk to Mojang's servers or services. They need a signed in account. */
     public static boolean gated(String screenClass) {
         return screenClass.equals("net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen")
                 || screenClass.equals("net.minecraft.client.gui.screens.ConnectScreen")
@@ -114,8 +121,6 @@ public final class Account {
         } catch (IOException e) {
             Log.error("Cannot read the client ID file: " + e);
         }
-        // The ID that ships with Pentecost, written next to the program files by the installer. A file in the game
-        // folder or the environment variable above still wins, so anyone can use their own app registration.
         try {
             Path shipped = khi.pentecost.boot.Dirs.home().resolve("pentecost-client-id.txt");
             if (Files.exists(shipped)) {
@@ -128,7 +133,6 @@ public final class Account {
         return null;
     }
 
-    /** Called every frame. Restores the saved sign in once, on the first frame. */
     public static void frame() {
         if (started || Minecraft.getInstance().gameDirectory == null) {
             return;
@@ -213,7 +217,7 @@ public final class Account {
     public static void cancel() {
         cancelled = true;
         if (state == State.WAITING || state == State.WORKING) {
-            state = State.OUT;
+            state = !name.isEmpty() && source == Source.PENTECOST ? State.IN : State.OUT;
         }
     }
 
@@ -232,6 +236,9 @@ public final class Account {
         skinLoaded = false;
         try {
             Files.deleteIfExists(dir().resolve("pentecost-account.json"));
+            if (!uuid.isEmpty()) {
+                Files.deleteIfExists(accountsDir().resolve(uuid + ".json"));
+            }
         } catch (IOException e) {
             Log.error("Cannot delete the saved account: " + e);
         }
@@ -241,13 +248,10 @@ public final class Account {
         AccountSkin.clear();
     }
 
-    // ------------------------------------------------------------------ a session from the launcher
-
-    /**
-     * When a launcher (Modrinth App wrapper, the official launcher) started Pentecost with a real Minecraft session,
-     * the game's own User already holds it. Use it as the signed in account. Pentecost's own sign in stays as the fallback.
-     */
     private static boolean adoptLaunchSession() {
+        if (state == State.IN || source == Source.PENTECOST) {
+            return false;
+        }
         User u = Minecraft.getInstance().getUser();
         String token = u.getAccessToken();
         if (token == null || token.isBlank() || token.equals("0")) {
@@ -268,7 +272,6 @@ public final class Account {
         return true;
     }
 
-    /** Loads the account details (and the skin, once) in the background. Does nothing while a load runs. */
     public static void refreshInfo() {
         if (infoLoading || (state != State.IN && !launched())) {
             return;
@@ -298,8 +301,6 @@ public final class Account {
         t.setDaemon(true);
         t.start();
     }
-
-    // ------------------------------------------------------------------ the sign in chain
 
     private interface Job { void run() throws Exception; }
 
@@ -375,6 +376,8 @@ public final class Account {
         source = Source.PENTECOST;
         state = State.IN;
         message = "";
+        signedInAt = System.currentTimeMillis();
+        startRenewer();
         PentecostDev.accountChanged();
         Log.info("Signed in as " + playerName);
     }
@@ -403,8 +406,134 @@ public final class Account {
     private static void save(String playerName, String id) {
         try {
             TokenStore.save(dir().resolve("pentecost-account.json"), playerName, id, refresh);
+            Path all = accountsDir();
+            Files.createDirectories(all);
+            TokenStore.save(all.resolve(id + ".json"), playerName, id, refresh);
         } catch (IOException e) {
             Log.error("Cannot save the account: " + e);
+        }
+    }
+
+    private static Path accountsDir() {
+        return dir().resolve("pentecost-accounts");
+    }
+
+    public static java.util.List<Saved> savedAccounts() {
+        java.util.List<Saved> out = new java.util.ArrayList<>();
+        Path all = accountsDir();
+        if (!Files.isDirectory(all)) {
+            return out;
+        }
+        try (java.util.stream.Stream<Path> s = Files.list(all)) {
+            for (Path p : (Iterable<Path>) s.filter(f -> f.getFileName().toString().endsWith(".json"))::iterator) {
+                try {
+                    JsonObject o = JsonParser.parseString(Files.readString(p)).getAsJsonObject();
+                    if (o.has("name") && o.has("uuid")) {
+                        out.add(new Saved(o.get("name").getAsString(), o.get("uuid").getAsString()));
+                    }
+                } catch (IOException | RuntimeException ignored) {
+                }
+            }
+        } catch (IOException e) {
+            Log.error("Cannot list the saved accounts: " + e);
+        }
+        out.sort(java.util.Comparator.comparing(a -> a.name().toLowerCase(java.util.Locale.ROOT)));
+        return out;
+    }
+
+    public static boolean inWorld() {
+        return Minecraft.getInstance().level != null && !khi.pentecost.game.menuworld.MenuHost.showing();
+    }
+
+    public static boolean canSwitch() {
+        return !inWorld() && state != State.WORKING && state != State.WAITING
+                && source != Source.LAUNCHER;
+    }
+
+    public static void switchTo(String id) {
+        String client = clientId();
+        if (!canSwitch() || client == null) {
+            return;
+        }
+        try {
+            TokenStore.Saved saved = TokenStore.load(accountsDir().resolve(id + ".json"));
+            if (saved == null) {
+                fail("That account's saved sign in can no longer be used. Sign in to it again.");
+                return;
+            }
+            refresh = saved.refresh();
+            state = State.WORKING;
+            message = "Switching to " + saved.name();
+            info = null;
+            infoAt = 0;
+            skinLoaded = false;
+            run(() -> {
+                JsonObject t = post(TOKEN, form("grant_type", "refresh_token", "client_id", client, "refresh_token", refresh,
+                        "scope", SCOPE), FORM);
+                if (!t.has("access_token")) {
+                    throw new IOException("The saved sign in for " + saved.name() + " ended. Sign in to it again.");
+                }
+                finish(t);
+                refreshInfo();
+            });
+        } catch (IOException | RuntimeException e) {
+            Log.error("Cannot switch accounts: " + e);
+        }
+    }
+
+    public static void addAccount() {
+        if (canSwitch()) {
+            startLogin();
+        }
+    }
+
+    public static void forget(String id) {
+        try {
+            Files.deleteIfExists(accountsDir().resolve(id + ".json"));
+        } catch (IOException e) {
+            Log.error("Cannot remove the saved account: " + e);
+        }
+        if (id.equals(uuid) && source == Source.PENTECOST) {
+            signOut();
+        }
+    }
+
+    private static void startRenewer() {
+        if (renewerStarted) {
+            return;
+        }
+        renewerStarted = true;
+        java.util.concurrent.ScheduledExecutorService ex = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "pentecost-session-renew");
+            t.setDaemon(true);
+            return t;
+        });
+        ex.scheduleWithFixedDelay(Account::renewIfOld, 10, 10, java.util.concurrent.TimeUnit.MINUTES);
+    }
+
+    private static void renewIfOld() {
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            String client = clientId();
+            if (source != Source.PENTECOST || state != State.IN || refresh == null || client == null
+                    || System.currentTimeMillis() - signedInAt < RENEW_AFTER_MS || mc.getCurrentServer() != null) {
+                return;
+            }
+            JsonObject t = post(TOKEN, form("grant_type", "refresh_token", "client_id", client, "refresh_token", refresh,
+                    "scope", SCOPE), FORM);
+            if (!t.has("access_token")) {
+                Log.warn("Could not renew the Minecraft session. The current one keeps working until it ends.");
+                return;
+            }
+            finish(t);
+            Log.info("Renewed the Minecraft session for " + name);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            Log.warn("Could not renew the Minecraft session: " + e);
+            if (state != State.IN && !name.isEmpty()) {
+                state = State.IN;
+            }
         }
     }
 
@@ -415,10 +544,38 @@ public final class Account {
             f.set(Minecraft.getInstance(), user);
         } catch (ReflectiveOperationException | RuntimeException e) {
             Log.error("Cannot set the game's user: " + e);
+            return;
+        }
+        rebuildServices(Minecraft.getInstance(), user);
+    }
+
+    private static void rebuildServices(Minecraft mc, User user) {
+        try {
+            String token = user.getAccessToken();
+            com.mojang.authlib.minecraft.UserApiService api;
+            if (token == null || token.isBlank() || token.equals("0")) {
+                api = com.mojang.authlib.minecraft.UserApiService.OFFLINE;
+            } else {
+                java.lang.reflect.Field p = Minecraft.class.getDeclaredField("proxy");
+                p.setAccessible(true);
+                api = new com.mojang.authlib.yggdrasil.YggdrasilAuthenticationService((java.net.Proxy) p.get(mc)).createUserApiService(token);
+            }
+            setField(mc, "userApiService", api);
+            setField(mc, "profileKeyPairManager", net.minecraft.client.multiplayer.ProfileKeyPairManager.create(api, user, mc.gameDirectory.toPath()));
+            setField(mc, "playerSocialManager", new net.minecraft.client.gui.screens.social.PlayerSocialManager(mc, api));
+            setField(mc, "reportingContext", net.minecraft.client.multiplayer.chat.report.ReportingContext.create(
+                    net.minecraft.client.multiplayer.chat.report.ReportEnvironment.local(), api));
+            Log.info("Chat signing and player services now use " + user.getName());
+        } catch (Exception | LinkageError e) {
+            Log.error("Cannot move chat signing to the new account. Chat may be unsigned this session: " + e);
         }
     }
 
-    // ------------------------------------------------------------------ http
+    private static void setField(Minecraft mc, String name, Object value) throws ReflectiveOperationException {
+        java.lang.reflect.Field f = Minecraft.class.getDeclaredField(name);
+        f.setAccessible(true);
+        f.set(mc, value);
+    }
 
     private static String form(String... pairs) {
         StringBuilder b = new StringBuilder();

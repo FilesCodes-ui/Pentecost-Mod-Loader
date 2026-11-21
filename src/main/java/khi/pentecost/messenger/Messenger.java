@@ -23,24 +23,10 @@ import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
 
-/**
- * Pentecost's messenger: one thread that does nothing but move jobs and answers between threads.
- *
- * A sender asks for work on a lane (the game thread, the server thread, the worker pool or virtual threads) and names
- * the lane that gets the answer. The router thread takes every request from one lock-free queue, checks the sender,
- * and hands the job to its lane. Game and server lanes run their jobs when those threads pump them, so world state is
- * only ever touched by its own thread.
- *
- * Every request carries a fallback: the old single-thread way of doing the same thing. The fallback runs, on the
- * answer lane, when the messenger is off, when the queue is full, when the job throws, or when it takes too long.
- * A sender that fails QUARANTINE_AFTER times is quarantined and from then on always takes the fallback.
- * Every failure goes in the report.
- */
 public final class Messenger {
     public static final int QUARANTINE_AFTER = 5;
     private static final int RING = 1 << 16;
 
-    /** Numbers for the panel. */
     public record LaneStats(Lane lane, long sent, long done, long failed, int waiting) {}
 
     public record Stats(boolean on, boolean routerAlive, int workers, List<LaneStats> lanes, long routed, long overflow,
@@ -53,7 +39,6 @@ public final class Messenger {
         final Lane lane;
         final Runnable job;
         final long sentAt = System.nanoTime();
-        /** Only for requests with an answer. */
         final Ask<?> ask;
 
         Envelope(String from, String route, Lane lane, Runnable job, Ask<?> ask) {
@@ -65,7 +50,6 @@ public final class Messenger {
         }
     }
 
-    /** A request with an answer. Exactly one of answer or fallback runs, on the answer lane. */
     private final class Ask<T> {
         final String from;
         final String route;
@@ -128,7 +112,6 @@ public final class Messenger {
     private volatile boolean routerSleeping;
     private volatile ThreadPoolExecutor workers;
     private volatile ExecutorService io;
-    /** Owned by the router thread only. */
     private final PriorityQueue<Ask<?>> pending = new PriorityQueue<>((a, b) -> Long.compare(a.deadline, b.deadline));
 
     private static volatile Messenger shared;
@@ -144,12 +127,10 @@ public final class Messenger {
         }
     }
 
-    /** Workers for a machine: leave two cores for the game and server threads, never more than four. */
     public static int defaultWorkers() {
         return Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors() - 2));
     }
 
-    /** The messenger the game uses. Made on first use, with the report in the game's logs folder. */
     public static Messenger get() {
         Messenger m = shared;
         if (m == null) {
@@ -160,7 +141,6 @@ public final class Messenger {
                     try {
                         file = khi.pentecost.boot.Dirs.run().resolve("logs").resolve("pentecost-messenger.txt");
                     } catch (RuntimeException | LinkageError e) {
-                        // No game folder, as in tests: no report file.
                     }
                     m = new Messenger(file, defaultWorkers());
                     shared = m;
@@ -174,7 +154,6 @@ public final class Messenger {
         return on;
     }
 
-    /** Turns the messenger on or off. Off, every request takes its fallback on the caller's thread right away. */
     public synchronized void setOn(boolean want) {
         if (want == on) {
             return;
@@ -204,13 +183,6 @@ public final class Messenger {
         on = want;
     }
 
-    // ------------------------------------------------------------------ sending
-
-    /**
-     * Runs work on workLane and hands the result to onResult on replyLane. If anything goes wrong, fallback runs on
-     * replyLane in its place. When the messenger is off, or the sender is quarantined, fallback runs right now on the
-     * calling thread: call this from the thread replyLane names.
-     */
     public <T> void ask(String from, String route, Lane workLane, Callable<T> work, Lane replyLane, Consumer<T> onResult,
                         Runnable fallback, long timeoutMs) {
         if (!on || quarantined.contains(from)) {
@@ -239,7 +211,6 @@ public final class Messenger {
         }
     }
 
-    /** Runs a job on a lane, no answer. Off, it runs right now on the calling thread. */
     public void send(String from, String route, Lane lane, Runnable job) {
         if (!on || quarantined.contains(from)) {
             safe(from, route, lane, job).run();
@@ -266,8 +237,6 @@ public final class Messenger {
         return true;
     }
 
-    // ------------------------------------------------------------------ the router thread
-
     private void route() {
         int idle = 0;
         while (true) {
@@ -284,7 +253,6 @@ public final class Messenger {
             }
             routerSleeping = true;
             if (inbox.size() == 0) {
-                // Short sleeps, so timeouts are still checked about every 0.2 ms when nothing comes in.
                 LockSupport.parkNanos(200_000);
             }
             routerSleeping = false;
@@ -346,8 +314,6 @@ public final class Messenger {
         }
     }
 
-    // ------------------------------------------------------------------ lanes the game pumps
-
     private void deliver(Lane lane, Runnable r) {
         switch (lane) {
             case WORKER -> {
@@ -370,10 +336,6 @@ public final class Messenger {
         }
     }
 
-    /**
-     * Runs the jobs waiting for a lane, on the calling thread, until none are left or budgetNanos is spent.
-     * The game calls this once a frame for GAME and the server once a tick for SERVER. Returns how many ran.
-     */
     public int pump(Lane lane, long budgetNanos) {
         ConcurrentLinkedQueue<Runnable> box = mailboxes.get(lane);
         long end = System.nanoTime() + budgetNanos;
@@ -393,12 +355,9 @@ public final class Messenger {
         return n;
     }
 
-    /** Throws away what waits for a lane, when its thread goes away (a world closes). The fallbacks are not run. */
     public void drop(Lane lane) {
         mailboxes.get(lane).clear();
     }
-
-    // ------------------------------------------------------------------ failures
 
     private Runnable safe(String from, String route, Lane lane, Runnable job) {
         return () -> {
@@ -422,7 +381,6 @@ public final class Messenger {
         }
     }
 
-    /** A line in the report, for decisions worth knowing about (a job sent back to the old way, for one). */
     public void note(String line) {
         report.note(line);
     }
@@ -431,7 +389,6 @@ public final class Messenger {
         return quarantined.contains(from);
     }
 
-    /** Takes a sender out of quarantine, for the panel. */
     public void release(String from) {
         quarantined.remove(from);
         failures.remove(from);

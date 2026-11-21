@@ -36,12 +36,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
-/**
- * Pentecost's world list. Drawn like the other Pentecost screens, with the things the game's own list leaves out:
- * search, sorting, pinned worlds (a pinned world cannot be deleted by accident), a Continue button for the world
- * you played last, size on disk, one click backups, open folder, and keyboard shortcuts for all of it.
- * It uses the game's own calls to load, edit, back up and delete, so worlds behave exactly as they do elsewhere.
- */
 public final class PentecostWorldsScreen extends Screen {
     private record Hit(int x, int y, int w, int h, Runnable action) {}
 
@@ -101,7 +95,6 @@ public final class PentecostWorldsScreen extends Screen {
 
     private enum Dlg { NONE, MOVE, NEW, RENAME }
 
-    /** The folder being looked into, or null for the main list. Rows are folders first, then worlds. */
     private String currentFolder;
     private String selectedFolder;
     private List<Object> rows = List.of();
@@ -118,7 +111,6 @@ public final class PentecostWorldsScreen extends Screen {
     private long lastClickAt;
     private String lastClickId = "";
 
-    // filled in by render, read by input
     private int listX, listTop, listW, visibleRows;
 
     private final Map<String, ResourceLocation> icons = new HashMap<>();
@@ -129,9 +121,6 @@ public final class PentecostWorldsScreen extends Screen {
         this.parent = parent;
     }
 
-    // ---------------------------------------------------------------- pinned worlds
-
-    /** Which worlds are pinned. Kept in a small file in the game folder. */
     private static final class Prefs {
         private static final Properties P = new Properties();
         private static boolean loaded;
@@ -181,7 +170,6 @@ public final class PentecostWorldsScreen extends Screen {
             }
         }
 
-        /** The folder a world is in, or null. Folders are only a way to group the list: the world stays in saves. */
         static synchronized String folderOf(String id) {
             load();
             return P.getProperty("folder.of." + id);
@@ -239,7 +227,6 @@ public final class PentecostWorldsScreen extends Screen {
             return true;
         }
 
-        /** Removes the folder. Its worlds go back to the main list. */
         static synchronized void deleteFolder(String name) {
             load();
             P.remove("folder.def." + name);
@@ -251,8 +238,6 @@ public final class PentecostWorldsScreen extends Screen {
             save();
         }
     }
-
-    // ---------------------------------------------------------------- loading
 
     @Override
     protected void init() {
@@ -302,7 +287,6 @@ public final class PentecostWorldsScreen extends Screen {
                         }
                     }).sum();
                 } catch (IOException | RuntimeException e) {
-                    // leave it at zero
                 }
                 SIZES.put(id, total);
             }
@@ -386,8 +370,6 @@ public final class PentecostWorldsScreen extends Screen {
         }
         return n;
     }
-
-    // ---------------------------------------------------------------- folders
 
     private void back() {
         if (currentFolder != null) {
@@ -506,8 +488,6 @@ public final class PentecostWorldsScreen extends Screen {
         statusUntil = System.currentTimeMillis() + 4500;
     }
 
-    // ---------------------------------------------------------------- actions
-
     private void play(LevelSummary s) {
         if (s == null) {
             return;
@@ -516,7 +496,7 @@ public final class PentecostWorldsScreen extends Screen {
             say("This world is open in another game.");
         } else if (s.isDisabled() || s.requiresManualConversion()) {
             say("This world can't be opened: " + s.getInfo().getString());
-        } else {
+        } else if (!GuardUi.protect(this, s)) {
             minecraft.createWorldOpenFlows().loadLevel(this, s.getLevelId());
         }
     }
@@ -597,7 +577,6 @@ public final class PentecostWorldsScreen extends Screen {
 
     private volatile boolean busy;
 
-    /** Copies the world's folder under a new name. The copy is a separate world with its own name. */
     private void duplicate(LevelSummary s) {
         if (s == null || busy) {
             return;
@@ -653,7 +632,6 @@ public final class PentecostWorldsScreen extends Screen {
         t.start();
     }
 
-    /** Packs the world into a zip in the game's pentecost/exports folder and opens the folder. */
     private void export(LevelSummary s) {
         if (s == null || busy) {
             return;
@@ -711,7 +689,6 @@ public final class PentecostWorldsScreen extends Screen {
         }
     }
 
-    /** One line under the list: how many worlds there are, and their size on disk once it is known. */
     private String totals() {
         long sum = 0;
         int known = 0;
@@ -729,8 +706,6 @@ public final class PentecostWorldsScreen extends Screen {
         }
         return text + "   F5 refreshes";
     }
-
-    // ---------------------------------------------------------------- text
 
     private String fit(String s, int w) {
         if (font.width(s) <= w) {
@@ -799,8 +774,6 @@ public final class PentecostWorldsScreen extends Screen {
         return b.toString();
     }
 
-    // ---------------------------------------------------------------- icons
-
     private ResourceLocation icon(LevelSummary s) {
         String id = s.getLevelId();
         ResourceLocation have = icons.get(id);
@@ -819,7 +792,6 @@ public final class PentecostWorldsScreen extends Screen {
                 }
                 img.close();
             } catch (IOException | RuntimeException e) {
-                // fall through to the placeholder
             }
         }
         noIcon.add(id);
@@ -842,8 +814,6 @@ public final class PentecostWorldsScreen extends Screen {
         super.removed();
     }
 
-    // ---------------------------------------------------------------- drawing
-
     private void centered(GuiGraphics g, String text, int cx, int y, int color) {
         g.drawString(font, text, cx - font.width(text) / 2, y, color, false);
     }
@@ -864,7 +834,7 @@ public final class PentecostWorldsScreen extends Screen {
 
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-        g.fill(0, 0, width, height, minecraft.level == null ? 0xFF0A0A0B : 0xD80A0A0B);
+        g.fill(0, 0, width, height, Ui.back(minecraft));
         Ui.dither(g, width, height);
         float ui = Ui.scale(minecraft);
         int vw = (int) (width / ui);
@@ -881,7 +851,6 @@ public final class PentecostWorldsScreen extends Screen {
         LevelSummary sel = selected();
         boolean modal = pendingDelete != null || dlg != Dlg.NONE;
 
-        // Header.
         int y = Math.max(14, vh / 20);
         String word = "WORLDS";
         int total = (Ui.LOGO_W + 5) * 2 + Ui.wordmarkWidth(word, 2);
@@ -890,7 +859,6 @@ public final class PentecostWorldsScreen extends Screen {
         Ui.wordmark(g, word, hx + (Ui.LOGO_W + 5) * 2, y, 2, Ui.TEXT);
         y += 32;
 
-        // Search, sort, new world.
         int newW = 86, sortW = 92, modeW = 92, gap = 6;
         int searchW = colW - newW - sortW - modeW - gap * 3;
         Ui.outline(g, x0, y, x0 + searchW, y + 20, 0x66FFFFFF);
@@ -918,7 +886,6 @@ public final class PentecostWorldsScreen extends Screen {
         button(g, "New world", x0 + searchW + gap + sortW + gap + modeW + gap, y, newW, mx, my, !modal, this::newWorld);
         y += 28;
 
-        // Count line.
         long totalBytes = 0;
         boolean sizesKnown = !all.isEmpty();
         for (LevelSummary w : all) {
@@ -949,7 +916,6 @@ public final class PentecostWorldsScreen extends Screen {
         g.fill(x0, y, x0 + colW, y + 1, Ui.LINE);
         y += 6;
 
-        // The list.
         int bottomBlock = 82;
         int listBottom = vh - bottomBlock;
         visibleRows = Math.max(1, (listBottom - y) / ROW_H);
@@ -978,7 +944,6 @@ public final class PentecostWorldsScreen extends Screen {
                 g.fill(x0, ry, x0 + colW, ry + ROW_H - 4, Ui.HOVER);
             }
             if (row instanceof String folder) {
-                // a small folder: a tab on a box
                 Ui.outline(g, x0 + 4, ry + 2, x0 + 16, ry + 8, 0x99FFFFFF);
                 Ui.outline(g, x0 + 4, ry + 6, x0 + 32, ry + 28, 0x99FFFFFF);
                 int inside = countIn(folder);
@@ -988,7 +953,6 @@ public final class PentecostWorldsScreen extends Screen {
                 continue;
             }
             LevelSummary s = (LevelSummary) row;
-            // icon
             ResourceLocation rl = icon(s);
             if (rl != null) {
                 g.blit(rl, x0 + 4, ry + 2, 28, 28, 0f, 0f, 64, 64, 64, 64);
@@ -1002,7 +966,6 @@ public final class PentecostWorldsScreen extends Screen {
             int rightW = Math.max(font.width(right), pinned ? font.width("PINNED") : 0) + 10;
             String name = fit(s.getLevelName(), colW - 44 - rightW);
             g.drawString(font, name, x0 + 40, ry + 4, Ui.TEXT, false);
-            // The folder name on disk, so worlds with the same name can be told apart.
             String id = s.getLevelId();
             int idX = x0 + 40 + font.width(name) + 8;
             int idRoom = x0 + colW - 8 - rightW - idX;
@@ -1022,7 +985,6 @@ public final class PentecostWorldsScreen extends Screen {
                 g.drawString(font, "PINNED", x0 + colW - 8 - font.width("PINNED"), ry + 17, Ui.TEXT, false);
             }
         }
-        // Scroll bar.
         if (rows.size() > visibleRows) {
             int trackH = visibleRows * ROW_H - 4;
             int barH = Math.max(14, trackH * visibleRows / rows.size());
@@ -1031,7 +993,6 @@ public final class PentecostWorldsScreen extends Screen {
             g.fill(x0 + colW + 3, barY, x0 + colW + 6, barY + barH, Ui.MUTED);
         }
 
-        // Status line.
         int sy = vh - bottomBlock + 6;
         if (System.currentTimeMillis() < statusUntil && !status.isEmpty()) {
             centered(g, status, cx, sy, Ui.SOFT);
@@ -1039,7 +1000,6 @@ public final class PentecostWorldsScreen extends Screen {
             centered(g, totals(), cx, sy, Ui.FAINT);
         }
 
-        // Actions for the selected world: one row, then Back and Continue.
         int ay = vh - 62;
         boolean has = sel != null && !modal;
         int ag = 4;
@@ -1073,7 +1033,6 @@ public final class PentecostWorldsScreen extends Screen {
         String contLabel = cont == null ? "Continue" : "Continue: " + fit(cont.getLevelName(), third - font.width("Continue: ") - 14);
         button(g, contLabel, x0 + (third + 6) * 2, by, third, mx, my, cont != null && !modal, () -> play(cont));
 
-        // Delete confirmation.
         if (pendingDelete != null) {
             LevelSummary d = null;
             for (LevelSummary s : all) {
@@ -1102,7 +1061,6 @@ public final class PentecostWorldsScreen extends Screen {
         g.pose().popPose();
     }
 
-    /** The move list and the folder name form. */
     private void drawDialog(GuiGraphics g, int vw, int vh, int cx, int mx, int my) {
         hits.clear();
         g.fill(0, 0, vw, vh, 0xB0000000);
@@ -1152,8 +1110,6 @@ public final class PentecostWorldsScreen extends Screen {
             button(g, dlg == Dlg.NEW ? "Create" : "Save", bx + 14 + half + 6, btn, half, mx, my, !dlgText.trim().isEmpty(), this::confirmDialog);
         }
     }
-
-    // ---------------------------------------------------------------- input
 
     @Override
     public boolean charTyped(char c, int modifiers) {
@@ -1206,7 +1162,7 @@ public final class PentecostWorldsScreen extends Screen {
         boolean ctrl = Screen.hasControlDown();
         LevelSummary sel = selected();
         switch (key) {
-            case 256 -> { // escape: clear the search first, then leave
+            case 256 -> {
                 if (!search.isEmpty()) {
                     search = "";
                     refilter();
@@ -1215,7 +1171,7 @@ public final class PentecostWorldsScreen extends Screen {
                 }
                 return true;
             }
-            case 259 -> { // backspace
+            case 259 -> {
                 if (!search.isEmpty()) {
                     search = ctrl ? "" : search.substring(0, search.length() - 1);
                     refilter();
@@ -1230,15 +1186,15 @@ public final class PentecostWorldsScreen extends Screen {
                 }
                 return true;
             }
-            case 268 -> { // home
+            case 268 -> {
                 move(-rows.size());
                 return true;
             }
-            case 269 -> { // end
+            case 269 -> {
                 move(rows.size());
                 return true;
             }
-            case 294 -> { // F5: read the worlds again
+            case 294 -> {
                 reload();
                 say("Refreshed.");
                 return true;
@@ -1272,16 +1228,16 @@ public final class PentecostWorldsScreen extends Screen {
         }
         if (ctrl) {
             switch (key) {
-                case 70 -> togglePin(sel);   // F
-                case 66 -> backup(sel);      // B
-                case 79 -> openFolder(sel);  // O
-                case 68 -> duplicate(sel);   // D
-                case 88 -> export(sel);      // X
-                case 77 -> openDialog(Dlg.MOVE, sel == null ? null : sel.getLevelId(), null); // M
-                case 71 -> openDialog(Dlg.NEW, null, null);  // G
-                case 69 -> edit(sel);        // E
-                case 78 -> newWorld();       // N
-                case 86 -> {                 // V: paste into the search
+                case 70 -> togglePin(sel);
+                case 66 -> backup(sel);
+                case 79 -> openFolder(sel);
+                case 68 -> duplicate(sel);
+                case 88 -> export(sel);
+                case 77 -> openDialog(Dlg.MOVE, sel == null ? null : sel.getLevelId(), null);
+                case 71 -> openDialog(Dlg.NEW, null, null);
+                case 69 -> edit(sel);
+                case 78 -> newWorld();
+                case 86 -> {
                     search = (search + minecraft.keyboardHandler.getClipboard()).trim();
                     refilter();
                 }

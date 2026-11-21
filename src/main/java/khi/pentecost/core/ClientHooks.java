@@ -9,11 +9,6 @@ import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
-/**
- * Two client hooks.
- * Sounds: every sound the game is asked to play passes a gate first, so Pentecost can mute or limit it.
- * Block outline: the box drawn around the block you look at takes its color and strength from Settings.
- */
 public final class ClientHooks {
     public interface Gate {
         boolean allow(Object soundInstance);
@@ -21,13 +16,32 @@ public final class ClientHooks {
 
     public static volatile Gate gate;
 
+    public interface Outline {
+        boolean draw(Object pose, Object lines, double camX, double camY, double camZ, Object pos, Object state);
+    }
+
+    public static volatile Outline outline;
+
+    public static boolean outline(Object pose, Object lines, double camX, double camY, double camZ, Object pos, Object state) {
+        Outline o = outline;
+        if (o == null) {
+            return false;
+        }
+        try {
+            return o.draw(pose, lines, camX, camY, camZ, pos, state);
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
     private static final String HOOKS = "khi/pentecost/core/ClientHooks";
+    static final String OUTLINE_DESC = "(Lcom/mojang/blaze3d/vertex/PoseStack;Lcom/mojang/blaze3d/vertex/VertexConsumer;"
+            + "Lnet/minecraft/world/entity/Entity;DDDLnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;)V";
     private static volatile float red, green, blue, alpha = 0.4f;
     private static long refreshed;
 
     private ClientHooks() {}
 
-    /** Outline colors by name: the default is black at 40 percent, the game's own. */
     public static final String[] COLORS = {"Black", "White", "Red", "Green", "Blue", "Yellow", "Orange", "Cyan"};
     private static final int[] RGB = {0x000000, 0xFFFFFF, 0xFF4040, 0x40FF40, 0x4080FF, 0xFFE040, 0xFF9020, 0x40E0FF};
 
@@ -66,25 +80,21 @@ public final class ClientHooks {
         slept += System.nanoTime() - limitStarted;
     }
 
-    /** Nanoseconds the frame cap made the game wait since the last call. */
     public static long takeSleep() {
         long s = slept;
         slept = 0;
         return s;
     }
 
-    /** Called by the game before a sound plays. False drops the sound. */
     public static boolean sound(Object instance) {
         Gate g = gate;
         return g == null || g.allow(instance);
     }
 
-    /** Runs before Mixin. Edits a method body in place, so mod hooks still see the real body. */
     public static ClassTransformer transformer() {
         return build(false);
     }
 
-    /** Runs after Mixin. Wraps SoundEngine.play and RenderSystem.limitDisplayFPS, which hides their bodies. */
     public static ClassTransformer lateTransformer() {
         return build(true);
     }
@@ -146,6 +156,33 @@ public final class ClientHooks {
                         changed[0] = true;
                         return new MethodVisitor(Opcodes.ASM9, out) {
                             private int zeros;
+
+                            @Override
+                            public void visitCode() {
+                                super.visitCode();
+                                if (!d.equals(OUTLINE_DESC)) {
+                                    return;
+                                }
+                                Label go = new Label();
+                                super.visitVarInsn(Opcodes.ALOAD, 1);
+                                super.visitVarInsn(Opcodes.ALOAD, 2);
+                                super.visitVarInsn(Opcodes.DLOAD, 4);
+                                super.visitVarInsn(Opcodes.DLOAD, 6);
+                                super.visitVarInsn(Opcodes.DLOAD, 8);
+                                super.visitVarInsn(Opcodes.ALOAD, 10);
+                                super.visitVarInsn(Opcodes.ALOAD, 11);
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, HOOKS, "outline",
+                                        "(Ljava/lang/Object;Ljava/lang/Object;DDDLjava/lang/Object;Ljava/lang/Object;)Z", false);
+                                super.visitJumpInsn(Opcodes.IFEQ, go);
+                                super.visitInsn(Opcodes.RETURN);
+                                super.visitLabel(go);
+                                super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                            }
+
+                            @Override
+                            public void visitMaxs(int maxStack, int maxLocals) {
+                                super.visitMaxs(Math.max(maxStack, 10), maxLocals);
+                            }
 
                             @Override
                             public void visitInsn(int opcode) {

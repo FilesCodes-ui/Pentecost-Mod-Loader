@@ -5,7 +5,6 @@ import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 
-/** Decides which mobs are far enough from every player to think less often. */
 final class FarMobs implements ServerTuning.Mobs {
     private static double rangeSq = 48.0 * 48.0;
     private static int every = 3;
@@ -27,16 +26,20 @@ final class FarMobs implements ServerTuning.Mobs {
             rangeSq = r * r;
             every = Math.max(2, khi.pentecost.control.Settings.num(khi.pentecost.control.Settings.FAR_EVERY, 3));
         }
+        boolean fast = khi.pentecost.game.pregen.Pregen.fastTravel();
+        int young = fast ? 5 : 40;
+        double range = fast ? Math.min(rangeSq, 32.0 * 32.0) : rangeSq;
+        int step = fast ? Math.max(every, 6) : every;
         Level level = m.level();
-        if (level.isClientSide() || m.tickCount < 40 || m.isNoAi() || m.isPassenger() || m.isVehicle()
+        if (level.isClientSide() || m.tickCount < young || m.isNoAi() || m.isPassenger() || m.isVehicle()
                 || m.isLeashed() || m.getTarget() != null) {
             return false;
         }
         for (Player p : level.players()) {
-            if (!p.isSpectator() && p.distanceToSqr(m) < rangeSq) {
+            if (!p.isSpectator() && p.distanceToSqr(m) < range) {
                 return false;
             }
         }
-        return (m.tickCount + m.getId()) % every != 0;
+        return (m.tickCount + m.getId()) % step != 0;
     }
 }

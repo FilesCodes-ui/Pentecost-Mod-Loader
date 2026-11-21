@@ -11,7 +11,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Headless check of the profile director and the sequencer on a made-up landscape. No game needed. */
 public final class DirectorCheck {
     private static int failures;
 
@@ -40,14 +39,12 @@ public final class DirectorCheck {
     }
 
     public static void main(String[] args) {
-        // 1. No points: the director finds views itself.
         MenuProfile none = profile(MenuProfile.Travel.MIXED);
         ProfileDirector d0 = new ProfileDirector(7, none, HILLS, 0, 0);
         boolean allNull = true;
         for (int i = 0; i < 30; i++) allNull &= d0.next(6000).poi() == null;
         check("no points: region views only", allNull, "");
 
-        // 2. Weights, disabled points, no long runs at one place.
         MenuProfile weighted = profile(MenuProfile.Travel.MIXED);
         Poi a = point("a", 0, 0, 1), b = point("b", 600, 0, 4), c = point("c", 0, 300, 1), d = point("d", 300, 300, 1),
                 off = point("off", 0, 600, 5);
@@ -69,7 +66,6 @@ public final class DirectorCheck {
                 && seen.getOrDefault("b", 0) > 1.4 * seen.getOrDefault("c", 0), seen.toString());
         check("at most 3 shots in a row at one place", longest <= 3, "longest run " + longest);
 
-        // 3. Allowed moves.
         MenuProfile limited = profile(MenuProfile.Travel.CUT);
         Poi o = point("orbit-only", 100, 100, 1);
         o.moves = List.of("orbit", "bogus");
@@ -79,7 +75,6 @@ public final class DirectorCheck {
         for (int i = 0; i < 60; i++) onlyOrbit &= d2.next(i * 400).shot().type() == MoveType.ORBIT;
         check("a point limited to orbit only gets orbits", onlyOrbit, "");
 
-        // 4. Travel modes.
         int[] cutsFlies = travelCounts(MenuProfile.Travel.CUT, 0.35);
         check("old CUT setting is ignored, the camera flies", cutsFlies[0] <= 1, "cuts " + cutsFlies[0]);
         int[] fly = travelCounts(MenuProfile.Travel.FLY, 0.35);
@@ -87,7 +82,6 @@ public final class DirectorCheck {
         int[] mixed = travelCounts(MenuProfile.Travel.MIXED, 0.35);
         check("old MIXED setting is ignored, the camera flies", mixed[0] <= 1, "cuts " + mixed[0]);
 
-        // 5. The sequencer: no jumps without a fade, no snaps while flying.
         MenuProfile run5 = profile(MenuProfile.Travel.MIXED);
         run5.points.addAll(List.of(point("p1", 0, 0, 1), point("p2", 300, 100, 1), point("p3", -400, 250, 1),
                 point("p4", 100, -700, 1)));
@@ -100,7 +94,7 @@ public final class DirectorCheck {
         Map<MoveType, Integer> moves = new EnumMap<>(MoveType.class);
         Shot lastShot = null;
         for (int i = 0; i < frames; i++) {
-            clock[0] = (i * dt * 20 / 4) % 24000; // a day in four minutes
+            clock[0] = (i * dt * 20 / 4) % 24000;
             Pose pose = seq.advance(dt);
             double fade = seq.fade();
             if (seq.currentShot() != lastShot) {
@@ -114,7 +108,7 @@ public final class DirectorCheck {
                 if (jump > 25) {
                     cutJumps++;
                     if (fade > 0.1 || prevFade > 0.1) badCuts++;
-                } else if (fade > 0.5 && prevFade > 0.5) { // only frames the player can see
+                } else if (fade > 0.5 && prevFade > 0.5) {
                     maxFlyJump = Math.max(maxFlyJump, jump);
                     maxFlyTurn = Math.max(maxFlyTurn, turn);
                     if (turn > 5 && badTurns++ < 8) {
@@ -132,7 +126,6 @@ public final class DirectorCheck {
         check("flights turn smoothly", maxFlyTurn < 5, String.format("largest turn %.2f degrees per frame", maxFlyTurn));
         System.out.println("20 minutes of shots: " + moves);
 
-        // 5b. How steeply do shots and flights look down? Straight down makes the aim spin.
         MenuProfile steep = profile(MenuProfile.Travel.FLY);
         steep.points.addAll(run5.points);
         ProfileDirector ds = new ProfileDirector(99, steep, HILLS, 0, 0);
@@ -155,7 +148,6 @@ public final class DirectorCheck {
         }
         System.out.println("steepest look-down over 300 steps: " + String.format("%.1f", worst) + " deg, " + worstWhere);
 
-        // 6. Centre: spawn or typed coordinates.
         MenuProfile centre = new MenuProfile();
         int[] spawn = centre.resolveCenter(64, -96);
         centre.centerMode = MenuProfile.CenterMode.COORDS;
@@ -165,7 +157,6 @@ public final class DirectorCheck {
         check("centre is the spawn by default, the typed block otherwise",
                 spawn[0] == 64 && spawn[1] == -96 && typed[0] == 1000 && typed[1] == -2000, "");
 
-        // 7. The player's settings take effect.
         MenuProfile g = profile(MenuProfile.Travel.CUT);
         g.moves = List.of("crane");
         ProfileDirector dg = new ProfileDirector(21, g, HILLS, 0, 0);
@@ -224,7 +215,6 @@ public final class DirectorCheck {
         if (failures > 0) System.exit(1);
     }
 
-    /** {cuts, flights} over 400 steps between four far-apart points. */
     private static int[] travelCounts(MenuProfile.Travel travel, double cutChance) {
         MenuProfile p = profile(travel);
         p.cutChance = cutChance;

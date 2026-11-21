@@ -8,7 +8,6 @@ import khi.pentecost.remap.RemapService;
 import java.nio.file.Path;
 import java.util.List;
 
-/** The running loader's shared state. Adapters read it to answer mod calls. */
 public final class PentecostRuntime {
     public static volatile GameClassLoader loader;
     public static volatile List<ModInfo> mods = List.of();
@@ -17,18 +16,14 @@ public final class PentecostRuntime {
     public static volatile Path gameDir;
     public static volatile String[] launchArgs = new String[0];
     public static volatile boolean client = true;
-    /** True when Forge's real code is loaded. Forge then starts Forge mods itself. */
     public static volatile boolean forgeLayer;
 
     private PentecostRuntime() {}
 
-    /** Fabric API modules whose job Forge already does. Loaded as libraries, never started. */
     public static java.util.Set<String> forgeCovers = java.util.Set.of();
 
-    /** Every mod found, including the ones the player turned off. */
     public static java.util.List<khi.pentecost.mods.ModInfo> allMods = java.util.List.of();
 
-    /** What each loaded mod changes outside its own content. Mod id to features. */
     public static java.util.Map<String, java.util.List<khi.pentecost.control.Features.Feature>> features =
             java.util.Map.of();
 }

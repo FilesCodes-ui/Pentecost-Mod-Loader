@@ -11,13 +11,6 @@ import org.objectweb.asm.Opcodes;
 
 import java.util.function.BooleanSupplier;
 
-/**
- * Changes on the server side. Two of them shorten the server tick, and a third is the once-per-tick hook that drives
- * the pregenerator (see khi.pentecost.game.pregen.Pregen).
- * Far mobs: a mob more than 48 blocks from every player thinks every third tick instead of every tick.
- * Chunk unloading: the game unloads every waiting chunk in one tick, saving each on the server thread.
- * Pentecost lets a few go each tick, so the cost spreads out.
- */
 public final class ServerTuning {
     public interface Mobs {
         boolean skip(Object mob);
@@ -25,23 +18,19 @@ public final class ServerTuning {
 
     public static volatile Mobs mobs;
 
-    /** Something that runs once at the start of every server tick, on the server thread. Set by the pregenerator. */
     public interface Tick {
         void tick(Object server);
     }
 
     public static volatile Tick ticker;
 
-    /**
-     * How many chunks may unload in one tick while something makes many chunks at once (the pregenerator).
-     * 0 means the normal amount.
-     */
+    public static volatile Tick drain;
+
     public static volatile int unloadBoost;
 
     private static boolean installTried;
     private static int tickFailures;
 
-    /** How many chunks may unload in one tick. */
     private static final int UNLOAD_PER_TICK = 16;
 
     private static volatile boolean farMobs = true;
@@ -59,14 +48,12 @@ public final class ServerTuning {
         }
     }
 
-    /** Called by the game at the start of a mob's thinking. True skips this tick's thinking. */
     public static boolean skip(Object mob) {
         refresh();
         Mobs m = mobs;
         return farMobs && m != null && m.skip(mob);
     }
 
-    /** Called by the game with the "is there time left" check for unloading chunks. */
     public static Object budget(Object original) {
         refresh();
         if (!spreadUnloads) {
@@ -79,18 +66,23 @@ public final class ServerTuning {
         return (BooleanSupplier) () -> o.getAsBoolean() && used[0]++ < limit;
     }
 
-    /**
-     * Called by the game at the start of every server tick: a single player world, a world opened to friends and a
-     * dedicated server all pass through here. The first call installs the pregenerator (it lives in the game glue,
-     * which the core cannot name), and after that every tick is handed to it. If it ever keeps failing it is switched
-     * off, so it can never stop the server's tick.
-     */
     public static void serverTick(Object server) {
+        TickWatch.tickStart();
         ModImpact.tick();
         try {
             khi.pentecost.messenger.Threads.serverTick(server);
+            BadgeHooks.serverTick(server);
         } catch (RuntimeException | LinkageError e) {
             khi.pentecost.boot.Log.error("The messenger failed at the start of a server tick: " + e);
+        }
+        Tick d = drain;
+        if (d != null) {
+            try {
+                d.tick(server);
+            } catch (RuntimeException | LinkageError e) {
+                drain = null;
+                khi.pentecost.boot.Log.error("Extra chunk work failed and is off until restart: " + e);
+            }
         }
         Tick t = ticker;
         if (t == null) {
@@ -192,7 +184,6 @@ public final class ServerTuning {
                     if (!unloading) {
                         return body;
                     }
-                    // The game unloads at least 200 chunks a tick however little time is left. Lower that floor too.
                     return new MethodVisitor(Opcodes.ASM9, body) {
                         @Override
                         public void visitIntInsn(int opcode, int operand) {

@@ -1,13 +1,8 @@
 package khi.pentecost.boot;
 
-/**
- * A Minecraft session handed to Pentecost on its command line, by the Modrinth App wrapper or the official launcher.
- * Only "real" when it has a name, an id and a token that is not the placeholder "0". The token never appears in toString.
- */
 public record LaunchSession(String name, String uuid, String token, String type) {
     public static final LaunchSession NONE = new LaunchSession(null, null, null, null);
 
-    /** Reads --username, --uuid, --accessToken and --userType from the arguments. Everything else is ignored. */
     public static LaunchSession parse(String[] args) {
         String name = null;
         String uuid = null;

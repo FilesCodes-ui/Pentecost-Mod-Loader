@@ -52,7 +52,6 @@ class CrashDetailsTest {
         assertEquals(out, CrashDetails.decorate(new Object(), out), "already decorated text stays as it is");
     }
 
-    /** The patch to the game's CrashReport must produce a class the JVM accepts. Skipped where the game is not installed. */
     @Test
     void patchedGameCrashReportVerifies() throws Exception {
         Path jar = Path.of("cache/remapped/client-1.20.1-47.4.10-forge-named.jar");

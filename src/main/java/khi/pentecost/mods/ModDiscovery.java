@@ -36,11 +36,64 @@ import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 import java.util.stream.Stream;
 
-/** Reads quilt.mod.json, fabric.mod.json, and mods.toml into one mod list. Unpacks jars nested inside mods. */
 public final class ModDiscovery {
     private static final String FORGE_MOD_ANNOTATION = "Lnet/minecraftforge/fml/common/Mod;";
 
     private record Found(List<ModInfo> mods, List<String> nested) {}
+
+    public record TwoSided(String key, String file, List<String> sides, String chosen, boolean auto) {}
+
+    public record Refused(String name, String id, String reason) {}
+
+    public static final List<Refused> REFUSED = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    private static final Map<String, String> CANNOT_RUN = Map.of(
+            "sodium", "Embeddium is the Forge version",
+            "iris", "Oculus is the Forge version",
+            "indium", "Embeddium has it built in",
+            "sodium-extra", "Embeddium Extra is the Forge version",
+            "reeses-sodium-options", "Embeddium has its own options",
+            "sodiumextras", "Embeddium Extra is the Forge version");
+
+    public static final Map<String, String> PORTS = Map.of(
+            "sodium", "embeddium",
+            "iris", "oculus",
+            "indium", "embeddium");
+
+    public static boolean met(String dep, Set<String> present) {
+        String d = dep.trim().toLowerCase(java.util.Locale.ROOT);
+        if (present.contains(d) || present.contains(d.replace('-', '_')) || present.contains(d.replace('_', '-'))) {
+            return true;
+        }
+        String port = PORTS.get(d);
+        if (port != null && present.contains(port)) {
+            return true;
+        }
+        boolean fabricApi = present.stream().anyMatch(p -> p.startsWith("fabric_") || p.startsWith("fabric-"));
+        if (fabricApi && (d.equals("fabric-api") || d.equals("fabric") || d.equals("fabric_api")
+                || d.equals("quilted_fabric_api") || d.equals("qsl") || d.startsWith("quilt_"))) {
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean preferForge;
+
+    public static final java.util.Map<String, TwoSided> TWO_SIDED = new java.util.concurrent.ConcurrentSkipListMap<>();
+
+    public static String sideSetting(String key) {
+        return "mods.side." + key;
+    }
+
+    public static String sideKey(String fileName) {
+        String n = fileName.toLowerCase(java.util.Locale.ROOT);
+        if (n.endsWith(".jar")) {
+            n = n.substring(0, n.length() - 4);
+        }
+        n = n.replaceAll("[-_+ .]?(mc)?\\d.*$", "");
+        n = n.replaceAll("[-_+ .](forge|fabric|quilt|neoforge)$", "");
+        return n.isEmpty() ? fileName.toLowerCase(java.util.Locale.ROOT) : n;
+    }
 
     private ModDiscovery() {}
 
@@ -53,7 +106,19 @@ public final class ModDiscovery {
         try (Stream<Path> s = Files.list(modsDir)) {
             jars = s.filter(p -> p.getFileName().toString().endsWith(".jar")).sorted().toList();
         }
-        // Top-level jars first, then the jars nested inside them. The first copy of a mod id wins.
+        preferForge = false;
+        REFUSED.clear();
+        for (Path j : jars) {
+            try (JarFile jf = new JarFile(j.toFile())) {
+                if (jf.getJarEntry("META-INF/mods.toml") != null && jf.getJarEntry("fabric.mod.json") == null
+                        && jf.getJarEntry("quilt.mod.json") == null) {
+                    preferForge = true;
+                    break;
+                }
+            } catch (IOException ignored) {
+            }
+        }
+
         Deque<Path> todo = new ArrayDeque<>(jars);
         Set<String> topLevel = new HashSet<>();
         for (Path j : jars) {
@@ -65,6 +130,11 @@ public final class ModDiscovery {
             boolean top = topLevel.contains(jar.toString());
             try {
                 Found found = read(jar);
+                if (top && !khi.pentecost.boot.StartupGuard.offIds().isEmpty()
+                        && found.mods.stream().anyMatch(m -> khi.pentecost.boot.StartupGuard.offIds().contains(m.id()))) {
+                    Log.warn(jar.getFileName() + " is turned off by the startup guard because it broke startup. Skipped.");
+                    continue;
+                }
                 if (found.mods.isEmpty()) {
                     if (top && found.nested.isEmpty()) {
                         Log.warn(jar.getFileName() + " has no quilt.mod.json, fabric.mod.json, or mods.toml. Skipped.");
@@ -88,7 +158,64 @@ public final class ModDiscovery {
                 Log.error("Cannot read " + jar.getFileName() + ": " + e);
             }
         }
+        if (preferForge) {
+            leaveOutWhatCannotRun(mods);
+        }
         return mods;
+    }
+
+    private static void leaveOutWhatCannotRun(List<ModInfo> mods) {
+        Map<String, String> out = new java.util.LinkedHashMap<>();
+        for (ModInfo m : mods) {
+            if (m.loader() != LoaderKind.FORGE && CANNOT_RUN.containsKey(m.id())) {
+                out.put(m.id(), CANNOT_RUN.get(m.id()));
+            }
+        }
+
+        Set<String> present = new HashSet<>();
+        for (ModInfo m : mods) {
+            if (!out.containsKey(m.id())) {
+                present.add(m.id());
+            }
+        }
+        boolean more = true;
+        while (more) {
+            more = false;
+            for (ModInfo m : mods) {
+                if (out.containsKey(m.id()) || m.loader() == LoaderKind.FORGE) {
+                    continue;
+                }
+                for (String d : m.depends()) {
+                    String dep = d.trim().toLowerCase(java.util.Locale.ROOT);
+                    if ((out.containsKey(dep) || CANNOT_RUN.containsKey(dep)) && !met(dep, present)) {
+                        out.put(m.id(), "it needs " + dep + ", which cannot run with Forge mods, and the pack has no Forge version of it");
+                        present.remove(m.id());
+                        more = true;
+                        break;
+                    }
+                }
+            }
+        }
+        for (ModInfo m : mods) {
+            for (String d : m.depends()) {
+                String dep = d.trim().toLowerCase(java.util.Locale.ROOT);
+                if (!out.containsKey(m.id()) && PORTS.containsKey(dep) && present.contains(PORTS.get(dep))) {
+                    Log.info(m.name() + " needs " + dep + "; it runs against " + PORTS.get(dep) + ", the Forge version");
+                }
+            }
+        }
+        if (out.isEmpty()) {
+            return;
+        }
+        mods.removeIf(m -> {
+            String why = out.get(m.id());
+            if (why == null) {
+                return false;
+            }
+            REFUSED.add(new Refused(m.name(), m.id(), why));
+            Log.warn(m.name() + " (" + m.id() + ") is not loaded: it cannot run in a pack with Forge mods. " + why + ".");
+            return true;
+        });
     }
 
     private static List<Path> extractNested(Path jar, List<String> entries) throws IOException {
@@ -114,8 +241,6 @@ public final class ModDiscovery {
 
     private static Found read(Path jar) throws IOException {
         try (JarFile jf = new JarFile(jar.toFile())) {
-            // A jar with several metadata files: Quilt first, then Fabric, then Forge.
-            // Fabric jars often carry a stub mods.toml, so Forge comes last.
             List<String> jarjar = new ArrayList<>();
             for (Enumeration<JarEntry> en = jf.entries(); en.hasMoreElements(); ) {
                 String n = en.nextElement().getName();
@@ -123,8 +248,7 @@ public final class ModDiscovery {
                     jarjar.add(n);
                 }
             }
-            // Jar-in-jar metadata names its jars by path, and the path is not always under META-INF/jarjar/.
-            // Oculus keeps JCPP at META-INF/jars/jcpp-1.4.14.jar.
+
             JarEntry jarjarMeta = jf.getJarEntry("META-INF/jarjar/metadata.json");
             if (jarjarMeta != null) {
                 try {
@@ -140,21 +264,46 @@ public final class ModDiscovery {
                         }
                     }
                 } catch (RuntimeException | IOException badMetadata) {
-                    // A broken metadata file only means no extra nested jars.
                 }
             }
             Found found;
             JarEntry quilt = jf.getJarEntry("quilt.mod.json");
             JarEntry fabric = jf.getJarEntry("fabric.mod.json");
             JarEntry forge = jf.getJarEntry("META-INF/mods.toml");
+            List<String> sides = new ArrayList<>();
             if (quilt != null) {
-                found = readQuilt(jar, jf, quilt);
-            } else if (fabric != null) {
-                found = readFabric(jar, jf, fabric);
-            } else if (forge != null) {
-                found = readForge(jar, jf, forge);
-            } else {
-                found = new Found(List.of(), List.of());
+                sides.add("quilt");
+            }
+            if (fabric != null) {
+                sides.add("fabric");
+            }
+            if (forge != null) {
+                sides.add("forge");
+            }
+
+            String chosen = sides.isEmpty() ? "" : sides.get(0);
+            if (sides.size() > 1 && sides.contains("forge") && preferForge && !findForgeModClasses(jf).isEmpty()) {
+                chosen = "forge";
+            }
+            if (sides.size() > 1) {
+                String key = sideKey(jar.getFileName().toString());
+                String want = "";
+                try {
+                    want = khi.pentecost.control.Settings.get(sideSetting(key)).trim().toLowerCase(java.util.Locale.ROOT);
+                } catch (RuntimeException | LinkageError e) {
+                }
+                boolean auto = !sides.contains(want);
+                if (!auto) {
+                    chosen = want;
+                    Log.info(jar.getFileName() + " has " + String.join(", ", sides) + " sides; loading " + chosen + " as chosen in settings");
+                }
+                TWO_SIDED.put(key, new TwoSided(key, jar.getFileName().toString(), List.copyOf(sides), chosen, auto));
+            }
+            switch (chosen) {
+                case "quilt" -> found = readQuilt(jar, jf, quilt);
+                case "fabric" -> found = readFabric(jar, jf, fabric);
+                case "forge" -> found = readForge(jar, jf, forge);
+                default -> found = new Found(List.of(), List.of());
             }
             if (jarjar.isEmpty()) {
                 return found;
@@ -164,8 +313,6 @@ public final class ModDiscovery {
             return new Found(found.mods(), List.copyOf(nested));
         }
     }
-
-    // ---------------------------------------------------------------- Forge
 
     private static Found readForge(Path jar, JarFile jf, JarEntry entry) throws IOException {
         Config cfg;
@@ -238,7 +385,6 @@ public final class ModDiscovery {
         return new Found(out, List.of());
     }
 
-    /** Finds classes carrying Forge's @Mod annotation. Returns mod id to class name. */
     private static Map<String, String> findForgeModClasses(JarFile jf) throws IOException {
         Map<String, String> found = new HashMap<>();
         Enumeration<JarEntry> entries = jf.entries();
@@ -267,13 +413,10 @@ public final class ModDiscovery {
                     }
                 }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
             } catch (RuntimeException ex) {
-                // A class file newer than this ASM reads. Not a mod class we can use.
             }
         }
         return found;
     }
-
-    // ---------------------------------------------------------------- Fabric
 
     private static Found readFabric(Path jar, JarFile jf, JarEntry entry) throws IOException {
         JsonObject o = json(jf, entry);
@@ -320,8 +463,6 @@ public final class ModDiscovery {
         return new Found(List.of(mod), nested);
     }
 
-    // ---------------------------------------------------------------- Quilt
-
     private static Found readQuilt(Path jar, JarFile jf, JarEntry entry) throws IOException {
         JsonObject root = json(jf, entry);
         JsonObject loader = root.getAsJsonObject("quilt_loader");
@@ -336,7 +477,7 @@ public final class ModDiscovery {
             for (Map.Entry<String, JsonElement> e : loader.getAsJsonObject("entrypoints").entrySet()) {
                 List<String> list = new ArrayList<>();
                 entrypoints(e.getValue(), list);
-                // Quilt names its entrypoints init and client_init. Store them under the shared keys.
+
                 String key = switch (e.getKey()) {
                     case "init" -> "main";
                     case "client_init" -> "client";
@@ -374,8 +515,6 @@ public final class ModDiscovery {
         return new Found(List.of(mod), nested);
     }
 
-    // ---------------------------------------------------------------- helpers
-
     private static JsonObject json(JarFile jf, JarEntry entry) throws IOException {
         try (Reader r = new InputStreamReader(jf.getInputStream(entry), StandardCharsets.UTF_8)) {
             return JsonParser.parseReader(r).getAsJsonObject();
@@ -397,7 +536,6 @@ public final class ModDiscovery {
         }
     }
 
-    /** An entrypoint is a string, an object with "value", or an array of those. */
     private static void entrypoints(JsonElement e, List<String> out) {
         if (e == null || e.isJsonNull()) {
             return;

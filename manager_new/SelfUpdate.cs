@@ -5,18 +5,12 @@ using System.Text.RegularExpressions;
 
 namespace Pentecost.Manager;
 
-/// <summary>
-/// Keeps the installed Manager current. Each release carries the same one-file Setup that players download.
-/// The Manager fetches it, checks its size and SHA-256, and runs it without a window. The Setup stops the old copy,
-/// replaces the installed one, and with --restart starts the new one.
-/// </summary>
 public static class SelfUpdate
 {
     static string Dir => Path.Combine(Path.GetTempPath(), "pentecost-manager");
 
     static string FileFor(ReleaseInfo r) => Path.Combine(Dir, "Pentecost-Manager-Setup-" + r.ManagerVersion + ".exe");
 
-    /// <summary>Fetches the Setup of the release. Returns the path of the checked file, or a message for the player.</summary>
     public static async Task<(string? Path, string? Error)> Download(ReleaseInfo r, Action<double>? progress, CancellationToken ct)
     {
         if (r.ManagerVersion == null || r.ManagerUrl == null) return (null, "That release has no Manager setup.");
@@ -67,7 +61,6 @@ public static class SelfUpdate
         return Convert.ToHexString(await SHA256.HashDataAsync(s, ct)).Equals(r.ManagerSha256, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Older Setup files from earlier updates. One may still be running, so a failed delete is fine.</summary>
     static void RemoveOld(string keep)
     {
         foreach (var f in Directory.EnumerateFiles(Dir, "Pentecost-Manager-Setup-*"))
@@ -78,7 +71,6 @@ public static class SelfUpdate
         }
     }
 
-    /// <summary>Runs the checked Setup without a window. With restart it starts the new Manager when it is done.</summary>
     public static string? Run(string setup, bool restart)
     {
         try

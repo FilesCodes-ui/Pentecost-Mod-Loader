@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
-/** Headless check for JoinApprovals. A fake clock stands in for time. */
 public final class JoinApprovalsCheck {
     private static int failures;
 

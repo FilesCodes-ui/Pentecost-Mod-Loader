@@ -1,0 +1,39 @@
+<Window x:Class="Pentecost.Setup.SetupWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        xmlns:pm="clr-namespace:Pentecost.Manager"
+        xmlns:local="clr-namespace:Pentecost.Setup"
+        Title="Pentecost Setup" Width="980" Height="600" ResizeMode="CanMinimize"
+        WindowStyle="None" Background="{StaticResource Bg}" Foreground="{StaticResource Text}"
+        FontFamily="{StaticResource Body}" FontSize="13.5"
+        WindowStartupLocation="CenterScreen" Icon="app.ico" UseLayoutRounding="True" TextOptions.TextFormattingMode="Ideal">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="52" ResizeBorderThickness="0" GlassFrameThickness="0" CornerRadius="0" UseAeroCaptionButtons="False"/>
+    </shell:WindowChrome.WindowChrome>
+
+    <Border Background="{StaticResource Bg}" BorderBrush="{StaticResource Line}" BorderThickness="1">
+        <Grid x:Name="Root" ClipToBounds="True">
+            <local:PlanetRise x:Name="Scene"/>
+
+            <pm:Wordmark Text="PENTECOST" Pixel="1.5" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="44,34,0,0"/>
+
+            <TextBlock x:Name="DemoTag" Text="DEMO" Style="{StaticResource Cap}" Foreground="{StaticResource Warn}"
+                       Margin="0,14,108,0" VerticalAlignment="Top" HorizontalAlignment="Right" Visibility="Collapsed"/>
+
+            <ContentControl x:Name="PageHost" Width="430" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="44,30,0,0" IsTabStop="False">
+                <ContentControl.RenderTransform><TranslateTransform x:Name="PageMove"/></ContentControl.RenderTransform>
+            </ContentControl>
+
+            <Border x:Name="ProgressLine" Height="2" Width="0" HorizontalAlignment="Left" VerticalAlignment="Bottom" Background="{StaticResource Text}" Opacity="0.85"/>
+
+            <TextBlock x:Name="VersionText" FontFamily="{StaticResource Mono}" FontSize="10.5" Foreground="{StaticResource Faint}"
+                       HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,22,16" Opacity="0.55"/>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                <Button Style="{StaticResource IconBtn}" Content="&#xE921;" Height="40" Width="46" Click="Min_Click" ToolTip="Minimise"/>
+                <Button x:Name="CloseBtn" Style="{StaticResource IconBtn}" Content="&#xE8BB;" Height="40" Width="46" Click="Close_Click" ToolTip="Close"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

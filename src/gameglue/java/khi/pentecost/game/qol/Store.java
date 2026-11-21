@@ -22,10 +22,6 @@ import java.util.Map;
 import java.util.TreeSet;
 import java.util.UUID;
 
-/**
- * What the commands remember. Homes and warps are saved in the world folder (pentecost/qol.json) so they survive a
- * restart. The place you were before your last teleport is kept in memory only.
- */
 final class Store {
     static final class Loc {
         String dim;
@@ -43,11 +39,8 @@ final class Store {
         double nightFactor = 1.0;
         int firePct = 100;
         Map<String, Map<String, String>> presets = new LinkedHashMap<>();
-        /** Saved command groups: name to the commands, separated by semicolons. */
         Map<String, String> groups = new LinkedHashMap<>();
-        /** Permission levels set by an operator: command name to level. */
         Map<String, Integer> levels = new LinkedHashMap<>();
-        /** Command groups (categories) an operator switched off. */
         java.util.List<String> off = new java.util.ArrayList<>();
     }
 
@@ -113,8 +106,6 @@ final class Store {
         return level == null ? null : new Where.Spot(level, new Vec3(l.x, l.y, l.z), l.yaw, l.pitch);
     }
 
-    // ---------------------------------------------------------------- groups and command settings
-
     static synchronized java.util.List<String> groupNames() {
         if (data.groups == null) {
             data.groups = new LinkedHashMap<>();
@@ -142,7 +133,6 @@ final class Store {
         return had;
     }
 
-    /** The level a command needs: the operator's choice, or the one it was written with. */
     static synchronized int levelOf(String command, int fallback) {
         Integer v = data.levels == null ? null : data.levels.get(command);
         return v == null ? fallback : v;
@@ -184,8 +174,6 @@ final class Store {
         return data.off == null ? java.util.List.of() : new java.util.ArrayList<>(data.off);
     }
 
-    // ---------------------------------------------------------------- back
-
     static synchronized void remember(ServerPlayer p) {
         BACK.put(p.getUUID(), loc(Where.of(p)));
     }
@@ -195,15 +183,12 @@ final class Store {
         return l == null ? null : spot(l);
     }
 
-    // ---------------------------------------------------------------- homes
-
     static synchronized Where.Spot home(ServerPlayer p, String name) {
         Map<String, Loc> m = data.homes.get(p.getUUID().toString());
         Loc l = m == null ? null : m.get(name.toLowerCase());
         return l == null ? null : spot(l);
     }
 
-    /** Returns false when the player already has the most homes allowed. */
     static synchronized boolean setHome(ServerPlayer p, String name, Where.Spot s) {
         Map<String, Loc> m = data.homes.computeIfAbsent(p.getUUID().toString(), k -> new LinkedHashMap<>());
         String key = name.toLowerCase();
@@ -229,8 +214,6 @@ final class Store {
         return m == null ? new TreeSet<>() : new TreeSet<>(m.keySet());
     }
 
-    // ---------------------------------------------------------------- server settings that survive a restart
-
     static synchronized double dayFactor() {
         return data.dayFactor;
     }
@@ -245,7 +228,6 @@ final class Store {
         save();
     }
 
-    /** How much of the normal fire speed is wanted, 0 to 100. */
     static synchronized int firePct() {
         return data.firePct;
     }
@@ -278,7 +260,6 @@ final class Store {
     static synchronized TreeSet<String> presetNames() {
         return data.presets == null ? new TreeSet<>() : new TreeSet<>(data.presets.keySet());
     }
-    // ---------------------------------------------------------------- warps
 
     static synchronized Where.Spot warp(String name) {
         Loc l = data.warps.get(name.toLowerCase());

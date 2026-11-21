@@ -14,12 +14,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/**
- * Server tools for operators, on a server and in a world open to friends alike. A sidebar picks the section, the
- * panel on the right holds its buttons, fields and sliders. Almost everything sends one of Pentecost's own commands
- * (or a plain game command), so it does exactly what typing it does and the server still checks every permission.
- * The Performance section holds the same settings as Settings > Server.
- */
 final class ServerScreen extends PanelScreen {
     private enum Section {
         OVERVIEW("Overview"), PLAYERS("Players"), OPERATORS("Operators"), ACCESS("Access"), WORLD("World"),
@@ -32,7 +26,6 @@ final class ServerScreen extends PanelScreen {
         }
     }
 
-    /** One button: its label, what it does, and the operator level it needs (the button greys out below that). */
     private record B(String label, Runnable run, int level) {
         B(String label, Runnable run) {
             this(label, run, 2);
@@ -71,7 +64,6 @@ final class ServerScreen extends PanelScreen {
         super("Server", parent);
     }
 
-    /** True when the pause menu should offer this screen: an operator, on a server or in a world open to friends. */
     static boolean available(Minecraft mc) {
         if (mc == null || mc.player == null || mc.level == null || !mc.player.hasPermissions(2)) {
             return false;
@@ -79,8 +71,6 @@ final class ServerScreen extends PanelScreen {
         return mc.getCurrentServer() != null || mc.getSingleplayerServer() == null || WwlsScreen.hosting()
                 || mc.getConnection() != null && mc.getConnection().getOnlinePlayers().size() > 1;
     }
-
-    // ---------------------------------------------------------------- helpers
 
     private String who() {
         return player.text.trim();
@@ -94,12 +84,10 @@ final class ServerScreen extends PanelScreen {
         return true;
     }
 
-    /** A command with no player. */
     private Runnable cmd(String command) {
         return () -> send(command);
     }
 
-    /** A command that ends with the typed player name. */
     private Runnable onPlayer(String prefix) {
         return () -> {
             if (needPlayer()) {
@@ -108,7 +96,6 @@ final class ServerScreen extends PanelScreen {
         };
     }
 
-    /** A button that asks to be pressed twice, for things that cannot be undone. */
     private Runnable twice(String key, String warning, Runnable run) {
         return () -> {
             long now = System.currentTimeMillis();
@@ -123,7 +110,6 @@ final class ServerScreen extends PanelScreen {
         };
     }
 
-    /** A row of buttons that share the width. Returns the y of the next row. */
     private int row(GuiGraphics g, int x, int y, int w, B... buttons) {
         int n = buttons.length;
         int bw = (w - (n - 1) * 3) / n;
@@ -183,8 +169,6 @@ final class ServerScreen extends PanelScreen {
             }
         });
     }
-
-    // ---------------------------------------------------------------- drawing
 
     @Override
     protected void draw(GuiGraphics g) {
@@ -460,7 +444,6 @@ final class ServerScreen extends PanelScreen {
         button(g, "Cancel stop", bx + bw + 4, y + 13, bw, can, cmd("stopcancel"));
     }
 
-    /** The same settings as Settings > Server and the mob rows of Settings > Gameplay. */
     private void performance(GuiGraphics g, int x, int y, int w) {
         var o = minecraft.options;
         g.drawString(font, "THIS GAME'S SETTINGS. THE SAME ONES AS SETTINGS > SERVER.", x, y, Ui.FAINT, false);

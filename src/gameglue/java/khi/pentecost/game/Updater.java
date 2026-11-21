@@ -6,7 +6,6 @@ import khi.pentecost.boot.PentecostMain;
 import khi.pentecost.control.Settings;
 import khi.pentecost.update.ReleaseInfo;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.components.toasts.SystemToast;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.network.chat.Component;
@@ -25,11 +24,6 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.HexFormat;
 
-/**
- * Looks at Pentecost's GitHub releases for a newer version, tells the player with a toast, and updates only when they say so.
- * Nothing is downloaded or changed until the player presses Update and confirms. The update is the release's installer:
- * it is checked against the SHA-256 GitHub lists for it, then started, and Pentecost closes so the installer can replace its files.
- */
 final class Updater {
     enum Phase { IDLE, CHECKING, CURRENT, AVAILABLE, FAILED, DOWNLOADING, READY }
 
@@ -70,7 +64,6 @@ final class Updater {
         return phase == Phase.CHECKING || phase == Phase.DOWNLOADING;
     }
 
-    /** What the Updates row shows. */
     static String statusText() {
         return switch (phase) {
             case IDLE -> "Not checked yet";
@@ -83,7 +76,6 @@ final class Updater {
         };
     }
 
-    /** Called when the main menu first shows: one quiet check, if the player has not turned it off. */
     static void startupCheck() {
         if (startupDone) {
             return;
@@ -96,7 +88,6 @@ final class Updater {
         }
     }
 
-    /** One line in pentecost-update.log in the game folder, so a missing toast can be explained afterwards. */
     private static void note(String line) {
         Log.info("Updates: " + line);
         try {
@@ -105,11 +96,9 @@ final class Updater {
                     java.time.LocalDateTime.now().withNano(0) + "  " + line + System.lineSeparator(),
                     java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
         } catch (java.io.IOException | RuntimeException e) {
-            // The note is only a help. Never let it get in the way.
         }
     }
 
-    /** Asks GitHub for the newest release. A failure is silent unless the player asked for the check. */
     static void check(boolean manual) {
         if (busy()) {
             return;
@@ -150,7 +139,6 @@ final class Updater {
         t.start();
     }
 
-    /** Called every frame. Hands the update to the main menu's notice once, when one is known. */
     static void frame() {
         Minecraft mc = Minecraft.getInstance();
         if (!startupDone && mc.screen != null && mc.getOverlay() == null) {
@@ -166,7 +154,6 @@ final class Updater {
         }
     }
 
-    /** The "Update to X?" screen. Nothing happens until the player says yes. */
     static void ask(Screen back) {
         ReleaseInfo r = release;
         Minecraft mc = Minecraft.getInstance();
@@ -179,7 +166,6 @@ final class Updater {
         }));
     }
 
-    /** Test switch: the update prompt or the main menu notice with made-up notes, so the look can be checked without a release. Downloads nothing. */
     static Screen preview(Screen title, boolean prompt) {
         ReleaseInfo fake = new ReleaseInfo("v9.9.9", "9.9.9",
                 "## What is new\n- A new video settings page with Embeddium and Oculus\n- A skin page with a rotating preview\n"
@@ -250,7 +236,6 @@ final class Updater {
 
     static void toast(String title, String text) {
         Minecraft mc = Minecraft.getInstance();
-        mc.execute(() -> SystemToast.addOrUpdate(mc.getToasts(), SystemToast.SystemToastIds.PERIODIC_NOTIFICATION,
-                Component.literal(title), Component.literal(text)));
+        mc.execute(() -> khi.pentecost.game.PentecostToast.show(Component.literal(title), Component.literal(text)));
     }
 }

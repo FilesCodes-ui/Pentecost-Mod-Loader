@@ -14,6 +14,8 @@ import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.sounds.SoundEvents;
+import net.minecraft.world.entity.HumanoidArm;
+import net.minecraft.world.entity.player.PlayerModelPart;
 import org.lwjgl.glfw.GLFW;
 
 import java.io.IOException;
@@ -27,15 +29,9 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
-/**
- * The skin wardrobe, in Pentecost's look. Saved skins with folders and tags, a turning 3D preview, capes, outfits
- * (a skin and a cape together), rules that wear an outfit on a server or in a world, and the history of skins worn before.
- * The data is {@link WardrobeStore}. Changes to the real account go through {@link Wardrobe}, which needs the Microsoft login.
- * Saving and previewing work without it.
- */
 final class WardrobeScreen extends Screen {
     private enum Tab {
-        SKINS("Skins"), OUTFITS("Outfits"), AUTO("Auto"), HISTORY("History"), MORE("More");
+        SKINS("Skins"), BROWSE("Browse"), OUTFITS("Outfits"), AUTO("Auto"), HISTORY("History"), MORE("More");
 
         final String label;
 
@@ -50,7 +46,6 @@ final class WardrobeScreen extends Screen {
         void run() throws IOException;
     }
 
-    /** list: the area scrolls, so a click above or below the visible part must not reach it. */
     private record Hit(int x, int y, int w, int h, boolean list, Runnable action) {}
 
     private static final byte[] NONE = new byte[0];
@@ -78,9 +73,7 @@ final class WardrobeScreen extends Screen {
     private SkinImage.Report selReport;
     private final Map<String, byte[]> thumbs = new HashMap<>();
 
-    private float yaw = 20;
-    private boolean dragging;
-    private long lastNano;
+    private final Spin spin = new Spin(20);
     private boolean hat = true;
     private boolean jacket = true;
     private boolean sleeves = true;
@@ -93,6 +86,12 @@ final class WardrobeScreen extends Screen {
     private final Map<String, byte[]> capeBytes = new ConcurrentHashMap<>();
     private final Set<String> capeLoading = ConcurrentHashMap.newKeySet();
 
+    private Wardrobe.Peek peek;
+    private long capeDirtyAt;
+    private String lastClickId = "";
+    private long lastClickAt;
+    private byte[] shaFor;
+    private String shaOf = "";
     private String inputLabel = "";
     private String inputText = "";
     private Consumer<String> inputDone;
@@ -116,13 +115,308 @@ final class WardrobeScreen extends Screen {
     private String note = "";
     private long noteUntil;
 
+    private final PentecostSettingsScreen settings;
+    private final Stage stage = new Stage("wardrobe_stage");
+    private long opened;
+    private int left = MARGIN;
+
     WardrobeScreen(Screen parent) {
+        this(parent, null);
+    }
+
+    WardrobeScreen(Screen parent, PentecostSettingsScreen settings) {
         super(Component.literal("Wardrobe"));
         this.parent = parent;
+        this.settings = settings;
+    }
+
+    @Override
+    protected void init() {
+        net.minecraft.client.Options o = minecraft.options;
+        hat = o.isModelPartEnabled(PlayerModelPart.HAT);
+        jacket = o.isModelPartEnabled(PlayerModelPart.JACKET);
+        sleeves = o.isModelPartEnabled(PlayerModelPart.LEFT_SLEEVE);
+        pants = o.isModelPartEnabled(PlayerModelPart.LEFT_PANTS_LEG);
+        if (opened == 0) {
+            opened = net.minecraft.Util.getMillis();
+        }
+    }
+
+    @Override
+    public void removed() {
+        stage.release();
+    }
+
+    private boolean wear(boolean on, PlayerModelPart... parts) {
+        net.minecraft.client.Options o = minecraft.options;
+        for (PlayerModelPart p : parts) {
+            o.toggleModelPart(p, on);
+        }
+        o.save();
+        return on;
+    }
+
+    private void clickSkin(WardrobeStore st, WardrobeStore.Skin s) {
+        long now = System.currentTimeMillis();
+        if (s.id.equals(lastClickId) && now - lastClickAt < 400) {
+            lastClickAt = 0;
+            if (Account.signedIn() && !Wardrobe.busy()) {
+                Wardrobe.wear(s, capeChoice);
+            }
+            return;
+        }
+        lastClickId = s.id;
+        lastClickAt = now;
+        peek = null;
+        select(st, s.id);
+    }
+
+    private void pickCape(String id) {
+        capeChoice = id;
+        capeDirtyAt = System.currentTimeMillis();
+    }
+
+    private void applyCapeLater() {
+        if (capeDirtyAt == 0 || System.currentTimeMillis() - capeDirtyAt < 1200 || Wardrobe.busy() || Wardrobe.waitSeconds() > 0) {
+            return;
+        }
+        capeDirtyAt = 0;
+        if (capeChoice != null && !capeChoice.equals(activeCape())) {
+            Wardrobe.wearCape(capeChoice);
+        }
+    }
+
+    private boolean saved(WardrobeStore st, byte[] cur) {
+        if (cur == null) {
+            return false;
+        }
+        if (cur != shaFor) {
+            shaFor = cur;
+            shaOf = WardrobeStore.sha1(cur);
+        }
+        for (WardrobeStore.Skin k : st.skins()) {
+            if (k.sha1.equals(shaOf)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void tileBox(GuiGraphics g, int x, int y, int w, int h) {
+        g.fill(x, y, x + w, y + h, 0xC00A0A0C);
+        Ui.outline(g, x, y, x + w, y + h, 0x24FFFFFF);
+        g.fill(x, y, x + 12, y + 1, Ui.TEXT);
+    }
+
+    private int nowWearing(GuiGraphics g, WardrobeStore st, int y, int mx, int my) {
+        byte[] cur = Account.signedIn() ? Wardrobe.currentBytes() : null;
+        if (Account.signedIn()) {
+            tileBox(g, rightX, y, rightW, 56);
+            face(g, cur, rightX + 10, y + 10, 36);
+            g.drawString(font, "NOW WEARING", rightX + 56, y + 10, Ui.FAINT, false);
+            String sub = cur == null ? "Loading your skin..." : (Wardrobe.currentIsSlim() ? "Slim arms" : "Classic arms") + "    Cape: " + capeName(activeCape());
+            g.drawString(font, "Your current skin", rightX + 56, y + 22, Ui.TEXT, false);
+            g.drawString(font, font.plainSubstrByWidth(sub, rightW - 200), rightX + 56, y + 34, Ui.MUTED, false);
+            if (cur != null) {
+                boolean have = saved(st, cur);
+                String label = have ? "In wardrobe" : "Save to wardrobe";
+                int bw = font.width(label) + 28;
+                button(g, label, rightX + rightW - bw - 10, y + 18, mx, my, false, !have, true, Wardrobe::addCurrent);
+            }
+            y += 64;
+        }
+        List<WardrobeStore.Past> past = st.history();
+        if (!past.isEmpty()) {
+            g.drawString(font, "RECENTLY WORN", rightX, y + 2, Ui.FAINT, false);
+            String all = "See all";
+            int aw = font.width(all) + 16;
+            button(g, all, rightX + rightW - aw, y - 3, mx, my, false, true, true, () -> setTab(Tab.HISTORY));
+            y += 16;
+            int cw = 52;
+            int n = Math.min(past.size(), Math.max(1, (rightW + 6) / (cw + 6)));
+            boolean can = Account.signedIn() && !Wardrobe.busy();
+            for (int i = 0; i < n; i++) {
+                WardrobeStore.Past p = past.get(i);
+                int cx = rightX + i * (cw + 6);
+                boolean hover = Ui.over(mx, my, cx, y, cw, 56) && my >= top && my <= bottom;
+                g.fill(cx, y, cx + cw, y + 56, hover ? 0xD0202024 : 0xC00A0A0C);
+                Ui.outline(g, cx, y, cx + cw, y + 56, hover ? 0xAAFFFFFF : 0x24FFFFFF);
+                face(g, pastBytes(st, p), cx + 10, y + 6, 32);
+                String when = ago(p.at);
+                g.drawString(font, font.plainSubstrByWidth(when, cw - 6), cx + (cw - Math.min(cw - 6, font.width(when))) / 2, y + 43, Ui.MUTED, false);
+                if (can) {
+                    hits.add(new Hit(cx, y, cw, 56, true, () -> Wardrobe.wearPast(p)));
+                }
+            }
+            y += 64;
+            if (can) {
+                g.drawString(font, "Click a skin above to wear it again.", rightX, y - 4, Ui.FAINT, false);
+                y += 10;
+            }
+        }
+        g.drawString(font, "SAVED SKINS", rightX, y + 2, Ui.FAINT, false);
+        return y + 16;
+    }
+
+    private int peekBlock(GuiGraphics g, int y, int mx, int my) {
+        Wardrobe.Peek p = peek;
+        tileBox(g, rightX, y, rightW, 56);
+        face(g, p.png(), rightX + 10, y + 10, 36);
+        g.drawString(font, "FOUND", rightX + 56, y + 10, Ui.FAINT, false);
+        g.drawString(font, p.name(), rightX + 56, y + 22, Ui.TEXT, false);
+        g.drawString(font, (p.slim() ? "Slim arms" : "Classic arms") + "    Preview on the stage", rightX + 56, y + 34, Ui.MUTED, false);
+        y += 64;
+        flowStart(rightX, y, rightX + rightW);
+        flowList = false;
+        boolean can = Account.signedIn() && !Wardrobe.busy();
+        flow(g, "Save and wear", mx, my, false, can, () -> {
+            Wardrobe.keepPeek(p, true, capeChoice);
+            peek = null;
+        });
+        flow(g, "Save", mx, my, false, true, () -> {
+            Wardrobe.keepPeek(p, false, null);
+            peek = null;
+        });
+        if (DevPicks.allowed()) {
+            boolean picked = DevPicks.isPick(p.texture());
+            flow(g, DevPicks.busy() ? "Publishing..." : picked ? "Remove from Pentecost picks" : "Make Pentecost pick", mx, my, false,
+                    !DevPicks.busy(), () -> DevPicks.send(!picked, p.name(), p.texture()));
+        }
+        flow(g, "Look up another", mx, my, false, true, this::askLookup);
+        flow(g, "Close", mx, my, false, true, () -> peek = null);
+        return flowEnd() + 10;
+    }
+
+    private String browsed = "";
+    private long browseEdit;
+
+    private void openCatalog(SkinCatalog.Entry e) {
+        byte[] png = SkinCatalog.png(e.texture());
+        if (png == null) {
+            say("Still loading that skin.");
+            return;
+        }
+        peek = new Wardrobe.Peek(e.name(), png, SkinCatalog.slim(png), e.texture());
+        selSkin = null;
+        selId = "";
+        selBytes = null;
+    }
+
+    private int catalogGrid(GuiGraphics g, List<SkinCatalog.Entry> list, int y, int mx, int my) {
+        int cols = Math.max(1, (rightW + GAP) / (CARD_W + GAP));
+        for (int i = 0; i < list.size(); i++) {
+            SkinCatalog.Entry e = list.get(i);
+            int cx = rightX + (i % cols) * (CARD_W + GAP);
+            int cy = y + (i / cols) * (CARD_H + GAP);
+            if (cy + CARD_H < top - 4 || cy > bottom + 4) {
+                continue;
+            }
+            boolean on = peek != null && peek.name().equals(e.name());
+            boolean hover = Ui.over(mx, my, cx, cy, CARD_W, CARD_H) && my >= top && my <= bottom;
+            g.fill(cx, cy, cx + CARD_W, cy + CARD_H, on ? 0xD0141416 : hover ? 0xC8161618 : 0xC00A0A0C);
+            Ui.outline(g, cx, cy, cx + CARD_W, cy + CARD_H, on || hover ? 0xAAFFFFFF : 0x24FFFFFF);
+            g.fill(cx, cy, cx + 12, cy + 1, on ? Ui.TEXT : 0x66FFFFFF);
+            byte[] png = SkinCatalog.png(e.texture());
+            if (png != null) {
+                face(g, png, cx + (CARD_W - 48) / 2, cy + 8, 48);
+            } else {
+                int pulse = 30 + (int) (20 * Math.sin(System.currentTimeMillis() / 200.0 + i));
+                g.fill(cx + (CARD_W - 48) / 2, cy + 8, cx + (CARD_W + 48) / 2, cy + 56, (pulse << 24) | 0xFFFFFF);
+            }
+            String name = font.plainSubstrByWidth(e.name(), CARD_W - 12);
+            g.drawString(font, name, cx + (CARD_W - font.width(name)) / 2, cy + 66, Ui.TEXT, false);
+            hits.add(new Hit(cx, cy, CARD_W, CARD_H, true, () -> openCatalog(e)));
+        }
+        return y + ((list.size() + cols - 1) / cols) * (CARD_H + GAP);
+    }
+
+    private void browseTab(GuiGraphics g, int mx, int my) {
+        if (!query.equals(browsed)) {
+            browsed = query;
+            browseEdit = System.currentTimeMillis();
+        }
+        if (browseEdit != 0 && System.currentTimeMillis() - browseEdit > 600) {
+            browseEdit = 0;
+            if (!query.strip().equals(SkinCatalog.filter())) {
+                SkinCatalog.reset(query);
+                scroll = 0;
+            }
+        }
+        int y = top + 4 - scroll;
+        List<SkinCatalog.Entry> picks = SkinCatalog.picks();
+        if (!picks.isEmpty() && SkinCatalog.filter().isEmpty()) {
+            g.drawString(font, "PENTECOST PICKS", rightX, y + 2, Ui.FAINT, false);
+            y = catalogGrid(g, picks, y + 16, mx, my) + 6;
+        }
+        g.drawString(font, SkinCatalog.filter().isEmpty() ? "NEWEST FROM THE COMMUNITY" : "RESULTS FOR " + SkinCatalog.filter().toUpperCase(java.util.Locale.ROOT),
+                rightX, y + 2, Ui.FAINT, false);
+        String credit = "Skins from MineSkin";
+        g.drawString(font, credit, rightX + rightW - font.width(credit), y + 2, 0xFF3A3A3A, false);
+        y = catalogGrid(g, SkinCatalog.entries(), y + 16, mx, my);
+        if (!SkinCatalog.error().isEmpty()) {
+            g.drawString(font, SkinCatalog.error(), rightX, y + 4, BAD, false);
+            y += 16;
+            button(g, "Try again", rightX, y, mx, my, false, true, true, SkinCatalog::more);
+            y += 26;
+        } else if (SkinCatalog.busy()) {
+            String dots = ".".repeat(1 + (int) (System.currentTimeMillis() / 400 % 3));
+            g.drawString(font, "Loading" + dots, rightX, y + 4, Ui.MUTED, false);
+            y += 20;
+        } else if (!SkinCatalog.end()) {
+            if (y < bottom + 200) {
+                SkinCatalog.more();
+            }
+            y += 20;
+        } else if (SkinCatalog.entries().isEmpty()) {
+            g.drawString(font, "No skins found.", rightX, y + 4, Ui.MUTED, false);
+            y += 20;
+        }
+        limitScroll(y);
+    }
+
+    private void askLookup() {
+        openInput("Player name", "", n -> Wardrobe.lookup(n, p -> {
+            peek = p;
+            selSkin = null;
+            selId = "";
+            selBytes = null;
+        }));
+    }
+
+    private void settingsSide(GuiGraphics g, int vw, int mx, int my) {
+        int margin = MARGIN;
+        Ui.logo(g, margin, 24, 2, Ui.TEXT);
+        Ui.wordmark(g, "SETTINGS", margin + (Ui.LOGO_W + 5) * 2, 26, 2, Ui.TEXT);
+        String version = "Pentecost " + khi.pentecost.boot.PentecostMain.VERSION;
+        g.drawString(font, version, vw - margin - font.width(version), 44, Ui.FAINT, false);
+        g.fill(margin, 66, vw - margin, 67, Ui.LINE);
+        int sideW = 118;
+        int sy = 82;
+        List<String> names = settings.pageNames();
+        for (int i = 0; i < names.size(); i++) {
+            boolean active = names.get(i).equals("Skin");
+            boolean hover = Ui.over(mx, my, margin - 6, sy, sideW, 18);
+            if (active) {
+                g.fill(margin - 6, sy, margin - 6 + sideW, sy + 18, Ui.TEXT);
+            } else if (hover) {
+                g.fill(margin - 6, sy, margin - 6 + sideW, sy + 18, Ui.HOVER);
+            }
+            g.drawString(font, (active ? "> " : "") + names.get(i), margin, sy + 5,
+                    active ? Ui.BLACK : hover ? Ui.TEXT : Ui.MUTED, false);
+            if (!active) {
+                int index = i;
+                hits.add(new Hit(margin - 6, sy, sideW, 18, false, () -> settings.openPage(minecraft, index)));
+            }
+            sy += 20;
+        }
     }
 
     @Override
     public void onClose() {
+        if (settings != null) {
+            settings.onClose();
+            return;
+        }
         minecraft.setScreen(parent);
     }
 
@@ -143,8 +437,6 @@ final class WardrobeScreen extends Screen {
             say(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         }
     }
-
-    // ---------------------------------------------------------------- selection and data
 
     private void select(WardrobeStore st, String id) {
         WardrobeStore.Skin s = st.skin(id);
@@ -289,6 +581,12 @@ final class WardrobeScreen extends Screen {
 
     private void setTab(Tab t) {
         if (tab != t) {
+            if (t == Tab.BROWSE || tab == Tab.BROWSE) {
+                query = "";
+            }
+            if (t == Tab.BROWSE && SkinCatalog.entries().isEmpty() && !SkinCatalog.busy()) {
+                SkinCatalog.reset("");
+            }
             tab = t;
             scroll = 0;
             closeInput();
@@ -298,12 +596,9 @@ final class WardrobeScreen extends Screen {
         }
     }
 
-    // ---------------------------------------------------------------- drawing
-
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-        g.fill(0, 0, width, height, minecraft.level == null ? 0xFF0A0A0B : 0xD80A0A0B);
-        Ui.dither(g, width, height);
+        g.fill(0, 0, width, height, 0xFF000000);
         float ui = Ui.scale(minecraft);
         int vw = (int) (width / ui);
         int vh = (int) (height / ui);
@@ -312,14 +607,28 @@ final class WardrobeScreen extends Screen {
         hits.clear();
         g.pose().pushPose();
         g.pose().scale(ui, ui, 1);
+        double now = (net.minecraft.Util.getMillis() - opened) / 1000.0;
+        left = settings == null ? MARGIN : MARGIN + 118 + 22;
+        int stageFeet = 106 + Math.max(80, vh - 44 - 106 - 70) - 12;
+        stage.draw(g, vw, vh, left + PANEL_W / 2, stageFeet, 70);
+        Stage.life(g, left + PANEL_W / 2, stageFeet, 35, now);
+        Stage.dust(g, left + PANEL_W / 2, stageFeet, now);
 
         WardrobeStore st = Wardrobe.store();
-        rightX = MARGIN + PANEL_W + 16;
+        applyCapeLater();
+        rightX = left + PANEL_W + 16;
         rightW = vw - MARGIN - rightX;
         bottom = vh - 44;
         top = tab == Tab.SKINS && !playersMode ? 164 : 136;
         if (st != null) {
             follow(st);
+        }
+        boolean listTab = (tab == Tab.SKINS && !playersMode) || tab == Tab.BROWSE;
+        if (st != null && inputDone == null && listTab && (peek != null || (tab == Tab.SKINS && selSkin != null))) {
+            int y0 = top + 4;
+            int end = peek != null ? peekBlock(g, y0, mx, my) : selected(g, st, y0, mx, my);
+            g.fill(rightX, end - 4, rightX + rightW, end - 3, Ui.LINE);
+            top = end;
         }
 
         g.enableScissor(Math.round((rightX - 8) * ui), Math.round(top * ui), width, Math.round(bottom * ui));
@@ -329,6 +638,7 @@ final class WardrobeScreen extends Screen {
         } else {
             switch (tab) {
                 case SKINS -> skinsTab(g, st, mx, my);
+                case BROWSE -> browseTab(g, mx, my);
                 case OUTFITS -> outfitsTab(g, st, mx, my);
                 case AUTO -> autoTab(g, st, mx, my);
                 case HISTORY -> historyTab(g, st, mx, my);
@@ -337,11 +647,15 @@ final class WardrobeScreen extends Screen {
         }
 
         g.disableScissor();
-        Ui.logo(g, MARGIN, 20, 2, Ui.TEXT);
-        Ui.wordmark(g, "WARDROBE", MARGIN + (Ui.LOGO_W + 5) * 2, 22, 2, Ui.TEXT);
-        g.drawString(font, "Your skins, outfits and rules", MARGIN, 56, Ui.FAINT, false);
-        g.fill(MARGIN, 68, vw - MARGIN, 69, Ui.LINE);
-        int tx = MARGIN;
+        if (settings != null) {
+            settingsSide(g, vw, mx, my);
+        } else {
+            Ui.logo(g, MARGIN, 20, 2, Ui.TEXT);
+            Ui.wordmark(g, "WARDROBE", MARGIN + (Ui.LOGO_W + 5) * 2, 22, 2, Ui.TEXT);
+            g.drawString(font, "Your skins, outfits and rules", MARGIN, 56, Ui.FAINT, false);
+            g.fill(MARGIN, 68, vw - MARGIN, 69, Ui.LINE);
+        }
+        int tx = left;
         for (Tab t : Tab.values()) {
             tx += button(g, t.label, tx, 78, mx, my, tab == t, true, () -> setTab(t)) + 6;
         }
@@ -372,6 +686,23 @@ final class WardrobeScreen extends Screen {
         }
         boxW = 0;
         switch (tab) {
+            case BROWSE -> {
+                boxX = rightX;
+                boxY = y;
+                boxW = 160;
+                Ui.outline(g, boxX, boxY, boxX + boxW, boxY + 20, focus == Focus.SEARCH ? Ui.TEXT : Ui.MUTED);
+                boolean caret = focus == Focus.SEARCH && (System.currentTimeMillis() / 500) % 2 == 0;
+                String shown = query.isEmpty() && focus != Focus.SEARCH ? "Search all skins" : query;
+                g.drawString(font, font.plainSubstrByWidth(shown, boxW - 16, true) + (caret ? "_" : ""), boxX + 7, boxY + 6,
+                        query.isEmpty() && focus != Focus.SEARCH ? Ui.FAINT : Ui.TEXT, false);
+                int x = boxX + boxW + 8;
+                x += chip(g, "Newest", x, y, mx, my, false, true, () -> {
+                    query = "";
+                    SkinCatalog.reset("");
+                    scroll = 0;
+                }) + 5;
+                chip(g, "Get by name", x, y, mx, my, false, true, this::askLookup);
+            }
             case SKINS -> {
                 if (playersMode) {
                     chip(g, "Back to skins", rightX, y, mx, my, false, true, () -> playersMode = false);
@@ -386,8 +717,7 @@ final class WardrobeScreen extends Screen {
                 g.drawString(font, font.plainSubstrByWidth(shown, boxW - 16, true) + (caret ? "_" : ""), boxX + 7, boxY + 6,
                         query.isEmpty() && focus != Focus.SEARCH ? Ui.FAINT : Ui.TEXT, false);
                 int x = boxX + boxW + 8;
-                x += chip(g, "Add name", x, y, mx, my, false, true,
-                        () -> openInput("Player name", "", Wardrobe::addByName)) + 5;
+                x += chip(g, "Get a skin", x, y, mx, my, false, true, this::askLookup) + 5;
                 x += chip(g, "Add file", x, y, mx, my, false, true,
                         () -> openInput("PNG file path", "", Wardrobe::addFile)) + 5;
                 x += chip(g, "My skin", x, y, mx, my, false, true, Wardrobe::addCurrent) + 5;
@@ -477,17 +807,17 @@ final class WardrobeScreen extends Screen {
     }
 
     private void footer(GuiGraphics g, int vw, int vh, int mx, int my) {
-        int bw = font.width("Back") + 24;
+        int bw = 70;
         int bx = vw - MARGIN - bw;
         int by = vh - 32;
-        boolean hover = Ui.over(mx, my, bx, by, bw, 18);
+        boolean hover = Ui.over(mx, my, bx, by, bw, 20);
         if (hover) {
-            g.fill(bx, by, bx + bw, by + 18, Ui.TEXT);
+            g.fill(bx, by, bx + bw, by + 20, Ui.TEXT);
         } else {
-            Ui.outline(g, bx, by, bx + bw, by + 18, Ui.MUTED);
+            Ui.outline(g, bx, by, bx + bw, by + 20, 0x55FFFFFF);
         }
-        g.drawString(font, "Back", bx + 12, by + 5, hover ? Ui.BLACK : Ui.TEXT, false);
-        hits.add(new Hit(bx, by, bw, 18, false, this::onClose));
+        g.drawString(font, "Back", bx + (bw - font.width("Back")) / 2, by + 6, hover ? Ui.BLACK : Ui.TEXT, false);
+        hits.add(new Hit(bx, by, bw, 20, false, this::onClose));
 
         String text;
         int color = Ui.SOFT;
@@ -507,34 +837,38 @@ final class WardrobeScreen extends Screen {
             text = "Signed in as " + Account.name() + ". Drop PNG files on this window to add them.";
             color = Ui.FAINT;
         }
-        g.drawString(font, font.plainSubstrByWidth(text, bx - MARGIN - 16), MARGIN, vh - 27, color, false);
+        g.drawString(font, font.plainSubstrByWidth(text, bx - left - 16), left, vh - 26, color, false);
     }
 
-    // ---------------------------------------------------------------- left panel
-
     private void panel(GuiGraphics g, WardrobeStore st, int mx, int my) {
-        int x = MARGIN;
+        int x = left;
         int y = 106;
         int boxH = Math.max(80, bottom - y - 70);
-        Ui.outline(g, x, y, x + PANEL_W, y + boxH, Ui.LINE);
         pvX = x;
         pvY = y;
         pvW = PANEL_W;
         pvH = boxH;
-        if (selSkin == null) {
+        if (selSkin == null && peek == null && !Account.signedIn()) {
             String hint = st.skins().isEmpty() ? "Add a skin to see it here" : "Pick a skin";
             g.drawString(font, hint, x + (PANEL_W - font.width(hint)) / 2, y + boxH / 2 - 4, Ui.FAINT, false);
         }
         int ry = y + boxH + 6;
         int rx = x;
-        rx += mini(g, "Hat", rx, ry, mx, my, hat, true, () -> hat = !hat) + 4;
-        rx += mini(g, "Jacket", rx, ry, mx, my, jacket, true, () -> jacket = !jacket) + 4;
-        rx += mini(g, "Sleeves", rx, ry, mx, my, sleeves, true, () -> sleeves = !sleeves) + 4;
-        mini(g, "Pants", rx, ry, mx, my, pants, true, () -> pants = !pants);
+        rx += mini(g, "Hat", rx, ry, mx, my, hat, true, () -> hat = wear(!hat, PlayerModelPart.HAT)) + 4;
+        rx += mini(g, "Jacket", rx, ry, mx, my, jacket, true, () -> jacket = wear(!jacket, PlayerModelPart.JACKET)) + 4;
+        rx += mini(g, "Sleeves", rx, ry, mx, my, sleeves, true,
+                () -> sleeves = wear(!sleeves, PlayerModelPart.LEFT_SLEEVE, PlayerModelPart.RIGHT_SLEEVE)) + 4;
+        mini(g, "Pants", rx, ry, mx, my, pants, true,
+                () -> pants = wear(!pants, PlayerModelPart.LEFT_PANTS_LEG, PlayerModelPart.RIGHT_PANTS_LEG));
         ry += 20;
         WardrobeStore.Skin s = selSkin;
-        mini(g, s == null ? "Arms" : s.slim ? "Arms: Slim" : "Arms: Classic", x, ry, mx, my, false, s != null,
+        int aw = mini(g, s == null ? "Arms" : s.slim ? "Arms: Slim" : "Arms: Classic", x, ry, mx, my, false, s != null,
                 () -> attempt(() -> st.setSlim(s.id, !s.slim)));
+        boolean leftHand = minecraft.options.mainHand().get() == HumanoidArm.LEFT;
+        mini(g, leftHand ? "Hand: Left" : "Hand: Right", x + aw + 4, ry, mx, my, false, true, () -> {
+            minecraft.options.mainHand().set(minecraft.options.mainHand().get().getOpposite());
+            minecraft.options.save();
+        });
         ry += 20;
         List<AccountInfo.Cape> list = capes();
         if (list.isEmpty()) {
@@ -545,44 +879,56 @@ final class WardrobeScreen extends Screen {
             list.forEach(c -> ids.add(c.id()));
             int at = Math.max(0, ids.indexOf(effectiveCape()));
             int cx = x;
-            cx += mini(g, "<", cx, ry, mx, my, false, true, () -> capeChoice = ids.get((at + ids.size() - 1) % ids.size())) + 4;
-            String label = "Cape: " + capeName(effectiveCape());
+            cx += mini(g, "<", cx, ry, mx, my, false, true, () -> pickCape(ids.get((at + ids.size() - 1) % ids.size()))) + 4;
+            String label = "Cape: " + capeName(effectiveCape()) + (capeDirtyAt != 0 || (capeChoice != null && !capeChoice.equals(activeCape()))
+                    ? Wardrobe.waitSeconds() > 0 ? " (in " + Wardrobe.waitSeconds() + " s)" : " ..." : "");
             g.drawString(font, font.plainSubstrByWidth(label, PANEL_W - 60), cx + 2, ry + 4, Ui.SOFT, false);
-            mini(g, ">", x + PANEL_W - 22, ry, mx, my, false, true, () -> capeChoice = ids.get((at + 1) % ids.size()));
+            mini(g, ">", x + PANEL_W - 22, ry, mx, my, false, true, () -> pickCape(ids.get((at + 1) % ids.size())));
         }
     }
 
-    /** The 3D figure. Drawn last because it writes depth, so nothing drawn after it shows through it. */
     private void preview(GuiGraphics g) {
-        long now = System.nanoTime();
-        float dt = lastNano == 0 ? 0 : Math.min(0.1f, (now - lastNano) / 1e9f);
-        lastNano = now;
-        if (!dragging) {
-            yaw += dt * 28;
+        float yaw = spin.yaw();
+        byte[] bytes;
+        boolean slim;
+        String label;
+        if (peek != null) {
+            bytes = peek.png();
+            slim = peek.slim();
+            label = peek.name();
+        } else if (selSkin != null && selBytes != null) {
+            bytes = selBytes;
+            slim = selSkin.slim;
+            label = null;
+        } else {
+            bytes = Account.signedIn() ? Wardrobe.currentBytes() : null;
+            slim = Wardrobe.currentIsSlim();
+            label = bytes == null ? null : "Wearing now";
         }
-        if (selSkin == null || selBytes == null) {
+        if (bytes == null) {
             return;
         }
-        ResourceLocation tex = SkinTextures.skin(selBytes);
+        ResourceLocation tex = SkinTextures.skin(bytes);
         if (tex == null) {
             g.drawString(font, "This file cannot be shown", pvX + 12, pvY + pvH / 2, BAD, false);
             return;
         }
         ResourceLocation cape = capeTexture(effectiveCape());
         float h = pvH - 28;
-        SkinPreview.draw(g, pvX + pvW / 2f, pvY + pvH - 12, h, yaw, tex, selSkin.slim, cape,
+        SkinPreview.draw(g, pvX + pvW / 2f, pvY + pvH - 12, h, yaw, tex, slim, cape,
                 new SkinPreview.Layers(hat, jacket, sleeves, pants));
+        if (label != null) {
+            g.drawString(font, label, pvX + (pvW - font.width(label)) / 2, pvY + 4, Ui.MUTED, false);
+        }
     }
-
-    // ---------------------------------------------------------------- the tabs
 
     private void skinsTab(GuiGraphics g, WardrobeStore st, int mx, int my) {
         int y = top + 4 - scroll;
         if (playersMode) {
             y = players(g, y, mx, my);
         } else {
-            if (selSkin != null) {
-                y = selected(g, st, y, mx, my);
+            if (peek == null && selSkin == null && query.isEmpty() && folder.isEmpty()) {
+                y = nowWearing(g, st, y, mx, my);
             }
             y = grid(g, st, y);
         }
@@ -626,8 +972,11 @@ final class WardrobeScreen extends Screen {
             y += 2;
         }
         flowStart(rightX, y, rightX + rightW);
+        flowList = false;
         boolean can = Account.signedIn() && !Wardrobe.busy();
-        flow(g, Wardrobe.busy() ? "Working..." : "Wear", mx, my, false, can, () -> Wardrobe.wear(s, capeChoice));
+        flow(g, Wardrobe.busy() ? "Working..." : Wardrobe.waitSeconds() > 0 ? "Wear in " + Wardrobe.waitSeconds() + " s" : "Wear", mx, my, false, can,
+                () -> Wardrobe.wear(s, capeChoice));
+        flow(g, "Close", mx, my, false, true, () -> select(st, ""));
         flow(g, "Rename", mx, my, false, true, () -> openInput("New name", s.name, t -> attempt(() -> st.rename(s.id, t))));
         flow(g, "Move to folder", mx, my, false, true, () -> openInput("Folder, empty for none", s.folder,
                 t -> attempt(() -> st.setFolder(s.id, t))));
@@ -661,7 +1010,7 @@ final class WardrobeScreen extends Screen {
         List<WardrobeStore.Skin> list = st.find(query, folder);
         if (list.isEmpty()) {
             String msg = st.skins().isEmpty()
-                    ? "Nothing saved yet. Use Add name, Add file or My skin, or drop a PNG file on this window."
+                    ? "Nothing saved yet. Use Get a skin, Add file or My skin, or drop a PNG file on this window."
                     : "No skin matches.";
             int ty = y;
             for (String line : Ui.wrap(font, msg, rightW)) {
@@ -680,13 +1029,15 @@ final class WardrobeScreen extends Screen {
             }
             WardrobeStore.Skin s = list.get(i);
             boolean on = s.id.equals(selId);
-            Ui.outline(g, cx, cy, cx + CARD_W, cy + CARD_H, on ? Ui.TEXT : Ui.LINE);
+            g.fill(cx, cy, cx + CARD_W, cy + CARD_H, on ? 0xD0141416 : 0xC00A0A0C);
+            Ui.outline(g, cx, cy, cx + CARD_W, cy + CARD_H, on ? 0xCCFFFFFF : 0x24FFFFFF);
+            g.fill(cx, cy, cx + 12, cy + 1, on ? Ui.TEXT : 0x66FFFFFF);
             face(g, bytesOf(st, s), cx + (CARD_W - 48) / 2, cy + 8, 48);
             String name = font.plainSubstrByWidth(s.name, CARD_W - 12);
             g.drawString(font, name, cx + (CARD_W - font.width(name)) / 2, cy + 64, Ui.TEXT, false);
             String sub = font.plainSubstrByWidth((s.slim ? "Slim" : "Classic") + (s.folder.isEmpty() ? "" : "  " + s.folder), CARD_W - 12);
             g.drawString(font, sub, cx + (CARD_W - font.width(sub)) / 2, cy + 76, Ui.FAINT, false);
-            hits.add(new Hit(cx, cy, CARD_W, CARD_H, true, () -> select(st, s.id)));
+            hits.add(new Hit(cx, cy, CARD_W, CARD_H, true, () -> clickSkin(st, s)));
         }
         return y + rows * (CARD_H + GAP);
     }
@@ -819,8 +1170,6 @@ final class WardrobeScreen extends Screen {
         limitScroll(y);
     }
 
-    // ---------------------------------------------------------------- small pieces
-
     private void face(GuiGraphics g, byte[] png, int x, int y, int size) {
         ResourceLocation tex = png == null || png.length == 0 ? null : SkinTextures.skin(png);
         if (tex == null) {
@@ -853,7 +1202,10 @@ final class WardrobeScreen extends Screen {
         }
     }
 
+    private boolean flowList = true;
+
     private void flowStart(int x, int y, int right) {
+        flowList = true;
         fx = x;
         fy = y;
         fLeft = x;
@@ -866,7 +1218,7 @@ final class WardrobeScreen extends Screen {
             fx = fLeft;
             fy += 26;
         }
-        draw(g, label, fx, fy, w, 20, mx, my, active, enabled, true, action);
+        draw(g, label, fx, fy, w, 20, mx, my, active, enabled, flowList, action);
         fx += w + 6;
     }
 
@@ -902,15 +1254,14 @@ final class WardrobeScreen extends Screen {
         if (active || hover) {
             g.fill(x, y, x + w, y + h, enabled ? Ui.TEXT : Ui.FAINT);
         } else {
-            Ui.outline(g, x, y, x + w, y + h, enabled ? 0x66FFFFFF : Ui.LINE);
+            g.fill(x, y, x + w, y + h, enabled ? 0x14FFFFFF : 0x08FFFFFF);
+            Ui.outline(g, x, y, x + w, y + h, enabled ? 0x40FFFFFF : 0x18FFFFFF);
         }
         g.drawString(font, label, x + (w - font.width(label)) / 2, y + (h - 8) / 2, active || hover ? Ui.BLACK : enabled ? Ui.TEXT : Ui.FAINT, false);
         if (enabled) {
             hits.add(new Hit(x, y, w, h, list, action));
         }
     }
-
-    // ---------------------------------------------------------------- input
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
@@ -943,7 +1294,7 @@ final class WardrobeScreen extends Screen {
                 }
             }
             if (Ui.over((int) mx, (int) my, pvX, pvY, pvW, pvH)) {
-                dragging = true;
+                spin.press(mx);
                 return true;
             }
         }
@@ -952,8 +1303,8 @@ final class WardrobeScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dx, double dy) {
-        if (dragging) {
-            yaw += (float) (dx / Ui.scale(minecraft)) * 1.4f;
+        if (spin.held()) {
+            spin.drag(mouseX / Ui.scale(minecraft));
             return true;
         }
         return super.mouseDragged(mouseX, mouseY, button, dx, dy);
@@ -961,7 +1312,7 @@ final class WardrobeScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        dragging = false;
+        spin.release();
         return super.mouseReleased(mouseX, mouseY, button);
     }
 

@@ -6,7 +6,6 @@ import khi.pentecost.install.Http;
 import khi.pentecost.install.ModrinthPick;
 import net.minecraft.SharedConstants;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.components.toasts.SystemToast;
 import net.minecraft.network.chat.Component;
 
 import java.io.IOException;
@@ -18,12 +17,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
-/**
- * Installs the two mods Pentecost's Video and Shaders pages are built around, when the player says yes:
- * Embeddium (more video options and faster rendering) and Oculus (shader packs, which needs Embeddium).
- * Files come from Modrinth, are checked against its SHA-1, and go into Pentecost's mods folder.
- * Forge builds only. The game has to restart before a new mod loads.
- */
 final class OptionalMods {
     static final String EMBEDDIUM = "embeddium";
     static final String OCULUS = "oculus";
@@ -40,7 +33,6 @@ final class OptionalMods {
         return JOBS.getOrDefault(slug, new Job(slug, State.IDLE, ""));
     }
 
-    /** What the row for this mod shows. */
     static String status(String slug, boolean loaded) {
         if (loaded) {
             return "Installed";
@@ -96,7 +88,6 @@ final class OptionalMods {
         }
     }
 
-    /** True when a jar of the same mod, in any version, is already in the folder. */
     static boolean alreadyThere(Path mods, String filename) throws IOException {
         String base = ModrinthPick.baseName(filename);
         try (Stream<Path> s = Files.list(mods)) {
@@ -108,7 +99,6 @@ final class OptionalMods {
 
     private static void toast(String title, String text) {
         Minecraft mc = Minecraft.getInstance();
-        mc.execute(() -> SystemToast.addOrUpdate(mc.getToasts(), SystemToast.SystemToastIds.PERIODIC_NOTIFICATION,
-                Component.literal(title), Component.literal(text)));
+        mc.execute(() -> khi.pentecost.game.PentecostToast.show(Component.literal(title), Component.literal(text)));
     }
 }

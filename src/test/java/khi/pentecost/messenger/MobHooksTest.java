@@ -19,10 +19,6 @@ import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * Applies the mob thread patches to the real game classes and checks every method's stack and types.
- * A wrong frame or stack size fails here, not in the player's game. Skipped when the game jar is not in cache.
- */
 class MobHooksTest {
     private static Path gameJar() throws IOException {
         Path dir = Path.of("cache", "remapped");
@@ -94,6 +90,34 @@ class MobHooksTest {
                 assertNotSame(original, patched, cls + " had no call site to change");
                 verify(patched, cl, cls);
             }
+        }
+    }
+
+    @Test
+    void badgePatchesMatchAndVerify() throws Exception {
+        Path jar = gameJar();
+        Assumptions.assumeTrue(jar != null, "No game jar in cache/remapped");
+        try (URLClassLoader cl = loader(jar)) {
+            for (String cls : new String[]{"net.minecraft.server.network.ServerGamePacketListenerImpl",
+                    "net.minecraft.client.multiplayer.ClientPacketListener"}) {
+                byte[] original = read(jar, cls);
+                byte[] patched = khi.pentecost.core.BadgeHooks.transformer().transform(cls, original);
+                assertNotSame(original, patched, cls + " was not patched");
+                verify(patched, cl, cls);
+            }
+        }
+    }
+
+    @Test
+    void menuGuardPatchMatchesAndVerifies() throws Exception {
+        Path jar = gameJar();
+        Assumptions.assumeTrue(jar != null, "No game jar in cache/remapped");
+        try (URLClassLoader cl = loader(jar)) {
+            String cls = "net.minecraft.client.Minecraft";
+            byte[] original = read(jar, cls);
+            byte[] patched = khi.pentecost.core.MenuGuard.transformer().transform(cls, original);
+            assertNotSame(original, patched, cls + " was not patched");
+            verify(patched, cl, cls);
         }
     }
 

@@ -19,11 +19,6 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/**
- * Headless check, no game window and no Minecraft instance: builds the menu level, feeds it every cached chunk
- * and reads blocks, light, biome and heightmap back out of it. Usage: MenuLevelCheck <cacheDir> <scratchDir>
- * What it cannot show: drawing. That needs the running game.
- */
 public final class MenuLevelCheck {
     public static void main(String[] args) throws Exception {
         Path cache = Path.of(args[0]);

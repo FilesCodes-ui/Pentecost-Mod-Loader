@@ -2,11 +2,6 @@ package khi.pentecost.game.menuworld;
 
 import java.util.List;
 
-/**
- * Entry point for the live menu world. Not wired into the title screen yet: the title screen still draws the
- * panorama. This class says what exists and what does not, so nothing pretends to work.
- * See docs/MENU_WORLD.md for the design and milestones.
- */
 public final class MenuWorld {
     private MenuWorld() {}
 
@@ -22,7 +17,6 @@ public final class MenuWorld {
             new Stage(7, "LOD rendering", false),
             new Stage(8, "Own saves, seeds, settings page (written, not yet seen in game; no typed seeds or coordinates yet)", false));
 
-    /** True once the world can be drawn. Until then the title screen keeps the panorama. */
     public static boolean ready() {
         return MenuHost.showing();
     }

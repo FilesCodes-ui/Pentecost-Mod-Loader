@@ -4,11 +4,6 @@ using System.Windows.Media.Imaging;
 
 namespace Pentecost.Manager;
 
-/// <summary>
-/// The look of Pentecost's own screens in the game, drawn here the same way: the thick slanted pixel letters of the boot
-/// splash, the small sailboat with two drifting waves, and the slow dithered backdrop. The shapes are copied from the game's
-/// Ui class, so the installer and the game show the same letters and the same boat.
-/// </summary>
 static class Pixels
 {
     public const int LogoW = 16;
@@ -73,7 +68,6 @@ static class Pixels
 
     static bool On(string[] g, int r, int c) => r >= 0 && r < 7 && c >= 0 && c < 5 && g[r][c] == '1';
 
-    /// <summary>A letter at twice the resolution, inside corners filled, so diagonals come out smooth. 14 rows by 10 columns.</summary>
     public static bool[,]? FineGlyph(char ch)
     {
         ch = char.ToUpperInvariant(ch);
@@ -105,7 +99,6 @@ static class Pixels
     }
 }
 
-/// <summary>A word in Pentecost's thick, slanted pixel letters. Pixel is the size of one fine pixel; a letter is 10 by 14 of them.</summary>
 public class Wordmark : FrameworkElement
 {
     public static readonly DependencyProperty TextProperty = DependencyProperty.Register(nameof(Text), typeof(string), typeof(Wordmark),
@@ -158,7 +151,6 @@ public class Wordmark : FrameworkElement
     }
 }
 
-/// <summary>The logo: a still sailboat in the water and two thin waves that drift slowly.</summary>
 public class PixelLogo : FrameworkElement
 {
     public static readonly DependencyProperty PixelProperty = DependencyProperty.Register(nameof(Pixel), typeof(double), typeof(PixelLogo),
@@ -175,8 +167,8 @@ public class PixelLogo : FrameworkElement
     {
         SnapsToDevicePixels = true;
         RenderOptions.SetEdgeMode(this, EdgeMode.Aliased);
-        Loaded += (_, _) => CompositionTarget.Rendering += Tick;
-        Unloaded += (_, _) => CompositionTarget.Rendering -= Tick;
+        Loaded += (_, _) => Anim.Add(Tick);
+        Unloaded += (_, _) => Anim.Remove(Tick);
     }
 
     void Tick(object? sender, EventArgs e) => InvalidateVisual();
@@ -205,10 +197,6 @@ public class PixelLogo : FrameworkElement
     }
 }
 
-/// <summary>
-/// The boot splash's dithered backdrop: a slow pattern of faint light pixels, strongest on the right, away from the text.
-/// A small bitmap is rebuilt about thirty times a second and drawn large without smoothing, so every cell stays a hard square.
-/// </summary>
 public class DitherBackdrop : FrameworkElement
 {
     const int Cell = 3;
@@ -222,7 +210,6 @@ public class DitherBackdrop : FrameworkElement
     public static readonly DependencyProperty FromLeftProperty = DependencyProperty.Register(nameof(FromLeft), typeof(bool), typeof(DitherBackdrop),
         new FrameworkPropertyMetadata(false));
 
-    /// <summary>Thickest at the left edge and thinning out to the right, instead of the other way round.</summary>
     public bool FromLeft { get => (bool)GetValue(FromLeftProperty); set => SetValue(FromLeftProperty, value); }
 
     public DitherBackdrop()
@@ -230,8 +217,8 @@ public class DitherBackdrop : FrameworkElement
         IsHitTestVisible = false;
         SnapsToDevicePixels = true;
         RenderOptions.SetBitmapScalingMode(this, BitmapScalingMode.NearestNeighbor);
-        Loaded += (_, _) => CompositionTarget.Rendering += Tick;
-        Unloaded += (_, _) => CompositionTarget.Rendering -= Tick;
+        Loaded += (_, _) => Anim.Add(Tick);
+        Unloaded += (_, _) => Anim.Remove(Tick);
     }
 
     void Tick(object? sender, EventArgs e)
@@ -260,6 +247,7 @@ public class DitherBackdrop : FrameworkElement
 
     protected override void OnRender(DrawingContext dc)
     {
+        if (Anim.Sizing && bitmap != null) { dc.DrawImage(bitmap, new Rect(0, 0, ActualWidth, ActualHeight)); return; }
         if (bitmap != null) dc.DrawImage(bitmap, new Rect(0, 0, cols * Cell, rows * Cell));
     }
 }

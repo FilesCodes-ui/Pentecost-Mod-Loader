@@ -23,7 +23,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** Time, weather, rules and clearing out the world around you. */
 final class WorldCmds {
     private static final String C = "World";
 

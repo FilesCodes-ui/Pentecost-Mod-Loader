@@ -13,7 +13,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** Later and repeating commands, and the tracker that points you at a place. Both are driven by Qol.tick. */
 final class Timers {
     static final class Task {
         final int id;
@@ -104,7 +103,6 @@ final class Timers {
     }
 }
 
-/** Points players at places. A tracked place is looked up again every half second, so a tracked player can move. */
 final class Tracker {
     private static final Map<UUID, String> TRACKED = new HashMap<>();
 
@@ -151,7 +149,6 @@ final class Tracker {
 
     private static final String[] SECTORS = {"ahead", "ahead-right", "right", "behind-right", "behind", "behind-left", "left", "ahead-left"};
 
-    /** "132 blocks, ahead-right, above": how far a place is, and where it is from where you face. */
     static String relative(ServerPlayer p, Where.Spot s) {
         if (s.level() != p.level()) {
             return "in " + Where.dimension(s.level());

@@ -40,18 +40,11 @@ import java.util.Set;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
-/**
- * Stands in for the bottom layer of Forge's loader. Forge's launcher normally finds the mod files,
- * reads them, and hands the list to the rest of Forge. Pentecost found the mods already,
- * so this class builds the same list from Pentecost's mods and hands it over.
- * From there Forge's own code runs its normal mod lifecycle.
- */
 public final class ForgeBoot {
     private ForgeBoot() {}
 
     private static long lapAt = System.nanoTime();
 
-    /** Prints how long the work since the last lap took. Shows where Forge prepare spends its time. */
     private static void lap(String what) {
         long now = System.nanoTime();
         System.out.println(String.format(java.util.Locale.ROOT,
@@ -90,7 +83,6 @@ public final class ForgeBoot {
                     System.out.println("[Pentecost] Mod language from a mod jar: " + extra.name());
                 }
             } catch (Throwable notForUs) {
-                // A provider that cannot load here is not one Pentecost runs.
             }
         }
 
@@ -137,7 +129,6 @@ public final class ForgeBoot {
 
         lap("reading mod descriptions");
         CoreMods.loadAsync(usable);
-        // Forge reports loading progress through this handler. Give it a progress bar to write to.
         Field progress = ImmediateWindowHandler.class.getDeclaredField("earlyProgress");
         progress.setAccessible(true);
         progress.set(null, net.minecraftforge.fml.loading.progress.StartupNotificationManager.addProgressBar("EARLY", 0));
@@ -153,8 +144,6 @@ public final class ForgeBoot {
         list.addForScanning(FMLLoader.backgroundScanHandler);
         lap("starting the background class scan");
 
-
-        // Forge shows an early loading window through this handler. The plain window path is enough here.
         Field provider = ImmediateWindowHandler.class.getDeclaredField("provider");
         provider.setAccessible(true);
         provider.set(null, new PlainWindow());
@@ -169,7 +158,6 @@ public final class ForgeBoot {
         f.set(null, value);
     }
 
-    /** Orders mods so that each mod comes after the mods it depends on. Minecraft and Forge come first. */
     private static List<ModInfo> sort(List<ModFile> files) {
         Map<String, ModInfo> byId = new LinkedHashMap<>();
         for (ModFile f : files) {
@@ -201,7 +189,6 @@ public final class ForgeBoot {
         out.add(info);
     }
 
-    /** Describes the game itself as a mod named "minecraft", the way Forge does. */
     private static IModFileInfo minecraftInfo(IModFile file) {
         Config conf = Config.inMemory();
         conf.set("modLoader", "minecraft");
@@ -230,7 +217,6 @@ public final class ForgeBoot {
         }
     }
 
-    /** Tells Forge how to walk the classes of a mod file. The game jar itself is not scanned. */
     private record Provider(boolean scan) implements IModProvider {
         @Override
         public String name() {

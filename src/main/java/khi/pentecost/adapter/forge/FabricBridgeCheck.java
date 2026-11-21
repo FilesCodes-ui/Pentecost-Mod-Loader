@@ -2,7 +2,6 @@ package khi.pentecost.adapter.forge;
 
 import java.io.IOException;
 
-/** Headless check for the file name rule on bridge downloads. */
 public final class FabricBridgeCheck {
     private static int failures;
 

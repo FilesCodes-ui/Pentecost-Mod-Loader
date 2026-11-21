@@ -30,7 +30,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-/** Talking to people: messages, mail, announcements, titles, AFK and a few emotes. */
 final class ChatCmds {
     private static final String C = "Chat";
 
@@ -58,7 +57,6 @@ final class ChatCmds {
         p.playNotifySound(s, SoundSource.PLAYERS, 1.0F, pitch);
     }
 
-    /** A big title in the middle of a player's screen. */
     static void title(ServerPlayer p, String main, String sub, int in, int stay, int out) {
         p.connection.send(new ClientboundSetTitlesAnimationPacket(in, stay, out));
         if (sub != null && !sub.isEmpty()) {
@@ -126,7 +124,6 @@ final class ChatCmds {
         emote("tableflip", "(\u256F\u00B0\u25A1\u00B0)\u256F\uFE35 \u253B\u2501\u253B", "Flip a table in chat");
         emote("unflip", "\u252C\u2500\u252C \u30CE( \u309C-\u309C\u30CE)", "Put the table back");
 
-        // ---- private messages
         Qol.playerText(C, "pm", 0, "<player> <message>", "Send a private message", (c, who, text) -> {
             ServerPlayer me = Qol.me(c);
             ServerPlayer t = Qol.one(c.getSource(), who);
@@ -155,7 +152,6 @@ final class ChatCmds {
             return 1;
         });
 
-        // ---- mail, kept until the world closes
         Qol.wordText(C, "mail", 0, "<player> <message>", "Leave a message for a player, even one who is offline (kept until the world closes)", Qol.PLAYERS, (c, who, text) -> {
             if (who.startsWith("@") || who.equals("*")) {
                 throw new Bad("Mail goes to one player by name.");
@@ -193,7 +189,6 @@ final class ChatCmds {
             return Qol.ok(c, box == null ? "No mail to delete." : "Deleted " + box.size() + ".");
         });
 
-        // ---- being away
         Qol.none(C, "afk", 0, "Tell everyone you are away, or back", c -> {
             ServerPlayer p = Qol.me(c);
             boolean away = AFK.add(p.getUUID());
@@ -214,7 +209,6 @@ final class ChatCmds {
             return Qol.ok(c, names.isEmpty() ? "Nobody is away." : "Away: " + String.join(", ", names));
         });
 
-        // ---- the room
         Qol.none(C, "clearchat", 2, "Push the chat off everyone's screen", c -> {
             for (ServerPlayer p : c.getSource().getServer().getPlayerList().getPlayers()) {
                 for (int i = 0; i < 100; i++) {

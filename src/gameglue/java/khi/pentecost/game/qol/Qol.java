@@ -24,14 +24,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Pentecost's quality-of-life commands. They live in the game glue and are registered by the pregenerator's tick
- * (see Pregen), so they exist on a dedicated server, a LAN world and a WWLS world alike, with no client code.
- * Every command goes through the helpers below, which give it the same behaviour: a permission level, a mistake
- * that shows as a plain error line, and an entry in /qol so nothing is hidden.
- * Wherever a command takes a place, it takes a Where: a player, a named place, or x y z with players allowed
- * in any coordinate (see Where).
- */
 public final class Qol {
     public interface Run { int run(CommandContext<CommandSourceStack> c) throws CommandSyntaxException; }
     public interface PlayerRun { int run(CommandContext<CommandSourceStack> c, ServerPlayer target) throws CommandSyntaxException; }
@@ -39,7 +31,6 @@ public final class Qol {
     public interface IntRun { int run(CommandContext<CommandSourceStack> c, Integer n) throws CommandSyntaxException; }
     public interface SpotRun { int run(CommandContext<CommandSourceStack> c, Where.Spot spot) throws CommandSyntaxException; }
 
-    /** A mistake the player can fix. The message is shown as the command's error line. */
     public static final class Bad extends RuntimeException {
         public Bad(String message) {
             super(message, null, false, false);
@@ -56,9 +47,6 @@ public final class Qol {
 
     private Qol() {}
 
-    // ---------------------------------------------------------------- install and tick
-
-    /** Registers every command the server does not already have. Safe to call again and again. */
     public static void ensure(MinecraftServer server) {
         try {
             init();
@@ -122,7 +110,6 @@ public final class Qol {
         }
     }
 
-    /** Called every server tick. */
     public static void tick(MinecraftServer server) {
         try {
             Timers.tick(server);
@@ -136,8 +123,6 @@ public final class Qol {
             Log.warn("QOL tick: " + e);
         }
     }
-
-    // ---------------------------------------------------------------- helpers for commands
 
     static LiteralArgumentBuilder<CommandSourceStack> lit(String name, int perm) {
         return Commands.literal(name).requires(s -> perm <= 0 || s.hasPermission(perm));
@@ -177,11 +162,6 @@ public final class Qol {
         return self(c.getSource());
     }
 
-    /**
-     * The player a command works for. A player who types it is that player. A command block, the console or a
-     * function has no player, so it works for the nearest one (in its own world first) and only fails when
-     * nobody is online.
-     */
     static ServerPlayer self(CommandSourceStack src) {
         ServerPlayer p = src.getPlayer();
         if (p != null) {
@@ -216,7 +196,6 @@ public final class Qol {
         return (c, b) -> SharedSuggestionProvider.suggest(List.of(values), b);
     }
 
-    /** "Steve", "*" or "@a" for everyone, "@s" or "me" for yourself, "@p" for the nearest other player. */
     static List<ServerPlayer> resolve(CommandSourceStack src, String who) throws CommandSyntaxException {
         MinecraftServer server = src.getServer();
         List<ServerPlayer> all = server.getPlayerList().getPlayers();
@@ -266,14 +245,10 @@ public final class Qol {
         return n;
     }
 
-    // ---------------------------------------------------------------- command shapes
-
-    /** /name */
     static void none(String cat, String name, int perm, String desc, Run r) {
         add(lit(name, perm).executes(guard(r)), cat, name, "", desc, perm);
     }
 
-    /** /name [player]: yourself when left out. "@a" and "*" mean everyone. */
     static void player(String cat, String name, int perm, String desc, PlayerRun r) {
         add(lit(name, perm).executes(guard(c -> each(c, null, r)))
                 .then(Commands.argument("player", EntityArgument.players())
@@ -281,14 +256,12 @@ public final class Qol {
                 cat, name, "[player]", desc, perm);
     }
 
-    /** /name <player> */
     static void playerReq(String cat, String name, int perm, String desc, PlayerRun r) {
         add(lit(name, perm).then(Commands.argument("player", EntityArgument.players())
                         .executes(guard(c -> each(c, EntityArgument.getPlayers(c, "player"), r)))),
                 cat, name, "<player>", desc, perm);
     }
 
-    /** /name <player> <text...>. The player is picked like in vanilla (@s, @p, a name); the callback gets that name. */
     static void playerText(String cat, String name, int perm, String usage, String desc, TwoRun r) {
         add(lit(name, perm).then(Commands.argument("word", EntityArgument.player())
                         .then(Commands.argument("text", StringArgumentType.greedyString())
@@ -297,14 +270,12 @@ public final class Qol {
                 cat, name, usage, desc, perm);
     }
 
-    /** /name <text...> */
     static void text(String cat, String name, int perm, String usage, String desc, WordRun r) {
         add(lit(name, perm).then(Commands.argument("text", StringArgumentType.greedyString())
                         .executes(guard(c -> r.run(c, StringArgumentType.getString(c, "text"))))),
                 cat, name, usage, desc, perm);
     }
 
-    /** /name <word> or /name [word]. The word is null when it is left out. */
     static void word(String cat, String name, int perm, String usage, String desc, boolean optional,
                      SuggestionProvider<CommandSourceStack> suggestions, WordRun r) {
         LiteralArgumentBuilder<CommandSourceStack> b = lit(name, perm);
@@ -316,7 +287,6 @@ public final class Qol {
         add(b, cat, name, usage, desc, perm);
     }
 
-    /** /name <n> or /name [n]. The number is null when it is left out. */
     static void integer(String cat, String name, int perm, String usage, String desc, int min, int max, boolean optional, IntRun r) {
         LiteralArgumentBuilder<CommandSourceStack> b = lit(name, perm);
         if (optional) {
@@ -327,14 +297,12 @@ public final class Qol {
         add(b, cat, name, usage, desc, perm);
     }
 
-    /** /name <where...> */
     static void where(String cat, String name, int perm, String desc, SpotRun r) {
         add(lit(name, perm).then(Commands.argument("where", StringArgumentType.greedyString()).suggests(Where::suggest)
                         .executes(guard(c -> r.run(c, Where.resolve(c.getSource(), StringArgumentType.getString(c, "where")))))),
                 cat, name, "<where>", desc, perm);
     }
 
-    /** /name [where...]: the block you are looking at when left out. */
     static void whereOpt(String cat, String name, int perm, String desc, SpotRun r) {
         add(lit(name, perm).executes(guard(c -> r.run(c, Where.look(c.getSource()))))
                         .then(Commands.argument("where", StringArgumentType.greedyString()).suggests(Where::suggest)
@@ -345,7 +313,6 @@ public final class Qol {
     public interface TwoRun { int run(CommandContext<CommandSourceStack> c, String word, String text) throws CommandSyntaxException; }
     public interface NumTextRun { int run(CommandContext<CommandSourceStack> c, int n, String text) throws CommandSyntaxException; }
 
-    /** /name <word> <text...> */
     static void wordText(String cat, String name, int perm, String usage, String desc,
                          SuggestionProvider<CommandSourceStack> suggestions, TwoRun r) {
         add(lit(name, perm).then(Commands.argument("word", StringArgumentType.word()).suggests(suggestions)
@@ -354,19 +321,15 @@ public final class Qol {
                 cat, name, usage, desc, perm);
     }
 
-    /** /name <n> <text...> */
     static void numText(String cat, String name, int perm, String usage, String desc, int min, int max, NumTextRun r) {
         add(lit(name, perm).then(Commands.argument("n", IntegerArgumentType.integer(min, max))
                         .then(Commands.argument("text", StringArgumentType.greedyString())
                                 .executes(guard(c -> r.run(c, IntegerArgumentType.getInteger(c, "n"), StringArgumentType.getString(c, "text")))))),
                 cat, name, usage, desc, perm);
     }
-    /** A command built by hand. The builder comes from lit(). */
     static void custom(String cat, String name, int perm, String usage, String desc, LiteralArgumentBuilder<CommandSourceStack> b) {
         add(b, cat, name, usage, desc, perm);
     }
-
-    // ---------------------------------------------------------------- moving players
 
     static void go(ServerPlayer p, Where.Spot s) {
         Store.remember(p);
@@ -374,8 +337,6 @@ public final class Qol {
         p.stopRiding();
         p.teleportTo(s.level(), s.pos().x, s.pos().y, s.pos().z, s.yRot(), s.xRot());
     }
-
-    // ---------------------------------------------------------------- /qol
 
     private static void help() {
         add(lit("qol", 0).executes(guard(c -> {
@@ -414,8 +375,6 @@ public final class Qol {
                         }))),
                 "Info", "qol", "[group or word]", "List Pentecost's commands, or search them", 0);
     }
-
-    // ---------------------------------------------------------------- shared state used by the command files
 
     static final Map<UUID, String> TPA = new HashMap<>();
 }

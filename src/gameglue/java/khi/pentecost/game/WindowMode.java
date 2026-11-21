@@ -8,10 +8,6 @@ import khi.pentecost.control.Settings;
 import net.minecraft.client.Minecraft;
 import org.lwjgl.glfw.GLFW;
 
-/**
- * Windowed, fullscreen, or borderless: a window without a frame that covers the whole monitor.
- * Borderless looks like fullscreen, but switching apps does not minimize the game or blank the screen.
- */
 final class WindowMode {
     static final String WINDOWED = "windowed";
     static final String FULLSCREEN = "fullscreen";
@@ -42,17 +38,12 @@ final class WindowMode {
         };
     }
 
-    /** Right before the game makes its window: a borderless window is made without a frame. */
     static void beforeWindow() {
         if (Settings.get(Settings.WINDOW).equals(BORDERLESS) && !Minecraft.getInstance().options.fullscreen().get()) {
             GLFW.glfwWindowHint(GLFW.GLFW_DECORATED, GLFW.GLFW_FALSE);
         }
     }
 
-    /**
-     * The window exists but has not taken its size yet. For borderless, its size and place become
-     * the monitor's, so the game opens borderless with no resize later.
-     */
     static void windowBorn(Object o) {
         Window w = (Window) o;
         if (!Settings.get(Settings.WINDOW).equals(BORDERLESS) || w.isFullscreen()) {
@@ -93,7 +84,6 @@ final class WindowMode {
         }
     }
 
-    /** Applies the saved mode once, when the game first shows a menu. */
     static void applySaved() {
         if (applied) {
             return;
@@ -105,10 +95,6 @@ final class WindowMode {
         }
     }
 
-    /**
-     * After the window changes size outside the game's own resize path (borderless at boot),
-     * a screen can keep its old size for a moment. Then the game's display is resized once more.
-     */
     static void fixStaleSize(net.minecraft.client.gui.screens.Screen screen) {
         Minecraft mc = Minecraft.getInstance();
         Window w = mc.getWindow();

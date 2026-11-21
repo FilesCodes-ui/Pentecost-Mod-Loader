@@ -39,16 +39,6 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/**
- * Runs the live menu world behind the main menu. The title screen calls {@link #attach}, {@link #frame} and
- * {@link #detach}; the settings screen reads the status and calls the change methods. Everything except the
- * preparation and the chunk reading happens on the render thread.
- *
- * Safety: nothing is shown unless the player turned it on. If anything throws, the menu world turns itself off and
- * the panorama comes back. If the game stops hard while it is showing, a marker file turns it off at the next start.
- *
- * Status: written against the verified 1.20.1 names and compiled; not yet seen in the game.
- */
 public final class MenuHost {
     private MenuHost() {}
 
@@ -108,9 +98,7 @@ public final class MenuHost {
 
     private static volatile boolean readErrorLogged;
     private static final Object PREP_LOCK = new Object();
-    /** A new world is being made. The world on screen, if any, stays until the new one is ready. */
     private static volatile boolean busy;
-    /** Threads that read and build chunks. The render thread only hands finished chunks to the level. */
     private static final int READERS = Math.max(2, Math.min(3, Runtime.getRuntime().availableProcessors() / 4));
     private static final int FEED_MAX = 12;
     private static final long FEED_BUDGET_NANOS = 5_000_000L;
@@ -126,8 +114,6 @@ public final class MenuHost {
     private static Saved saved;
     private static int frames;
     private static long lastNanos;
-
-    // ------------------------------------------------------------------ profile and status
 
     private static Path configDir() {
         return Dirs.config().resolve("pentecost");
@@ -159,7 +145,6 @@ public final class MenuHost {
                     save();
                 }
             } catch (IOException e) {
-                // a marker that cannot be read or deleted changes nothing
             }
         }
         return profile;
@@ -178,7 +163,6 @@ public final class MenuHost {
         return state;
     }
 
-    /** One plain line for the settings screen. */
     public static String status() {
         MenuProfile p = profile();
         if (!p.enabled) return message.isEmpty() ? "Off" : message;
@@ -199,19 +183,15 @@ public final class MenuHost {
         return state == State.NEEDS_EULA;
     }
 
-    /** True while the world is the thing the title screen shows. */
     public static boolean showing() {
         return attached && live != null && state == State.READY;
     }
 
-    /** 0 to 1, how much black to draw over the world: loading, and the fade at each cut. */
     public static float cover() {
         Live l = live;
         if (!showing() || l == null) return 0F;
-        return (float) Mth.clamp(1.0 - l.visible * l.fade, 0.0, 1.0);
+        return (float) Mth.clamp(1.0 - l.visible, 0.0, 1.0);
     }
-
-    // ------------------------------------------------------------------ changes from the settings screen
 
     public static boolean enabled() {
         return profile().enabled;
@@ -228,7 +208,6 @@ public final class MenuHost {
         if (on) startPrep(false);
     }
 
-    /** The world, the centre, the radius or the view distance changed: read and scan again. */
     public static void worldChanged() {
         save();
         if (profile().enabled) {
@@ -239,7 +218,6 @@ public final class MenuHost {
         }
     }
 
-    /** Look for places again, even though the world did not change. */
     public static void rescan() {
         MenuProfile p = profile();
         p.scanKey = "";
@@ -247,13 +225,11 @@ public final class MenuHost {
         if (p.enabled) startPrep(true);
     }
 
-    /** Places, camera or time settings changed: the world stays, the director starts over. */
     public static void directorChanged() {
         save();
         rebuildDirector = true;
     }
 
-    /** The block the shown area is centred on, {x, z}. */
     public static int[] centre() {
         Live l = live;
         if (l != null) return new int[] {l.ready.centerX(), l.ready.centerZ()};
@@ -261,7 +237,6 @@ public final class MenuHost {
         return new int[] {p.centerX, p.centerZ};
     }
 
-    /** Ground height at a column of the shown area, or a middling guess when nothing is loaded. */
     public static int surfaceY(int x, int z) {
         Live l = live;
         if (l == null) return 70;
@@ -269,7 +244,53 @@ public final class MenuHost {
         return y > -60 ? y : 70;
     }
 
-    // ------------------------------------------------------------------ the title screen's side
+    public static void prepareEarly() {
+        MenuProfile p = profile();
+        if (!p.enabled || sessionOff || live != null || busy || state != State.OFF) return;
+        if (Minecraft.getInstance().level != null) return;
+        Log.info("Menu world: preparing during the loading screen");
+        startPrep(false);
+    }
+
+    public static boolean settled() {
+        if (!profile().enabled || sessionOff) return true;
+        State s = state;
+        if (s == State.FAILED || s == State.NEEDS_EULA) return true;
+        if (s == State.OFF && !busy) return true;
+        Live l = live;
+        return l != null && attached && l.visible >= 0.99 && cover() <= 0.02F;
+    }
+
+    private static long comingSince;
+    private static final long COMING_MAX_MS = 15_000;
+
+    public static boolean coming() {
+        MenuProfile p = profile();
+        State s = state;
+        boolean on = p.enabled && !sessionOff && s != State.FAILED && s != State.NEEDS_EULA
+                && (busy || s == State.PREPARING || (s == State.READY && !showing()) || (wanted && live == null && s == State.OFF));
+        if (!on) {
+            comingSince = 0;
+            return false;
+        }
+        long now = System.currentTimeMillis();
+        if (comingSince == 0) comingSince = now;
+        return now - comingSince < COMING_MAX_MS;
+    }
+
+    public static void beforeRealLevel() {
+        Minecraft mc = Minecraft.getInstance();
+        Live l = live;
+        if (attached && l != null && mc.level == l.menu.level) {
+            wanted = false;
+            unhook(mc);
+            Log.info("Menu world: stepped aside for a real world");
+        }
+    }
+
+    public static boolean staysBehindMenus() {
+        return khi.pentecost.core.MenuGuard.installed;
+    }
 
     public static void attach(Minecraft mc) {
         wanted = false;
@@ -284,21 +305,16 @@ public final class MenuHost {
         unhook(mc);
     }
 
-    /**
-     * Called every frame by the game loop. While a real world is open the menu world has nothing to do: its level,
-     * chunk readers, planner thread and a running world generation would only cost memory and processor time that the
-     * game needs. It is let go here, and built again the next time the main menu shows.
-     */
     public static void release(Minecraft mc) {
         if (mc.level == null) return;
         Live l = live;
-        if (l != null && mc.level == l.menu.level) return; // the menu world itself is showing
+        if (l != null && mc.level == l.menu.level) return;
         if (live != null || busy) {
             wanted = false;
-            generation++; // a preparation still running is for a screen that is gone
+            generation++;
             busy = false;
             outcome = null;
-            if (!warming) SeedPregen.stopRunning(); // a full-speed run stops and keeps what it finished; the gentle background run keeps going
+            if (!warming) SeedPregen.stopRunning();
             dropLive(mc);
             if (state != State.FAILED) state = State.OFF;
             Log.info("Menu world: let go while a world is open");
@@ -306,14 +322,9 @@ public final class MenuHost {
         warmUp();
     }
 
-    // ------------------------------------------------------------------ generating while a world is open
-
-    /** True while the seed is being generated in the background because a real world is open. */
     private static volatile boolean warming;
     private static volatile String warmKey = "";
-    /** The area last looked at this session, so the check runs once and not every frame. Game thread only. */
     private static String warmTried = "";
-    /** Processors the background server may use: the game is running and needs the rest. */
     private static final int WARM_CORES = Math.max(2, Runtime.getRuntime().availableProcessors() / 4);
 
     private static SeedPregen.Area areaOf(MenuProfile p) {
@@ -326,28 +337,19 @@ public final class MenuHost {
         return p.seed + ":" + p.centerMode + ":" + p.centerX + "," + p.centerZ + ":" + p.radiusChunks;
     }
 
-    /**
-     * While a real world is open the menu is not showing, so this is the time to make the menu world: on few
-     * processors, at the lowest thread priority, so it is done when the player is back at the main menu. Needs the
-     * menu world on and a seed as the source. Generating needs the EULA agreed, the same as at the menu; unpacking a
-     * packed seed does not. Setting
-     * menu.generateInGame = false turns it off. A packed copy of the seed is used first, when there is one.
-     */
     private static void warmUp() {
         if ("false".equals(khi.pentecost.control.Settings.get("menu.generateInGame"))) return;
         MenuProfile p = profile();
         if (!p.enabled || p.sourceKind != MenuProfile.SourceKind.SEED) return;
-        // Unpacking a packed seed runs no server, so it needs no EULA. Only generating does.
         if (!p.eulaAccepted && !Files.isRegularFile(SeedBundle.bundleFile(Dirs.home(), p.seed))) return;
         String key = areaKey(p);
         if (key.equals(warmTried)) return;
         if (warming) {
-            // The area changed while it generates: point the run at the new one, it carries on from what it has.
             if (SeedPregen.retarget(areaOf(p), null)) {
                 warmTried = key;
                 warmKey = key;
             } else {
-                SeedPregen.stopRunning(); // another seed: stop it; the next frame starts the new one
+                SeedPregen.stopRunning();
             }
             return;
         }
@@ -384,7 +386,6 @@ public final class MenuHost {
         t.start();
     }
 
-    /** Called once per frame by the title screen, before it draws. */
     public static void frame(Minecraft mc) {
         if (!wanted) return;
         try {
@@ -397,7 +398,6 @@ public final class MenuHost {
             if (l == null || state != State.READY) return;
             if (!attached && !hook(mc, l)) return;
             if (mc.level != l.menu.level) {
-                // A real world took the screen. Leave the game's fields alone.
                 attached = false;
                 wanted = false;
                 restoreOptions(mc);
@@ -409,17 +409,12 @@ public final class MenuHost {
         }
     }
 
-    // ------------------------------------------------------------------ preparation
-
     private static void startPrep(boolean forceScan) {
         int gen = ++generation;
         if (live == null) state = State.PREPARING;
         busy = true;
         progress = null;
         outcome = null;
-        // A generation that is running for this seed is pointed at the new area and carries on (a new radius or
-        // centre never starts it again). One for another seed stops and keeps what it finished. The preparation
-        // below waits for the run and then reads the result.
         MenuProfile now = profile();
         boolean sameSeed = now.sourceKind == MenuProfile.SourceKind.SEED && SeedPregen.retarget(areaOf(now), pr -> {
             if (gen == generation) progress = new MenuPrep.Progress(MenuPrep.Phase.GENERATING, pr.stage(), pr.chunksDone(), pr.chunksTotal());
@@ -434,7 +429,7 @@ public final class MenuHost {
         Path home = Dirs.home();
         Thread t = new Thread(() -> {
             synchronized (PREP_LOCK) {
-                if (gen != generation) return; // a newer request came while this one waited
+                if (gen != generation) return;
                 try {
                     MenuPrep.Ready r = MenuPrep.prepare(home, config, snapshot, forceScan, p -> {
                         if (gen == generation) progress = p;
@@ -467,7 +462,7 @@ public final class MenuHost {
                 Log.warn(text);
             }
             message = text;
-            if (live == null) state = next; // a world already on screen keeps running; the settings page shows the reason
+            if (live == null) state = next;
             return;
         }
         MenuPrep.Ready r = o.ready();
@@ -477,7 +472,7 @@ public final class MenuHost {
         p.scanKey = r.scanKey();
         save();
 
-        dropLive(mc); // the new world is ready: only now does the old one go
+        dropLive(mc);
         int view = p.viewChunks;
         MenuLevel menu = MenuLevel.create(mc, r.access(), p.sourceKind == MenuProfile.SourceKind.SEED ? p.seed : 0L, view);
         LocalPlayer player = new LocalPlayer(mc, menu.level, menu.listener(), new StatsCounter(), new ClientRecipeBook(), false, false);
@@ -501,7 +496,6 @@ public final class MenuHost {
 
     private static ShotSequencer newSequencer(Live l, MenuProfile p) {
         ProfileDirector d = new ProfileDirector(System.nanoTime(), p, l.ready.terrain(), l.ready.centerX(), l.ready.centerZ());
-        // The camera only goes where the world was generated and loads: places and camera stay inside the box.
         int[] b = l.ready.box();
         int span = (b[2] - b[0] + 1) * 16;
         int far = Math.min(96, span / 4);
@@ -514,18 +508,16 @@ public final class MenuHost {
         return s;
     }
 
-    // ------------------------------------------------------------------ swapping the level in and out
-
     private static boolean hook(Minecraft mc, Live l) throws IOException {
-        if (mc.level != null) return false; // a real world is loaded: never touch it
+        if (mc.level != null) return false;
         saved = new Saved(mc.options.getCameraType(), mc.options.fov().get(), mc.options.hideGui);
         Files.createDirectories(marker().getParent());
         Files.writeString(marker(), "showing");
         armShutdownCleanup();
 
         mc.options.setCameraType(CameraType.FIRST_PERSON);
-        mc.options.setServerRenderDistance(l.view); // before the renderer gets the level, so fog ends where the land does
-        khi.pentecost.core.MenuDistance.chunks = l.view; // the menu world uses its own distance, not the one set in Video
+        mc.options.setServerRenderDistance(l.view);
+        khi.pentecost.core.MenuDistance.chunks = l.view;
         mc.options.hideGui = true;
         mc.gameRenderer.setRenderHand(false);
         mc.gameRenderer.setRenderBlockOutline(false);
@@ -548,17 +540,30 @@ public final class MenuHost {
         l.waited = 0;
         frames = 0;
         attached = true;
+        startLod(mc, l);
         return true;
+    }
+
+    private static void startLod(Minecraft mc, Live l) {
+        try {
+            MenuProfile p = profile();
+            boolean seed = p.sourceKind == MenuProfile.SourceKind.SEED;
+            long id = seed ? p.seed : l.ready.regionDir().toAbsolutePath().toString().hashCode();
+            MenuDh.start(mc, id);
+            if (!MenuDh.active()) return;
+            Path region = l.ready.regionDir();
+            Path base = configDir().resolve("menu_world");
+            Path far = seed ? WorldSource.ofSeed(p.seed).cacheDir(configDir()).resolveSibling(
+                    WorldSource.ofSeed(p.seed).cacheDir(configDir()).getFileName() + "-lod") : null;
+            MenuFarLod.start(l.menu.level, l.biomes, id, region, far, base.resolve("dh-fed-" + Long.toHexString(id)),
+                    l.ready.centerX(), l.ready.centerZ(), seed && p.eulaAccepted);
+        } catch (Throwable e) {
+            Log.warn("Menu world: Distant Horizons could not be set up for it: " + e);
+        }
     }
 
     private static boolean shutdownCleanupArmed;
 
-    /**
-     * Closing the game from the main menu (window X, Quit, a launcher's close) never closes the title screen, so the
-     * marker stayed and the next start read it as a crash and turned the menu world off, every time. A clean exit
-     * has Minecraft no longer running when the JVM shuts down, so the hook removes the marker then. A crash exits
-     * while the game still counts as running, and a kill skips the hook: the marker stays and still catches those.
-     */
     private static void armShutdownCleanup() {
         if (shutdownCleanupArmed) return;
         shutdownCleanupArmed = true;
@@ -567,7 +572,6 @@ public final class MenuHost {
             try {
                 if (!Minecraft.getInstance().isRunning()) Files.deleteIfExists(m);
             } catch (Throwable e) {
-                // at exit there is nothing left to do about it
             }
         }, "Pentecost menu world marker cleanup"));
     }
@@ -575,6 +579,8 @@ public final class MenuHost {
     private static void unhook(Minecraft mc) {
         if (!attached) return;
         attached = false;
+        MenuFarLod.stop();
+        MenuDh.stop(mc);
         Live l = live;
         if (l != null && l.crowd != null) {
             l.crowd.clear();
@@ -595,7 +601,6 @@ public final class MenuHost {
         try {
             Files.deleteIfExists(marker());
         } catch (IOException e) {
-            // the marker only matters after a hard stop
         }
     }
 
@@ -627,17 +632,12 @@ public final class MenuHost {
         try {
             dropLive(mc);
         } catch (Throwable ignored) {
-            // already failing: the panorama must come back whatever else breaks
         }
         wanted = false;
         sessionOff = true;
         state = State.FAILED;
         message = "The live menu world stopped (" + t.getClass().getSimpleName() + ") and is off until the game restarts.";
-        // The setting stays on, so one failure does not switch the feature off for good. A crash that kills
-        // the game is still caught by the marker file.
     }
-
-    // ------------------------------------------------------------------ every frame
 
     private static void step(Minecraft mc, Live l) {
         MenuProfile p = profile();
@@ -678,9 +678,8 @@ public final class MenuHost {
 
         if (++frames == 120) {
             try {
-                Files.deleteIfExists(marker()); // it has been drawing for a while without stopping the game
+                Files.deleteIfExists(marker());
             } catch (IOException e) {
-                // harmless
             }
         }
     }
@@ -689,8 +688,6 @@ public final class MenuHost {
         Vec v = pose.pos();
         LocalPlayer pl = l.player;
         double y = v.y() - pl.getEyeHeight();
-        // Spectator-like: nothing pushes it, and it is not drawn, so neither the model nor its shadow (shader
-        // shadow maps included) can show in the picture.
         pl.setInvisible(true);
         pl.noPhysics = true;
         pl.setNoGravity(true);
@@ -709,12 +706,9 @@ public final class MenuHost {
         pl.xRotO = pitch;
         pl.yHeadRot = yaw;
         pl.yHeadRotO = yaw;
-        // Whole degrees made every zoom and field of view move jump in steps, so the exact value goes through the hook.
         khi.pentecost.core.ZoomHooks.fovOverride = Mth.clamp(pose.fov(), 30.0, 110.0)
                 / Math.max(1.0, khi.pentecost.core.ZoomHooks.factor);
     }
-
-    // ------------------------------------------------------------------ chunks
 
     private static long key(int x, int z) {
         return ((long) x << 32) | (z & 0xFFFFFFFFL);
@@ -759,14 +753,15 @@ public final class MenuHost {
             long k = key(r.x(), r.z());
             l.inflight.remove(k);
             if (r.skipped() || (r.data() != null && Math.max(Math.abs(r.x() - l.cx), Math.abs(r.z() - l.cz)) > l.view + 1)) {
-                l.restream = true; // it arrived after the camera moved on: the game would log a warning for each one
+                l.restream = true;
             } else if (r.data() == null) {
                 l.missing.add(k);
             } else if (l.menu.feed(r.data())) {
                 l.loaded.add(k);
                 fed++;
+                if (MenuDh.active()) MenuDh.chunk(l.menu.level, l.menu.level.getChunk(r.x(), r.z()));
             } else {
-                l.restream = true; // it arrived outside the window: ask again from where the camera is now
+                l.restream = true;
             }
         }
         if (fed > 0) l.menu.finishBatch();
@@ -795,24 +790,23 @@ public final class MenuHost {
             try {
                 l.worker.execute(() -> readBatch(l, batch));
             } catch (RuntimeException e) {
-                return; // the worker is shut down: the level is being dropped
+                return;
             }
         }
     }
 
-    /** Runs on the worker thread. */
     private static void readBatch(Live l, List<Long> batch) {
         for (long k : batch) {
             int x = keyX(k), z = keyZ(k);
             if (l.closed) return;
             if (Math.max(Math.abs(x - l.cx), Math.abs(z - l.cz)) > l.view + 1) {
-                l.results.add(new Result(x, z, null, true)); // the camera moved on before this was read
+                l.results.add(new Result(x, z, null, true));
                 continue;
             }
             try {
                 CompoundTag tag = l.reader.readChunk(x, z);
                 ChunkData d = tag == null ? null : ChunkData.build(tag, l.biomes, -4, 24);
-                if (d != null) d.packetBytes(); // built here, so the render thread has nothing to prepare
+                if (d != null) d.packetBytes();
                 l.results.add(new Result(x, z, d, false));
             } catch (Throwable e) {
                 if (!readErrorLogged) {
@@ -824,7 +818,6 @@ public final class MenuHost {
         }
     }
 
-    /** The picture stays black until the land around the camera is in, so a cut never shows empty space. */
     private static void updateVisible(Live l, double dt) {
         int[] box = l.ready.box();
         boolean really = true;
@@ -851,6 +844,6 @@ public final class MenuHost {
             Log.warn("Menu world: the land near the camera did not load: " + l.loaded.size() + " in, "
                     + l.inflight.size() + " waiting, " + l.missing.size() + " missing");
         }
-        l.visible = show ? Math.min(1.0, l.visible + dt / 0.7) : Math.max(0.0, l.visible - dt / 0.2);
+        l.visible = show ? 1.0 : 0.0;
     }
 }

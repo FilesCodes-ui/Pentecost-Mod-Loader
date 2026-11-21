@@ -30,7 +30,6 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Looking after a server: a panel, a stop countdown, whitelist and ban helpers, maintenance, saving and fake messages. */
 final class ServerCmds {
     private static final String C = "Server";
     private static final UUID SERVER = new UUID(0L, 0L);
@@ -61,14 +60,11 @@ final class ServerCmds {
 
     private ServerCmds() {}
 
-    /** A new world was bound: forget the old countdown and timer. */
     static void reset() {
         stopAt = -1L;
         autosaveId = -1;
         maintenance = false;
     }
-
-    // ---------------------------------------------------------------- helpers
 
     private static GameProfile profile(CommandSourceStack src, String name) {
         MinecraftServer s = src.getServer();
@@ -86,7 +82,6 @@ final class ServerCmds {
         throw new Bad("The server does not know a player called " + name + " (they have to have joined once).");
     }
 
-    /** "30s", "10m", "2h", "1d", "1w". A bare number means minutes. */
     private static long millis(String word) {
         Matcher m = TIME.matcher(word);
         if (!m.matches()) {
@@ -120,7 +115,6 @@ final class ServerCmds {
         s.getPlayerList().broadcastSystemMessage(c, false);
     }
 
-    /** Driven by Qol.tick: the stop countdown. */
     static void tick(MinecraftServer server) {
         if (stopAt < 0L) {
             return;
@@ -145,8 +139,6 @@ final class ServerCmds {
             }
         }
     }
-
-    // ---------------------------------------------------------------- commands
 
     static void add() {
         Qol.none(C, "panel", 2, "A one-screen summary of the server and its main settings", c -> {
@@ -173,7 +165,6 @@ final class ServerCmds {
             return 1;
         });
 
-        // ---- stopping
         Qol.custom(C, "stopin", 4, "<time> [reason]", "Stop the server after a countdown (30s, 5m, 1h)",
                 Qol.lit("stopin", 4).then(Commands.argument("time", StringArgumentType.word()).suggests(Qol.options("30s", "1m", "5m", "10m", "1h"))
                         .executes(Qol.guard(c -> startStop(c.getSource(), StringArgumentType.getString(c, "time"), "")))
@@ -189,7 +180,6 @@ final class ServerCmds {
             return 1;
         });
 
-        // ---- whitelist
         Qol.custom(C, "wl", 3, "add|remove <name> | all | list | on | off | reload", "Whitelist helper",
                 Qol.lit("wl", 3)
                         .then(Commands.literal("add").then(Commands.argument("name", StringArgumentType.word()).suggests(KNOWN)
@@ -241,7 +231,6 @@ final class ServerCmds {
                             return Qol.ok(c, "Whitelist reloaded.");
                         }))));
 
-        // ---- bans
         Qol.custom(C, "tempban", 3, "<player> <time> [reason]", "Ban a player for a while (30m, 2h, 7d)",
                 Qol.lit("tempban", 3).then(Commands.argument("name", StringArgumentType.word()).suggests(KNOWN)
                         .then(Commands.argument("time", StringArgumentType.word()).suggests(Qol.options("30m", "2h", "1d", "7d"))
@@ -267,7 +256,6 @@ final class ServerCmds {
             return entries.size();
         });
 
-        // ---- maintenance and saving
         Qol.word(C, "maintenance", 3, "<on|off>", "Close the server for upkeep: whitelist on, a new message of the day, non-operators kicked", false,
                 Qol.options("on", "off"), (c, w) -> {
                     MinecraftServer s = c.getSource().getServer();
@@ -351,7 +339,6 @@ final class ServerCmds {
                     return Qol.ok(c, "New players now start in " + t.getName() + " mode.");
                 });
 
-        // ---- messages
         Qol.wordText(C, "sayas", 2, "<name> <text>", "Put a chat line in the name of anyone", KNOWN, (c, who, text) -> {
             say(c.getSource().getServer(), Component.literal("<" + who + "> " + text));
             return 1;

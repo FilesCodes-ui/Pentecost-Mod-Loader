@@ -7,22 +7,15 @@ public sealed class DlJob
 {
     public string Name = "";
     public double Progress;
-    /// <summary>Queued, Downloading, Done or Failed.</summary>
     public string State = "Queued";
 }
 
-/// <summary>
-/// Every download goes through here. Three run at once and the rest wait their turn.
-/// Rules: https from modrinth.com or its subdomains only, .jar, .zip or .mrpack only, SHA-1 checked (and SHA-512 when the
-/// file lists one), written as .part first.
-/// </summary>
 public static class Downloads
 {
     static readonly object Gate = new();
     static readonly List<DlJob> Jobs = new();
     static readonly SemaphoreSlim Slots = new(3);
 
-    /// <summary>Raised on any thread when the list or a job's progress changes.</summary>
     public static event Action? Changed;
 
     public static List<DlJob> Snapshot() { lock (Gate) return Jobs.ToList(); }
@@ -52,7 +45,6 @@ public static class Downloads
                 using (var resp = await Modrinth.Client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct))
                 {
                     resp.EnsureSuccessStatusCode();
-                    // A redirect must stay on Modrinth too.
                     if (resp.RequestMessage?.RequestUri is { } landed && (landed.Scheme != "https" || !Modrinth.IsModrinthHost(landed.Host)))
                         throw new IOException($"{name}: the download was sent to another site, so it was not used");
                     var total = resp.Content.Headers.ContentLength ?? 0;
