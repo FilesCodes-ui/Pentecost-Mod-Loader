@@ -74,19 +74,17 @@ public static class Setup
         return false;
     }
 
-    public static void Preflight(string mc)
+    public static bool Preflight(string mc)
     {
-        if (!Directory.Exists(mc))
-            throw new SetupException($"I cannot find {mc}.\n\nInstall the Minecraft Launcher, open it once and sign in, then run this again.");
-        if (!File.Exists(ProfilesFile(mc)))
-            throw new SetupException("I cannot find launcher_profiles.json in the Minecraft folder.\n\nOpen the Minecraft Launcher once, sign in, close it, then run this again.");
-        if (LauncherRunning(mc))
+        var launcher = File.Exists(ProfilesFile(mc));
+        if (launcher && LauncherRunning(mc))
             throw new SetupException("The Minecraft Launcher is open.\n\nClose it completely, also from the system tray, then press Retry. The launcher rewrites its profile file when it closes.");
+        return launcher;
     }
 
     public static async Task<InstallResult> InstallAsync(string mc, bool downloadWorlds, bool installVideoMods, IProgress<Progress> progress, CancellationToken ct)
     {
-        Preflight(mc);
+        var launcher = Preflight(mc);
         var version = PayloadVersion();
         var versionId = "Pentecost-" + version;
         var home = HomeOf(mc);
@@ -95,12 +93,16 @@ public static class Setup
         progress.Report(new("Copying program files", "", 0.03));
         await Task.Run(() => CopyPayload(home, version), ct);
 
-        progress.Report(new("Adding Pentecost to the launcher", "", 0.30));
-        await Task.Run(() =>
+        if (launcher)
         {
-            WriteLauncherVersion(mc, home, version, versionId);
-            WriteProfile(mc, home, versionId);
-        }, ct);
+            progress.Report(new("Adding Pentecost to the launcher", "", 0.30));
+            await Task.Run(() =>
+            {
+                WriteLauncherVersion(mc, home, version, versionId);
+                WriteProfile(mc, home, versionId);
+            }, ct);
+        }
+        else Log.Write("no Minecraft Launcher profile file found, installed without a launcher entry");
 
         var modsFailed = 0;
         if (installVideoMods)
@@ -309,16 +311,19 @@ public static class Setup
 
     public static void Uninstall(string mc, bool removeData, IProgress<Progress> progress)
     {
-        Preflight(mc);
+        var launcher = Preflight(mc);
         var home = HomeOf(mc);
         Log.Write($"uninstall from {mc} removeData={removeData}");
 
         progress.Report(new("Removing Pentecost from the launcher", "", 0.2));
-        var root = ReadProfiles(mc);
-        if (root["profiles"] is JsonObject profiles && profiles.ContainsKey(ProfileKey))
+        if (launcher)
         {
-            profiles.Remove(ProfileKey);
-            SaveProfiles(mc, root);
+            var root = ReadProfiles(mc);
+            if (root["profiles"] is JsonObject profiles && profiles.ContainsKey(ProfileKey))
+            {
+                profiles.Remove(ProfileKey);
+                SaveProfiles(mc, root);
+            }
         }
         var versions = Path.Combine(mc, "versions");
         if (Directory.Exists(versions))

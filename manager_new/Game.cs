@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
@@ -25,6 +25,7 @@ public static class JavaFinder
         var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var roots = new[]
         {
+            Path.Combine(Paths.Home, "java"),
             Path.Combine(Paths.McDir, "runtime", "java-runtime-delta"),
             Path.Combine(appData, "ModrinthApp", "meta", "java_versions"),
             Path.Combine(profile, ".gradle", "jdks"), Path.Combine(profile, ".jdks"),
@@ -67,6 +68,64 @@ public static class JavaFinder
             return m.Success ? int.Parse(m.Groups[1].Value) : 0;
         }
         catch { return 0; }
+    }
+}
+
+public static class JavaGet
+{
+    const string Assets = "https://api.adoptium.net/v3/assets/latest/21/hotspot?architecture=x64&image_type=jre&os=windows&vendor=eclipse";
+
+    public static async Task<string?> Ensure(Action<string, double> progress, CancellationToken ct)
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), "pentecost-java");
+        try
+        {
+            progress("Looking up Java 21", 0.02);
+            var meta = JsonNode.Parse(await Modrinth.Client.GetStringAsync(Assets, ct)) as JsonArray;
+            var pkg = meta?[0]?["binary"]?["package"] as JsonObject;
+            var link = pkg?["link"]?.ToString();
+            var sha = pkg?["checksum"]?.ToString();
+            var size = pkg?["size"]?.GetValue<long>() ?? 0;
+            if (link == null || sha == null || !link.StartsWith("https://github.com/adoptium/", StringComparison.Ordinal))
+                return "Could not find a Java download.";
+
+            if (Directory.Exists(tmp)) Directory.Delete(tmp, true);
+            Directory.CreateDirectory(tmp);
+            var zip = Path.Combine(tmp, "java.zip");
+            using (var resp = await Modrinth.Client.GetAsync(link, System.Net.Http.HttpCompletionOption.ResponseHeadersRead, ct))
+            {
+                resp.EnsureSuccessStatusCode();
+                var total = resp.Content.Headers.ContentLength ?? size;
+                await using var src = await resp.Content.ReadAsStreamAsync(ct);
+                await using var dst = File.Create(zip);
+                var buf = new byte[81920];
+                long done = 0;
+                int n;
+                while ((n = await src.ReadAsync(buf, ct)) > 0)
+                {
+                    await dst.WriteAsync(buf.AsMemory(0, n), ct);
+                    done += n;
+                    if (total > 0) progress($"Downloading Java 21, {done / 1048576} of {total / 1048576} MB", 0.05 + 0.75 * done / total);
+                }
+            }
+            string actual;
+            await using (var s = File.OpenRead(zip)) actual = Convert.ToHexString(await System.Security.Cryptography.SHA256.HashDataAsync(s, ct));
+            if (!actual.Equals(sha, StringComparison.OrdinalIgnoreCase)) return "The Java download did not match its checksum, so it was not used.";
+
+            progress("Unpacking Java 21", 0.85);
+            var target = Path.Combine(Paths.Home, "java");
+            var stage = Path.Combine(tmp, "out");
+            await Task.Run(() => System.IO.Compression.ZipFile.ExtractToDirectory(zip, stage), ct);
+            if (Directory.Exists(target)) Directory.Delete(target, true);
+            Directory.CreateDirectory(Paths.Home);
+            Directory.Move(stage, target);
+            progress("Java 21 is ready", 1);
+            AppLog.Write("java installed into " + target);
+            return null;
+        }
+        catch (OperationCanceledException) { return "Cancelled."; }
+        catch (Exception ex) { AppLog.Write("java download: " + ex); return "Could not get Java: " + ex.Message; }
+        finally { try { if (Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { } }
     }
 }
 

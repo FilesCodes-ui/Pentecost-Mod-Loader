@@ -129,9 +129,47 @@ public final class PentecostFlowScreens {
         }
     }
 
-    static Screen connecting(Screen incoming) {
-        return incoming instanceof ConnectScreen c ? new Connecting(c) : null;
+    private static Boolean loginHooks;
+
+    // Fabric's login networking finds the connection by checking that the open screen is a
+    // ConnectScreen. Connecting is not one, so a Fabric mod that registers a login receiver
+    // while joining fails with "Cannot register receiver while client is not logging in".
+    // With Fabric's networking loaded, the vanilla screen stays.
+    private static boolean loginHooksPresent() {
+        if (loginHooks == null) {
+            ClassLoader cl = khi.pentecost.core.PentecostRuntime.loader != null
+                    ? khi.pentecost.core.PentecostRuntime.loader : PentecostFlowScreens.class.getClassLoader();
+            boolean found;
+            try {
+                Class.forName("net.fabricmc.fabric.impl.networking.client.ClientNetworkingImpl", false, cl);
+                found = true;
+            } catch (ClassNotFoundException | LinkageError e) {
+                found = false;
+            }
+            var mods = khi.pentecost.core.PentecostRuntime.allMods;
+            for (var m : mods) {
+                String id = m.id();
+                if (id != null && (id.equals("fabric-api") || id.startsWith("fabric-networking"))) {
+                    found = true;
+                    break;
+                }
+            }
+            if (found || !mods.isEmpty()) {
+                loginHooks = found;
+            } else {
+                return false;
+            }
+        }
+        return loginHooks;
     }
+
+    static Screen connecting(Screen incoming) {
+        if (!(incoming instanceof ConnectScreen c) || loginHooksPresent()) {
+            return null;
+        }
+        return new Connecting(c);
+    }
+
 
     public static final class Disconnected extends DisconnectedScreen {
         Disconnected(Screen parent, Component title, Component reason, Component buttonText) {

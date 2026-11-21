@@ -520,6 +520,13 @@ public partial class MainWindow : Window
             if (installLabel != null) installLabel.Text = text;
             if (installBar != null) { installBar.IsIndeterminate = false; installBar.Value = f; }
         }), CancellationToken.None, bothVideo);
+        string? javaErr = null;
+        if (err == null && await Task.Run(JavaFinder.Find) == null)
+            javaErr = await JavaGet.Ensure((text, f) => Dispatcher.BeginInvoke(() =>
+            {
+                if (installLabel != null) installLabel.Text = text;
+                if (installBar != null) { installBar.IsIndeterminate = false; installBar.Value = f; }
+            }), CancellationToken.None);
         installing = false;
         installBar = null;
         installLabel = null;
@@ -528,6 +535,7 @@ public partial class MainWindow : Window
         {
             AppendLog($"Pentecost {rel.Version} installed.");
             Toast($"Pentecost {rel.Version} is installed.");
+            if (javaErr != null) Toast(javaErr, "Warn");
             _ = InstallStarterMods(bothVideo);
             _ = Task.Run(JavaFinder.Find).ContinueWith(t => Dispatcher.BeginInvoke(() => { java = t.Result; Refresh(); }));
         }
