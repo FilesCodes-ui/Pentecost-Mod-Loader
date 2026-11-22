@@ -206,6 +206,7 @@ public sealed class GameRun
             default:
                 if (!Paths.Installed) return "Pentecost is not installed at " + Paths.Home + ".";
                 if (java == null) return "Java 21 was not found. Choose java.exe in Settings.";
+                GpuPref.ForGame(java);
                 var err = Standalone(java, profile, out psi!);
                 if (err != null) return err;
                 if (world != null) psi.Environment["PENTECOST_WORLD"] = world;

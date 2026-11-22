@@ -18,6 +18,7 @@ public final class Splash {
 
     private static volatile javax.swing.JWindow window;
     private static volatile boolean dropped;
+    private static volatile boolean queued;
     private static volatile javax.swing.Timer timer;
 
     private static final int ROW = 30;
@@ -184,6 +185,7 @@ public final class Splash {
                 Log.info("No start window: Java runs without a screen here");
                 return;
             }
+            queued = true;
             javax.swing.SwingUtilities.invokeLater(Splash::build);
         } catch (Throwable t) {
             Log.warn("No start window: " + t);
@@ -581,18 +583,20 @@ public final class Splash {
 
     public static void closeNow() {
         dropped = true;
-        javax.swing.JWindow w = window;
-        window = null;
-        if (w == null) {
+        if (!queued) {
             return;
         }
         Runnable gone = () -> {
+            javax.swing.JWindow w = window;
+            window = null;
             javax.swing.Timer t = timer;
             if (t != null) {
                 t.stop();
             }
-            w.setVisible(false);
-            w.dispose();
+            if (w != null) {
+                w.setVisible(false);
+                w.dispose();
+            }
         };
         try {
             if (javax.swing.SwingUtilities.isEventDispatchThread()) {
