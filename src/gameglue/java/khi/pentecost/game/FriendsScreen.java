@@ -265,6 +265,14 @@ public final class FriendsScreen extends Screen {
             status = "That address is not one Pentecost connects to.";
             return;
         }
+        if (mc.level != null && !khi.pentecost.game.menuworld.MenuHost.showing()) {
+            status = "Leave your world first, then join.";
+            return;
+        }
+        if (address.equals(WwlsScreen.hostAddress())) {
+            status = "That is your own world.";
+            return;
+        }
         ConnectScreen.startConnecting(this, mc, ServerAddress.parseString(address), new ServerData(f.name() + "'s world", address, false), false);
     }
 
