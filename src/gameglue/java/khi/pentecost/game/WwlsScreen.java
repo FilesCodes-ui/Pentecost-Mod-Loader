@@ -230,6 +230,11 @@ public final class WwlsScreen extends Screen {
             status = "Room codes have " + Wwls.CODE_LENGTH + " letters and numbers.";
             return;
         }
+        Minecraft open = Minecraft.getInstance();
+        if (open.level != null && !khi.pentecost.game.menuworld.MenuHost.showing()) {
+            status = "Leave your world first, then join.";
+            return;
+        }
         busy = true;
         status = "Looking for the world...";
         Minecraft mc = Minecraft.getInstance();
@@ -237,6 +242,11 @@ public final class WwlsScreen extends Screen {
             try {
                 String address = Wwls.find(code);
                 failures = 0;
+                if (address.equals(hostAddress())) {
+                    status = "That is your own world.";
+                    busy = false;
+                    return;
+                }
                 mc.execute(() -> ConnectScreen.startConnecting(this, mc, ServerAddress.parseString(address),
                         new ServerData("Friend's world", address, false), false));
                 status = "Connecting. If the host has not said yes to you yet, they were just asked: try again in a minute.";
