@@ -10,7 +10,7 @@
     <AssemblyName>Pentecost-Manager</AssemblyName>
     <RootNamespace>Pentecost.Manager</RootNamespace>
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <Version>1.0.3</Version>
+    <Version>1.0.4</Version>
     <Product>Pentecost Manager</Product>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>

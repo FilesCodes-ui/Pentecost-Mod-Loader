@@ -280,6 +280,7 @@ public final class PentecostMain {
         loader.addLateTransformer(khi.pentecost.messenger.MobHooks.callSites());
         loader.addLateTransformer(khi.pentecost.messenger.BlockHooks.transformer());
         loader.addLateTransformer(khi.pentecost.core.BadgeHooks.transformer());
+        loader.addLateTransformer(khi.pentecost.core.NetDiag.transformer());
         loader.addLateTransformer(khi.pentecost.core.MenuGuard.transformer());
         loader.addLateTransformer(khi.pentecost.core.PartProbe.transformer());
         loader.addLateTransformer(khi.pentecost.core.PortalShadow.transformer());

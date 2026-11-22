@@ -184,7 +184,9 @@ final class PentecostPlayers implements BadgeHooks.Impl {
             return;
         } finally {
             try {
-                in.release();
+                if (in.refCnt() > 0) {
+                    in.release();
+                }
             } catch (RuntimeException ignored) {
             }
         }
@@ -217,7 +219,10 @@ final class PentecostPlayers implements BadgeHooks.Impl {
 
     private static void release(ClientboundCustomPayloadPacket p) {
         try {
-            p.getData().release();
+            FriendlyByteBuf data = p.getData();
+            if (data.refCnt() > 0) {
+                data.release();
+            }
         } catch (RuntimeException ignored) {
         }
     }
