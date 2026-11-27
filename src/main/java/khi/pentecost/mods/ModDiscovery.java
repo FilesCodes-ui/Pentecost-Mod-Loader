@@ -60,8 +60,34 @@ public final class ModDiscovery {
             "iris", "oculus",
             "indium", "embeddium");
 
+    private static final java.util.regex.Pattern FABRIC_MODULE =
+            java.util.regex.Pattern.compile("fabric[-_].+[-_]v\\d+|fabric[-_]api.*");
+
+    private static final Set<String> MATCHED_LOOSELY = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /** Same library under different ids on different loaders (Fabric id, Forge id). Both sides compared flat, see flat(). */
+    private static final Map<String, String> SAME_LIBRARY = Map.of(
+            "clothconfig2", "clothconfig");
+
+    private static String flat(String id) {
+        return id.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]", "");
+    }
+
+    private static String canon(String flatId) {
+        return SAME_LIBRARY.getOrDefault(flatId, flatId);
+    }
+
+    private static String withoutVersionDigits(String flatId) {
+        String base = flatId.replaceAll("\\d+$", "");
+        return base.length() >= 5 ? base : flatId;
+    }
+
     public static boolean met(String dep, Set<String> present) {
         String d = dep.trim().toLowerCase(java.util.Locale.ROOT);
+        int colon = d.indexOf(':');
+        if (colon > 0 && colon < d.length() - 1) {
+            d = d.substring(colon + 1);
+        }
         if (present.contains(d) || present.contains(d.replace('-', '_')) || present.contains(d.replace('_', '-'))) {
             return true;
         }
@@ -71,8 +97,20 @@ public final class ModDiscovery {
         }
         boolean fabricApi = present.stream().anyMatch(p -> p.startsWith("fabric_") || p.startsWith("fabric-"));
         if (fabricApi && (d.equals("fabric-api") || d.equals("fabric") || d.equals("fabric_api")
-                || d.equals("quilted_fabric_api") || d.equals("qsl") || d.startsWith("quilt_"))) {
+                || d.equals("quilted_fabric_api") || d.equals("qsl") || d.startsWith("quilt_")
+                || FABRIC_MODULE.matcher(d).matches())) {
             return true;
+        }
+        String want = canon(flat(d));
+        String wantBase = withoutVersionDigits(want);
+        for (String p : present) {
+            String have = canon(flat(p));
+            if (have.equals(want) || withoutVersionDigits(have).equals(wantBase)) {
+                if (MATCHED_LOOSELY.add(d + "=" + p)) {
+                    Log.info("Dependency " + dep + " is met by " + p + " (same library under a different id).");
+                }
+                return true;
+            }
         }
         return false;
     }

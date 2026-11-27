@@ -56,7 +56,9 @@ public final class BlockThreads implements BlockHooks.Impl {
         if (!(((ServerLevel) level).getProfiler() instanceof net.minecraft.util.profiling.InactiveProfiler)) return false;
         BlockPos pos = t.getPos();
         if (pos == null) return false;
-        pending.add(new Pending(t, pos.immutable(), mod));
+        synchronized (pending) {
+            pending.add(new Pending(t, pos.immutable(), mod));
+        }
         return true;
     }
 
@@ -67,9 +69,14 @@ public final class BlockThreads implements BlockHooks.Impl {
 
     @Override
     public void flush(Object level) {
-        if (pending.isEmpty()) return;
-        List<Pending> all = new ArrayList<>(pending);
-        pending.clear();
+        List<Pending> all;
+        synchronized (pending) {
+            if (pending.isEmpty()) return;
+            all = new ArrayList<>(pending);
+            pending.clear();
+        }
+        all.removeIf(java.util.Objects::isNull);
+        if (all.isEmpty()) return;
         ModThreads mt = ModThreads.shared;
         if (mt == null || !(level instanceof ServerLevel sl)) {
             all.forEach(p -> p.ticker().tick());

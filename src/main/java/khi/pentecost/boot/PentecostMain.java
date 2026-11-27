@@ -231,6 +231,7 @@ public final class PentecostMain {
             widener.addAccessTransformers(atJars, new khi.pentecost.remap.TextRemapper(PentecostRuntime.remap.modTable()));
             khi.pentecost.core.Timeline.step("access transformers read");
             loader.addTransformer(khi.pentecost.adapter.forge.ForgeRedirects.transformer());
+            loader.addTransformer(khi.pentecost.adapter.forge.FieldBridge.transformer(loader));
             loader.addTransformer((khi.pentecost.loader.ClassTransformer) Class
                     .forName("khi.pentecost.forgeglue.LaunchPlugins", true, loader)
                     .getConstructor(ClassLoader.class).newInstance(loader));
@@ -252,10 +253,12 @@ public final class PentecostMain {
         loader.addTransformer(Hooks.packTransformer());
         loader.addTransformer(Hooks.hudTransformer());
         loader.addTransformer(Hooks.forgeHudTransformer());
+        loader.addTransformer(Hooks.menuGuiTransformer());
         loader.addTransformer(khi.pentecost.core.HudOwner.forgeTransformer());
         loader.addTransformer(khi.pentecost.core.HudOwner.guiTransformer());
         loader.addTransformer(Hooks.styleTransformer());
         loader.addTransformer(Hooks.registryTransformer());
+        loader.addTransformer(khi.pentecost.compat.PassGuard.transformer());
         loader.addTransformer(Hooks.windowTransformer());
         loader.addTransformer(khi.pentecost.core.Branding.titleTransformer());
         loader.addTransformer(khi.pentecost.core.Branding.sparkTransformer());

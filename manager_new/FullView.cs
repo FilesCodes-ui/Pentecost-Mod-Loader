@@ -512,14 +512,15 @@ public partial class MainWindow
         if (m.Sha1 != null) Line("SHA-1", m.Sha1);
 
         var here = ModScan.Scan();
-        var byId = here.Where(x => x.Id.Length > 0).GroupBy(x => x.Id).ToDictionary(g => g.Key, g => g.First().Name);
         if (m.Needs.Count > 0)
         {
             body.Children.Add(Ui.Cap("It needs").With(new Thickness(0, 12, 0, 8)));
             var wrap = new WrapPanel();
             foreach (var id in m.Needs.Take(14))
             {
-                var have = byId.TryGetValue(id, out var name);
+                var found = DepMatch.Find(here, id);
+                var have = found != null;
+                var name = found?.Name;
                 var pill = Ui.Pill(have ? name! : id + " (missing)", have ? "Ok" : "Warn");
                 pill.Margin = new Thickness(0, 0, 6, 5);
                 pill.ToolTip = have ? "In your mods folder" : "Not in your mods folder, so this mod might not start";
@@ -527,7 +528,7 @@ public partial class MainWindow
             }
             body.Children.Add(wrap);
         }
-        var neededBy = m.Id.Length == 0 ? new List<string>() : here.Where(x => x.Needs.Contains(m.Id)).Select(x => x.Name).Take(10).ToList();
+        var neededBy = m.Id.Length == 0 ? new List<string>() : here.Where(x => x != m && x.Needs.Any(n => DepMatch.Provides(m, n))).Select(x => x.Name).Take(10).ToList();
         if (neededBy.Count > 0)
         {
             body.Children.Add(Ui.Cap("Needed by").With(new Thickness(0, 12, 0, 8)));

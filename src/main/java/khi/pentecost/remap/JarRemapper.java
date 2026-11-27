@@ -48,6 +48,9 @@ public final class JarRemapper {
                 }
             }
         }
+        if (remapper instanceof NameRemapper names) {
+            names.scan(entries.stream().filter(e -> e.getKey().endsWith(".class")).map(Map.Entry::getValue).toList());
+        }
         List<Map.Entry<String, byte[]>> done = entries.parallelStream().map(e -> {
             String name = e.getKey();
             if (!name.endsWith(".class")) {

@@ -62,8 +62,11 @@ public final class ModsScreens {
         FeedHooks.install();
         DiscordStatus.install();
         khi.pentecost.core.ZoomHooks.press = PentecostToast::press;
+        ProbeGame.install();
+        PortalPassGame.install();
         Hooks.frame = () -> {
             PerfHud.frame();
+            khi.pentecost.probe.Probe.frame();
             Zoom.frame();
             Stall.frame();
             Account.frame();

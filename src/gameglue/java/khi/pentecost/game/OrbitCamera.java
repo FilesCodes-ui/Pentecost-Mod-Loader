@@ -283,6 +283,9 @@ public final class OrbitCamera implements OrbitHooks.Impl {
         if (cam == mc.gameRenderer.getMainCamera()) {
             hideOneFrame = false;
         }
+        if (cam != mc.gameRenderer.getMainCamera() && followsMainCamera(mc, cam)) {
+            return;
+        }
         if (cam != mc.gameRenderer.getMainCamera() || portalPass() || PauseCinema.active()) {
             return;
         }
@@ -1144,6 +1147,28 @@ public final class OrbitCamera implements OrbitHooks.Impl {
         }
         wantYaw += (float) (yaw * 0.15 * sensitivity);
         wantPitch = Mth.clamp(wantPitch + (float) (pitch * 0.15 * sensitivity), -85f, 85f);
+        return true;
+    }
+
+    private static final String PORTAL_VIEW = "qouteall.imm_ptl.core.render.CrossPortalViewRendering";
+
+    /**
+     * Immersive Portals builds a throwaway Camera to find out which side of a portal the camera is on
+     * (CrossPortalViewRendering.renderCrossPortalView). That camera is set up like vanilla, so it sits at the
+     * player's eyes and the portal view stays tied to the player instead of the camera. While the orbit or free
+     * camera is active it gets the position and angles the main camera already has this frame.
+     */
+    private static boolean followsMainCamera(Minecraft mc, Camera cam) {
+        if (PauseCinema.active() || !(free || (mode != 0 && usable(mc)))) {
+            return false;
+        }
+        boolean fromPortals = StackWalker.getInstance().walk(frames -> frames.limit(8)
+                .anyMatch(f -> f.getClassName().equals(PORTAL_VIEW)));
+        if (!fromPortals) {
+            return false;
+        }
+        Camera main = mc.gameRenderer.getMainCamera();
+        place(cam, main.getPosition(), main.getYRot(), main.getXRot());
         return true;
     }
 

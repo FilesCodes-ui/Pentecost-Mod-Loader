@@ -227,7 +227,11 @@ public final class GameClassLoader extends URLClassLoader {
             ClassTransformer mx = mixin;
             byte[] made = mx == null ? null : mx.transform(name, null);
             if (made == null) {
-                throw new ClassNotFoundException(name);
+                byte[] stub = khi.pentecost.heal.Heal.stubFor(name);
+                if (stub == null) {
+                    throw new ClassNotFoundException(name);
+                }
+                return defineClass(name, stub, 0, stub.length, (CodeSource) null);
             }
             return defineClass(name, made, 0, made.length, (CodeSource) null);
         }

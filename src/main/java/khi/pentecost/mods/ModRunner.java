@@ -26,8 +26,25 @@ public final class ModRunner {
     private final Set<String> waiting = new java.util.LinkedHashSet<>();
 
     public ModRunner(ClassLoader loader, List<ModInfo> mods) {
+        khi.pentecost.probe.Probe.attach(loader, mods);
         this.loader = loader;
         this.mods = mods;
+        khi.pentecost.heal.Heal.begin(mods.stream().map(ModInfo::id).toList());
+    }
+
+    /** A mod that failed the same way twice on this Pentecost build is skipped instead of crashing again. */
+    private boolean quarantine(ModInfo m) {
+        if (failures.containsKey(m.id())) {
+            return true;
+        }
+        if (m.loader() == LoaderKind.LIBRARY || !khi.pentecost.heal.Heal.quarantined(m.id())) {
+            return false;
+        }
+        failures.put(m.id(), new IllegalStateException("skipped, it failed before: " + khi.pentecost.heal.Heal.reason(m.id())));
+        khi.pentecost.core.Hooks.markFailed(m.id());
+        Log.warn("Heal: " + m.name() + " is skipped because it failed the same way on earlier starts ("
+                + khi.pentecost.heal.Heal.reason(m.id()) + "). It gets another try when Pentecost or the mod list changes.");
+        return true;
     }
 
     public void checkDependencies() {
@@ -50,7 +67,10 @@ public final class ModRunner {
 
     public void runPreLaunch() {
         for (ModInfo m : mods) {
-            if (missing.containsKey(m.id()) || m.loader() == LoaderKind.FORGE) {
+            quarantine(m);
+        }
+        for (ModInfo m : mods) {
+            if (missing.containsKey(m.id()) || failures.containsKey(m.id()) || m.loader() == LoaderKind.FORGE) {
                 continue;
             }
             for (String value : m.entrypoints("preLaunch")) {
@@ -67,6 +87,9 @@ public final class ModRunner {
     }
 
     public void runAll(boolean client) {
+        for (ModInfo m : mods) {
+            quarantine(m);
+        }
         for (ModInfo m : mods) {
             if (missing.containsKey(m.id()) || failures.containsKey(m.id()) || m.loader() == LoaderKind.LIBRARY) {
                 continue;
@@ -98,8 +121,10 @@ public final class ModRunner {
                 try {
                     for (String value : m.entrypoints("client")) {
                         ClientModInitializer init = FabricLoaderImpl.INSTANCE.create(value, ClientModInitializer.class);
+                        Log.info("Client entrypoint " + value + " of " + m.id() + " created: " + (init != null));
                         if (init != null) {
                             init.onInitializeClient();
+                            Log.info("Client entrypoint " + value + " finished");
                         }
                     }
                 } catch (Throwable t) {
@@ -112,8 +137,22 @@ public final class ModRunner {
             Log.info("Client side of " + String.join(", ", waiting)
                     + " starts inside Forge's client setup: it works with a Forge mod");
         }
+        for (String id : started) {
+            if (!failures.containsKey(id) && !waiting.contains(id)) {
+                khi.pentecost.heal.Heal.clear(id);
+            }
+        }
         Log.info("Mods started: " + started.size() + ", failed: " + failures.size()
                 + ", missing dependencies: " + missing.size());
+    }
+
+    public boolean fabricSide(String id) {
+        for (ModInfo m : mods) {
+            if (m.id().equals(id)) {
+                return (m.loader() == LoaderKind.FABRIC || m.loader() == LoaderKind.QUILT) && !plumbing(id);
+            }
+        }
+        return false;
     }
 
     private static boolean plumbing(String id) {
@@ -154,6 +193,7 @@ public final class ModRunner {
                     }
                 }
                 Log.info("Client side of " + m.name() + " started");
+                khi.pentecost.heal.Heal.clear(m.id());
             } catch (Throwable t) {
                 fail(m, t);
             }
@@ -165,6 +205,7 @@ public final class ModRunner {
         failures.put(m.id(), cause);
         khi.pentecost.core.Hooks.markFailed(m.id());
         Log.error(m.name() + " failed to start and was disabled: " + cause);
+        khi.pentecost.heal.Heal.record(m.id(), cause);
         StackTraceElement[] st = cause.getStackTrace();
         for (int i = 0; i < Math.min(6, st.length); i++) {
             Log.error("    at " + st[i]);

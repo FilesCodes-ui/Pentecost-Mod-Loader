@@ -20,7 +20,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 public final class RemapService {
-    private static final String MOD_CACHE = "mods-v9";
+    private static final String MOD_CACHE = "mods-v10";
     private static final String INTERMEDIARY =
             "https://maven.fabricmc.net/net/fabricmc/intermediary/%s/intermediary-%s-v2.jar";
     private static final String MCP_CONFIG_1_20_1 =

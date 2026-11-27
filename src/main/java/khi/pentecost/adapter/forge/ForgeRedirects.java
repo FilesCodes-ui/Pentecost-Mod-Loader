@@ -230,6 +230,14 @@ public final class ForgeRedirects {
             ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
             reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
                 @Override
+                public void visitEnd() {
+                    if (name.equals("net.minecraftforge.fml.config.ModConfig")) {
+                        addModConfigConstructors(cv);
+                    }
+                    super.visitEnd();
+                }
+
+                @Override
                 public MethodVisitor visitMethod(int access, String n, String d, String s, String[] e) {
                     String kind = bodies == null ? null : bodies.get(n + d);
                     MethodVisitor mv = super.visitMethod(access, n, d, s, e);
@@ -309,6 +317,37 @@ public final class ForgeRedirects {
         };
     }
 
+    private static void addModConfigConstructors(ClassVisitor cv) {
+        String type = "Lnet/minecraftforge/fml/config/ModConfig$Type;";
+        String spec = "Lnet/minecraftforge/fml/config/IConfigSpec;";
+        String box = "Lnet/minecraftforge/fml/ModContainer;";
+        String shim = "khi/pentecost/forgeglue/ConfigShim";
+        String owner = "net/minecraftforge/fml/config/ModConfig";
+        MethodVisitor three = cv.visitMethod(Opcodes.ACC_PUBLIC, "<init>", "(" + type + spec + "Ljava/lang/String;)V", null, null);
+        three.visitCode();
+        three.visitVarInsn(Opcodes.ALOAD, 0);
+        three.visitVarInsn(Opcodes.ALOAD, 1);
+        three.visitVarInsn(Opcodes.ALOAD, 2);
+        three.visitVarInsn(Opcodes.ALOAD, 3);
+        three.visitMethodInsn(Opcodes.INVOKESTATIC, shim, "container", "(Ljava/lang/String;)" + box, false);
+        three.visitMethodInsn(Opcodes.INVOKESPECIAL, owner, "<init>", "(" + type + spec + box + ")V", false);
+        three.visitInsn(Opcodes.RETURN);
+        three.visitMaxs(0, 0);
+        three.visitEnd();
+        MethodVisitor four = cv.visitMethod(Opcodes.ACC_PUBLIC, "<init>",
+                "(" + type + spec + "Ljava/lang/String;Ljava/lang/String;)V", null, null);
+        four.visitCode();
+        four.visitVarInsn(Opcodes.ALOAD, 0);
+        four.visitVarInsn(Opcodes.ALOAD, 1);
+        four.visitVarInsn(Opcodes.ALOAD, 2);
+        four.visitVarInsn(Opcodes.ALOAD, 3);
+        four.visitMethodInsn(Opcodes.INVOKESTATIC, shim, "container", "(Ljava/lang/String;)" + box, false);
+        four.visitVarInsn(Opcodes.ALOAD, 4);
+        four.visitMethodInsn(Opcodes.INVOKESPECIAL, owner, "<init>", "(" + type + spec + box + "Ljava/lang/String;)V", false);
+        four.visitInsn(Opcodes.RETURN);
+        four.visitMaxs(0, 0);
+        four.visitEnd();
+    }
     private static void writeBody(MethodVisitor mv, int access, String desc, String kind) {
         mv.visitCode();
         switch (kind) {

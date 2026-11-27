@@ -207,12 +207,11 @@ public partial class MainWindow
             count.Text = mods.Count == 0 ? "empty" : $"{on} on, {mods.Count - on} off" + (updates.Count > 0 ? $", {updates.Count} to update" : "");
             if (updatesBtn.Content is StackPanel up && up.Children.OfType<TextBlock>().LastOrDefault() is { } ut)
                 ut.Text = updates.Count > 0 ? $"Updates ({updates.Count})" : "Updates";
-            var ids = mods.Where(m => m.Id.Length > 0).GroupBy(m => m.Id).ToDictionary(g => g.Key, g => Key(g.First()));
             sky.SetStars(mods.Select(m => new StarChart.Star
             {
                 Key = Key(m), Name = m.Name, Loader = Loader(m), On = m.Enabled, Update = m.Update != null,
-                Needs = m.Needs.Where(ids.ContainsKey).Select(id => ids[id]).ToArray(),
-                NeededBy = m.Id.Length == 0 ? Array.Empty<string>() : mods.Where(x => x.Needs.Contains(m.Id)).Select(Key).ToArray(),
+                Needs = m.Needs.Select(id => DepMatch.Find(mods, id)).Where(x => x != null).Select(x => Key(x!)).ToArray(),
+                NeededBy = mods.Where(x => x != m && x.Needs.Any(n => DepMatch.Provides(m, n))).Select(Key).ToArray(),
             }).ToList());
             sky.Open = open == null ? null : Key(open);
             if (sky.Hidden > 0 && Settings.StarChart) count.Text += $", {sky.Hidden} off the chart";
@@ -439,7 +438,6 @@ public partial class MainWindow
                 p.Children.Add(upb.With(new Thickness(0, 16, 0, 0)));
             }
 
-            var byId = mods.Where(x => x.Id.Length > 0).GroupBy(x => x.Id).ToDictionary(g => g.Key, g => g.First());
             WrapPanel Chips(IEnumerable<(string Text, string Color, ModEntry? Go)> items)
             {
                 var w = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
@@ -455,9 +453,9 @@ public partial class MainWindow
             if (m.Needs.Count > 0)
             {
                 p.Children.Add(Ui.Cap("Needs").With(new Thickness(0, 18, 0, 0)));
-                p.Children.Add(Chips(m.Needs.Select(id => byId.TryGetValue(id, out var have) ? (have.Name, "Soft", (ModEntry?)have) : (id + " missing", "Warn", (ModEntry?)null))));
+                p.Children.Add(Chips(m.Needs.Select(id => DepMatch.Find(mods, id) is { } have ? (have.Name, "Soft", (ModEntry?)have) : (id + " missing", "Warn", (ModEntry?)null))));
             }
-            var neededBy = m.Id.Length == 0 ? new List<ModEntry>() : mods.Where(x => x.Needs.Contains(m.Id)).ToList();
+            var neededBy = mods.Where(x => x != m && x.Needs.Any(n => DepMatch.Provides(m, n))).ToList();
             if (neededBy.Count > 0)
             {
                 p.Children.Add(Ui.Cap("Needed by").With(new Thickness(0, 14, 0, 0)));

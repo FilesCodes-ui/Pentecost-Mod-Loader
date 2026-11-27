@@ -39,6 +39,8 @@ public final class MobHooks {
         void onMoveNow(Object callback);
 
         void onRemoveNow(Object callback, Object reason);
+
+        void broadcastNow(Object cache, Object entity, Object packet, boolean andSend);
     }
 
     public static volatile Impl impl;
@@ -118,6 +120,20 @@ public final class MobHooks {
         }
         Impl i = impl;
         defer(() -> i.gameEventNow(level, event, pos, context));
+        return true;
+    }
+
+    /**
+     * A mob on a mod thread sends a packet to the players who track it (jump and hurt animations, entity events).
+     * Mods hook that send and expect the server thread, so it is handed back to the server thread, in order, with
+     * the other changes the mob made.
+     */
+    public static boolean broadcast(Object cache, Object entity, Object packet, boolean andSend) {
+        if (!deferring()) {
+            return false;
+        }
+        Impl i = impl;
+        defer(() -> i.broadcastNow(cache, entity, packet, andSend));
         return true;
     }
 
@@ -236,9 +252,9 @@ public final class MobHooks {
                 case "net.minecraft.world.level.Level" -> heads(bytes, name, "setBlock",
                         "(Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;II)Z", HeadKind.SET_BLOCK);
                 case "net.minecraft.world.level.entity.PersistentEntitySectionManager$Callback" -> callback(bytes);
-                case "net.minecraft.server.level.ServerChunkCache" -> heads(heads(bytes, name, "getChunk",
+                case "net.minecraft.server.level.ServerChunkCache" -> broadcasts(heads(heads(bytes, name, "getChunk",
                         "(IILnet/minecraft/world/level/chunk/ChunkStatus;Z)Lnet/minecraft/world/level/chunk/ChunkAccess;", HeadKind.CHUNK),
-                        name, "getChunkNow", "(II)Lnet/minecraft/world/level/chunk/LevelChunk;", HeadKind.CHUNK_NOW);
+                        name, "getChunkNow", "(II)Lnet/minecraft/world/level/chunk/LevelChunk;", HeadKind.CHUNK_NOW));
                 default -> bytes;
             };
         };
@@ -396,6 +412,13 @@ public final class MobHooks {
         return writer.toByteArray();
     }
 
+    private static final String BROADCAST_DESC = "(Lnet/minecraft/world/entity/Entity;Lnet/minecraft/network/protocol/Packet;)V";
+
+    static byte[] broadcasts(byte[] bytes) {
+        return heads(heads(bytes, "net.minecraft.server.level.ServerChunkCache", "broadcast", BROADCAST_DESC, HeadKind.BROADCAST),
+                "net.minecraft.server.level.ServerChunkCache", "broadcastAndSend", BROADCAST_DESC, HeadKind.BROADCAST_SEND);
+    }
+
     private static byte[] heads(byte[] bytes, String cls, String method, String desc, HeadKind kind) {
         int[] done = new int[1];
         ClassReader reader = new ClassReader(bytes);
@@ -418,7 +441,7 @@ public final class MobHooks {
         return writer.toByteArray();
     }
 
-    enum HeadKind { SET_BLOCK, ADD_ENTITY, GAME_EVENT, ON_MOVE, ON_REMOVE, CHUNK, CHUNK_NOW }
+    enum HeadKind { SET_BLOCK, ADD_ENTITY, GAME_EVENT, ON_MOVE, ON_REMOVE, CHUNK, CHUNK_NOW, BROADCAST, BROADCAST_SEND }
 
     private static MethodVisitor head(MethodVisitor mv, HeadKind kind) {
         return new MethodVisitor(Opcodes.ASM9, mv) {
@@ -465,6 +488,15 @@ public final class MobHooks {
                         super.visitVarInsn(Opcodes.ALOAD, 0);
                         super.visitVarInsn(Opcodes.ALOAD, 1);
                         super.visitMethodInsn(Opcodes.INVOKESTATIC, SELF, "onRemove", "(Ljava/lang/Object;Ljava/lang/Object;)Z", false);
+                        super.visitJumpInsn(Opcodes.IFEQ, go);
+                        super.visitInsn(Opcodes.RETURN);
+                    }
+                    case BROADCAST, BROADCAST_SEND -> {
+                        super.visitVarInsn(Opcodes.ALOAD, 0);
+                        super.visitVarInsn(Opcodes.ALOAD, 1);
+                        super.visitVarInsn(Opcodes.ALOAD, 2);
+                        super.visitInsn(kind == HeadKind.BROADCAST_SEND ? Opcodes.ICONST_1 : Opcodes.ICONST_0);
+                        super.visitMethodInsn(Opcodes.INVOKESTATIC, SELF, "broadcast", "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Z)Z", false);
                         super.visitJumpInsn(Opcodes.IFEQ, go);
                         super.visitInsn(Opcodes.RETURN);
                     }

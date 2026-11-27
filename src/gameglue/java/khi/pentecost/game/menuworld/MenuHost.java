@@ -519,6 +519,7 @@ public final class MenuHost {
         mc.options.setServerRenderDistance(l.view);
         khi.pentecost.core.MenuDistance.chunks = l.view;
         mc.options.hideGui = true;
+        khi.pentecost.core.Hooks.menuWorldUp = true;
         mc.gameRenderer.setRenderHand(false);
         mc.gameRenderer.setRenderBlockOutline(false);
 
@@ -605,6 +606,7 @@ public final class MenuHost {
     }
 
     private static void restoreOptions(Minecraft mc) {
+        khi.pentecost.core.Hooks.menuWorldUp = false;
         Saved s = saved;
         saved = null;
         khi.pentecost.core.ZoomHooks.fovOverride = 0;

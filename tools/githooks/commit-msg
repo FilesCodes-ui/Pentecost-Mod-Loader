@@ -1,0 +1,5 @@
+#!/bin/sh
+# commit-msg: removes AI attribution lines from every commit message before the commit is created.
+f="$1"
+sh "$(dirname "$0")/strip-ai-trailers.sh" < "$f" > "$f.clean" && mv "$f.clean" "$f"
+exit 0

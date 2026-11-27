@@ -6,6 +6,7 @@ import khi.pentecost.messenger.MobHooks;
 import khi.pentecost.messenger.ModThreads;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.protocol.Packet;
 import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.ChunkMap;
 import net.minecraft.server.level.ServerChunkCache;
@@ -397,6 +398,16 @@ public final class MobThreads implements MobHooks.Impl {
     @Override
     public void gameEventNow(Object level, Object event, Object pos, Object context) {
         ((ServerLevel) level).gameEvent((GameEvent) event, (Vec3) pos, (GameEvent.Context) context);
+    }
+
+    @Override
+    public void broadcastNow(Object cache, Object entity, Object packet, boolean andSend) {
+        ServerChunkCache chunks = (ServerChunkCache) cache;
+        if (andSend) {
+            chunks.broadcastAndSend((Entity) entity, (Packet<?>) packet);
+        } else {
+            chunks.broadcast((Entity) entity, (Packet<?>) packet);
+        }
     }
 
     @Override

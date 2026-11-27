@@ -1,4 +1,4 @@
-﻿using System.Net.Http;
+using System.Net.Http;
 using System.Net.WebSockets;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -39,7 +39,7 @@ public static class Online
     public static List<ChatLine> Chat(string uuid) { lock (Gate) return chats.TryGetValue(uuid, out var c) ? c.ToList() : new(); }
     public static int Unread(string uuid) { lock (Gate) return unread.GetValueOrDefault(uuid); }
     public static int UnreadTotal { get { lock (Gate) return unread.Values.Sum() + shares.Count; } }
-    public static void MarkRead(string uuid) { lock (Gate) unread.Remove(uuid); Raise(); }
+    public static void MarkRead(string uuid) { bool had; lock (Gate) had = unread.Remove(uuid); if (had) Raise(); }
     public static int OnlineCount { get { lock (Gate) return friends.Count(f => f.Online); } }
 
     static ClientWebSocket? socket;

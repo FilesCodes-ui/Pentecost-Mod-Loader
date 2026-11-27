@@ -1,0 +1,16 @@
+#!/bin/sh
+# pre-push: refuses to push commits whose messages carry AI attribution lines.
+zero=0000000000000000000000000000000000000000
+pattern='^[[:space:]]*(co-authored-by:.*(claude|anthropic|openai|chatgpt|copilot|gemini|codex|cursor)|claude-session:|(generated|written|authored|created) (with|by) .*(claude|chatgpt|copilot|gemini|codex))'
+while read -r local_ref local_sha remote_ref remote_sha; do
+    [ "$local_sha" = "$zero" ] && continue
+    if [ "$remote_sha" = "$zero" ]; then range="$local_sha"; else range="$remote_sha..$local_sha"; fi
+    bad=$(git log --format='%h%n%B' "$range" 2>/dev/null | grep -Ei "$pattern")
+    if [ -n "$bad" ]; then
+        echo "Push blocked: a commit message in $local_ref contains an AI attribution line:" >&2
+        echo "$bad" >&2
+        echo "Remove it (git commit --amend, or rewrite the commit) and push again." >&2
+        exit 1
+    fi
+done
+exit 0

@@ -155,9 +155,38 @@ public final class FabricLoaderImpl implements FabricLoader {
             return b;
         }
         Optional<ModInfo> m = khi.pentecost.mods.ModFinder.find(PentecostRuntime.mods, id, false);
-        return m.isPresent() ? Optional.of(container(m.get())) : b;
+        if (m.isPresent()) {
+            return Optional.of(container(m.get()));
+        }
+        Optional<ModContainer> same = standIn(id);
+        return same.isPresent() ? same : b;
     }
 
+    /**
+     * Some Fabric mods look for a mod by the name of the Fabric original. The Forge ports keep the same
+     * classes under another id. This answers the original id with the port and the version it matches.
+     */
+    private static final String[][] SAME_AS = {
+            {"sodium", "0.5.11", "embeddium", "rubidium"},
+            {"iris", "1.7.0", "oculus"},
+    };
+
+    private Optional<ModContainer> standIn(String id) {
+        for (String[] row : SAME_AS) {
+            if (!row[0].equals(id)) {
+                continue;
+            }
+            for (int i = 2; i < row.length; i++) {
+                for (ModInfo m : PentecostRuntime.mods) {
+                    if (m.id().equals(row[i])) {
+                        return Optional.of(containers.computeIfAbsent("as:" + id,
+                                k -> new Container(builtinInfo(id, m.name(), row[1], m.jar()))));
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
     private Optional<ModContainer> builtin(String id) {
         ModInfo info;
         switch (id) {

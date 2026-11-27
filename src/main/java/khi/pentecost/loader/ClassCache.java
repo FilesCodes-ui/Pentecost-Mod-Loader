@@ -230,6 +230,7 @@ public final class ClassCache {
         feed(sha, "pentecost-class-cache-6");
         feed(sha, Runtime.version().toString());
         feed(sha, choices);
+        feed(sha, khi.pentecost.compat.PassGuard.fingerprint());
         Map<String, String> env = new TreeMap<>();
         for (Map.Entry<String, String> e : System.getenv().entrySet()) {
             if (e.getKey().startsWith("PENTECOST_") && !IGNORED_ENV.contains(e.getKey())

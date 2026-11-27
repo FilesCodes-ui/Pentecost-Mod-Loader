@@ -6,6 +6,7 @@ import khi.pentecost.loader.ClassTransformer;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
@@ -19,7 +20,16 @@ public final class Hooks {
     }
 
     public static boolean modFailed(String modId) {
+        if (!FABRIC_SIDE.get() && notStartedYet(modId)) {
+            return true;
+        }
         return !FAILED.isEmpty() && FAILED.contains(modId);
+    }
+
+    /** Fabric and Quilt mods have not run their entrypoints before Pentecost starts the Fabric side, so their mixin hooks must pass through until then (Bobby reads its instance inside Options.<init>). */
+    private static boolean notStartedYet(String modId) {
+        khi.pentecost.mods.ModRunner r = PentecostRuntime.runner;
+        return r != null && r.fabricSide(modId);
     }
 
     private static final String MINECRAFT = "net.minecraft.client.Minecraft";
@@ -184,8 +194,18 @@ public final class Hooks {
 
     private static java.lang.reflect.Field frozenField;
 
+    /**
+     * A Fabric or Quilt mod can add to a registry from a mixin in a game class's static initializer (Liminal Library does this in
+     * RegistryDataLoader). Fabric runs that before the registries freeze. Forge runs it after, so it hit "Registry is already frozen".
+     * Any frozen registry written to from inside a game static initializer is reopened; openRegistries freezes it again.
+     */
+    private static boolean insideGameStaticInit() {
+        return StackWalker.getInstance().walk(frames -> frames.anyMatch(
+                f -> f.getMethodName().equals("<clinit>") && f.getClassName().startsWith("net.minecraft.")));
+    }
+
     public static void registryWrite(Object registry) {
-        if (!registriesOpen || registry.getClass().getName().startsWith("net.minecraftforge.")) {
+        if (registry.getClass().getName().startsWith("net.minecraftforge.")) {
             return;
         }
         try {
@@ -204,13 +224,16 @@ public final class Hooks {
             if (!frozenField.getBoolean(registry)) {
                 return;
             }
+            if (!registriesOpen && !insideGameStaticInit()) {
+                return;
+            }
             registry.getClass().getMethod("unfreeze").invoke(registry);
             synchronized (REOPENED) {
                 REOPENED.add(registry);
             }
             String name = registryName(registry);
             if (REOPEN_REPORTED.add(name)) {
-                Log.info("Registry " + name + " reopened while Fabric and Quilt mods start");
+                Log.info("Registry " + name + " reopened for a mod that registers while the game starts, as on Fabric and Quilt");
             }
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
         }
@@ -700,6 +723,53 @@ public final class Hooks {
                         @Override
                         public void visitMaxs(int maxStack, int maxLocals) {
                             super.visitMaxs(maxStack + 1, maxLocals);
+                        }
+                    };
+                }
+            }, 0);
+            return writer.toByteArray();
+        };
+    }
+
+    /** True while the menu world is on screen. Every game and mod HUD layer is skipped then. */
+    public static volatile boolean menuWorldUp;
+
+    public static boolean menuUiHidden() {
+        return menuWorldUp;
+    }
+
+    public static ClassTransformer menuGuiTransformer() {
+        return (name, bytes) -> {
+            if (bytes == null || !("net.minecraft.client.gui.Gui".equals(name)
+                    || "net.minecraftforge.client.gui.overlay.ForgeGui".equals(name))) {
+                return bytes;
+            }
+            ClassReader reader = new ClassReader(bytes);
+            ClassWriter writer = new ClassWriter(0);
+            reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
+                @Override
+                public MethodVisitor visitMethod(int access, String n, String d, String s, String[] e) {
+                    MethodVisitor mv = super.visitMethod(access, n, d, s, e);
+                    if (!n.equals("render") || !d.equals("(Lnet/minecraft/client/gui/GuiGraphics;F)V")
+                            || (access & Opcodes.ACC_STATIC) != 0) {
+                        return mv;
+                    }
+                    return new MethodVisitor(Opcodes.ASM9, mv) {
+                        @Override
+                        public void visitCode() {
+                            super.visitCode();
+                            Label go = new Label();
+                            super.visitMethodInsn(Opcodes.INVOKESTATIC, "khi/pentecost/core/Hooks",
+                                    "menuUiHidden", "()Z", false);
+                            super.visitJumpInsn(Opcodes.IFEQ, go);
+                            super.visitInsn(Opcodes.RETURN);
+                            super.visitLabel(go);
+                            super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                        }
+
+                        @Override
+                        public void visitMaxs(int maxStack, int maxLocals) {
+                            super.visitMaxs(Math.max(maxStack, 1), maxLocals);
                         }
                     };
                 }

@@ -23,6 +23,7 @@ public sealed class ModEntry
     public List<string> Requires = new();
     public List<string> Needs = new();
     public List<string> Bundled = new();
+    public List<string> Provides = new();
 
     public string BaseName
     {
@@ -100,6 +101,8 @@ public static class ModScan
                     e.Authors = Names(o["authors"]);
                     if (o["depends"] is JsonObject dep)
                         foreach (var kv in dep) if (Wanted(kv.Key)) e.Needs.Add(kv.Key);
+                    if (o["provides"] is JsonArray fprov)
+                        foreach (var pv in fprov) if (pv?.ToString() is { Length: > 0 } pid) e.Provides.Add(pid);
                     icon = o["icon"] switch
                     {
                         JsonValue v2 => v2.ToString(),
@@ -108,6 +111,17 @@ public static class ModScan
                     };
                 }
                 e.Loader = forge != null ? "Both" : "Fabric";
+                if (forge != null)
+                {
+                    using var fs = new StreamReader(forge.Open());
+                    var ft = fs.ReadToEnd();
+                    foreach (System.Text.RegularExpressions.Match own2 in Regex.Matches(ft, @"\[\[mods\]\](.*?)(?=\r?\n\s*\[\[|\z)", RegexOptions.Singleline))
+                    {
+                        var oid = Match(own2.Groups[1].Value, "modId\\s*=\\s*\"([^\"]+)\"");
+                        if (oid.Length > 0 && oid != e.Id && !e.Provides.Contains(oid)) e.Provides.Add(oid);
+                    }
+                }
+                e.Needs.RemoveAll(n => e.Provides.Contains(n));
             }
             else if (forge != null)
             {
@@ -115,6 +129,11 @@ public static class ModScan
                 var t = s.ReadToEnd();
                 e.Loader = "Forge";
                 e.Id = Match(t, "modId\\s*=\\s*\"([^\"]+)\"");
+                foreach (System.Text.RegularExpressions.Match own in Regex.Matches(t, @"\[\[mods\]\](.*?)(?=\r?\n\s*\[\[|\z)", RegexOptions.Singleline))
+                {
+                    var ownId = Match(own.Groups[1].Value, "modId\\s*=\\s*\"([^\"]+)\"");
+                    if (ownId.Length > 0 && ownId != e.Id && !e.Provides.Contains(ownId)) e.Provides.Add(ownId);
+                }
                 var dn = Match(t, "displayName\\s*=\\s*\"([^\"]+)\"");
                 if (dn.Length > 0 && !dn.Contains('$')) e.Name = dn;
                 var ver = Match(t, "(?m)^\\s*version\\s*=\\s*\"([^\"]+)\"");
@@ -124,8 +143,8 @@ public static class ModScan
                 if (desc.Length == 0) desc = Match(t, "description\\s*=\\s*\"([^\"]*)\"");
                 e.Summary = Tidy(desc);
                 icon = Match(t, "logoFile\\s*=\\s*\"([^\"]+)\"");
-                foreach (System.Text.RegularExpressions.Match d in Regex.Matches(t, "modId\\s*=\\s*\"([^\"]+)\""))
-                    if (Wanted(d.Groups[1].Value) && d.Groups[1].Value != e.Id && !e.Needs.Contains(d.Groups[1].Value)) e.Needs.Add(d.Groups[1].Value);
+                foreach (var fdep in ForgeRequired(t))
+                    if (Wanted(fdep) && fdep != e.Id && !e.Provides.Contains(fdep) && !e.Needs.Contains(fdep)) e.Needs.Add(fdep);
             }
             else if (quilt != null)
             {
@@ -134,6 +153,16 @@ public static class ModScan
                 {
                     e.Id = q["id"]?.ToString() ?? "";
                     if (q["version"]?.ToString() is { Length: > 0 } v) e.Version = v;
+                    if (q["depends"] is JsonArray qdeps)
+                        foreach (var qd in qdeps)
+                        {
+                            var qid = qd is JsonObject qobj ? qobj["id"]?.ToString() : qd?.ToString();
+                            var qopt = qd is JsonObject qobj2 && qobj2["optional"]?.ToString() == "true";
+                            if (!qopt && !string.IsNullOrEmpty(qid) && Wanted(qid) && !e.Needs.Contains(qid)) e.Needs.Add(qid);
+                        }
+                    if (q["provides"] is JsonArray qprov)
+                        foreach (var qp in qprov)
+                            if ((qp is JsonObject qpo ? qpo["id"]?.ToString() : qp?.ToString()) is { Length: > 0 } qpid) e.Provides.Add(qpid);
                     if (q["metadata"] is JsonObject meta)
                     {
                         if (meta["name"]?.ToString() is { Length: > 0 } n) e.Name = n;
@@ -144,6 +173,7 @@ public static class ModScan
                 }
                 e.Loader = "Quilt";
             }
+            e.Needs.RemoveAll(n => e.Bundled.Any(b => string.Equals(b.Replace('-', '_'), n.Replace('-', '_'), StringComparison.OrdinalIgnoreCase)));
             e.IconData = Picture(z, icon, e.Id);
         }
         catch (Exception ex) { AppLog.Write("Cannot read " + plain + ": " + ex.Message); }
@@ -186,7 +216,21 @@ public static class ModScan
         catch { return ""; }
     }
 
-    static bool Wanted(string id) => id is not ("minecraft" or "java" or "forge" or "neoforge" or "fabricloader" or "fabric" or "fabric-api" or "quilt_loader" or "quilt_base");
+    static bool Wanted(string id) => !DepMatch.Platform(id);
+
+    static IEnumerable<string> ForgeRequired(string toml)
+    {
+        foreach (System.Text.RegularExpressions.Match block in Regex.Matches(toml, @"\[\[dependencies\.[^\]]+\]\](.*?)(?=\r?\n\s*\[\[|\z)", RegexOptions.Singleline))
+        {
+            var body = block.Groups[1].Value;
+            var id = Match(body, "modId\\s*=\\s*\"([^\"]+)\"");
+            if (id.Length == 0) continue;
+            var optional = Regex.IsMatch(body, @"mandatory\s*=\s*false", RegexOptions.IgnoreCase)
+                || Regex.IsMatch(body, "type\\s*=\\s*\"(optional|discouraged|incompatible)\"", RegexOptions.IgnoreCase);
+            var serverOnly = Regex.IsMatch(body, "side\\s*=\\s*\"SERVER\"", RegexOptions.IgnoreCase);
+            if (!optional && !serverOnly) yield return id;
+        }
+    }
 
     static string Tidy(string s) => Regex.Replace(s, "\\s+", " ").Trim();
 
@@ -352,5 +396,65 @@ public static class GameChoices
         var tmp = path + ".pentecost-tmp";
         System.IO.File.WriteAllText(tmp, root.ToJsonString(Pretty), new System.Text.UTF8Encoding(false));
         System.IO.File.Move(tmp, path, true);
+    }
+}
+
+public static class DepMatch
+{
+    static string Flat(string id)
+    {
+        var i = id.IndexOf(':');
+        if (i > 0 && i < id.Length - 1) id = id[(i + 1)..];
+        return Regex.Replace(id.ToLowerInvariant(), "[^a-z0-9]", "");
+    }
+
+    static string Canon(string flat) => flat == "clothconfig2" ? "clothconfig" : flat;
+
+    static string Base(string flat)
+    {
+        var b = Regex.Replace(flat, "\\d+$", "");
+        return b.Length >= 5 ? b : flat;
+    }
+
+    /// <summary>Loader and Fabric API plumbing that Pentecost itself supplies. Never shown as a missing mod.</summary>
+    public static bool Platform(string id)
+    {
+        var d = id.Trim().ToLowerInvariant();
+        var i = d.IndexOf(':');
+        if (i > 0 && i < d.Length - 1) d = d[(i + 1)..];
+        return d is "minecraft" or "java" or "forge" or "neoforge" or "fabricloader" or "fabric" or "fabric_api"
+                or "quilt_loader" or "quilt_base" or "quilted_fabric_api" or "qsl" or "mixinextras"
+            || Regex.IsMatch(d, "^fabric[-_].+[-_]v\\d+$") || Regex.IsMatch(d, "^fabric[-_]api.*")
+            || d.StartsWith("quilt_") || d.StartsWith("org.quiltmc");
+    }
+
+    static IEnumerable<string> Names(ModEntry m)
+    {
+        if (m.Id.Length > 0) yield return m.Id;
+        foreach (var p in m.Provides) yield return p;
+        foreach (var b in m.Bundled) yield return b;
+    }
+
+    /// <summary>True when this mod is what the dependency id points at: same id, provided id, bundled id, or the same library under a different loader's id.</summary>
+    public static bool Provides(ModEntry m, string need)
+    {
+        var want = Canon(Flat(need));
+        var wantBase = Base(want);
+        foreach (var n in Names(m))
+        {
+            var have = Canon(Flat(n));
+            if (have == want || Base(have) == wantBase) return true;
+        }
+        return false;
+    }
+
+    public static ModEntry? Find(IEnumerable<ModEntry> mods, string need)
+    {
+        var list = mods as IList<ModEntry> ?? mods.ToList();
+        var want = Canon(Flat(need));
+        foreach (var m in list)
+            foreach (var n in Names(m))
+                if (Canon(Flat(n)) == want) return m;
+        return list.FirstOrDefault(m => Provides(m, need));
     }
 }
