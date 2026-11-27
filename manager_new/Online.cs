@@ -525,6 +525,20 @@ public static class Settings
     public static string BrowseLoader { get => S("browseLoader", "All"); set => Put("browseLoader", value); }
     public static string BrowseSort { get => S("browseSort", "relevance"); set => Put("browseSort", value); }
     public static bool PackDetails { get => B("packDetails", true); set => Put("packDetails", value); }
+    public static bool UseCurseForge { get => B("useCurseForge", true); set => Put("useCurseForge", value); }
+
+    // Older builds kept a CurseForge key in settings.json. The key now lives only on the server, so any copy left here is removed.
+    public static void PurgeLegacyKey()
+    {
+        try
+        {
+            if (!File.Exists(FileName) || JsonNode.Parse(File.ReadAllText(FileName)) is not JsonObject o || !o.ContainsKey("curseForgeKey")) return;
+            o.Remove("curseForgeKey");
+            File.WriteAllText(FileName, o.ToJsonString());
+            cache = null;
+        }
+        catch (Exception ex) { AppLog.Write("purge key: " + ex.Message); }
+    }
 
     public static bool ReuseMods { get => B("reuseMods", true); set => Put("reuseMods", value); }
 

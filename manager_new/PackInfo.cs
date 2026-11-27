@@ -35,7 +35,7 @@ public static partial class PackInfo
         await gate.WaitAsync();
         try
         {
-            var versions = await Modrinth.Versions(projectId, null, CancellationToken.None);
+            var versions = await Modrinth.VersionsOnly(projectId, null, CancellationToken.None);
             var pick = versions.FirstOrDefault(v => v.Channel == "release") ?? versions.FirstOrDefault();
             return pick == null ? null : await ForVersion(pick);
         }

@@ -10,6 +10,9 @@ public partial class App : Application
     [System.Runtime.InteropServices.DllImport("shell32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
     static extern int SetCurrentProcessExplicitAppUserModelID(string id);
     public static bool Demo;
+    // --dev runs the source build beside the installed Manager: its own single-instance and wake names.
+    public static bool Dev;
+    static string Tag => Dev ? ".Dev" : "";
 
     public static void ReleaseSingle()
     {
@@ -94,16 +97,27 @@ public partial class App : Application
             Shutdown();
             return;
         }
+        if (e.Args.Length >= 1 && e.Args[0].Equals("--cf-check", StringComparison.OrdinalIgnoreCase))
+        {
+            Paths.Load();
+            List<string> log;
+            try { log = Task.Run(CfCheck.Run).GetAwaiter().GetResult(); }
+            catch (Exception ex) { log = new List<string> { "FAILED " + ex }; }
+            File.WriteAllLines(Path.Combine(Paths.Data, "cf-check.txt"), log);
+            Shutdown();
+            return;
+        }
+        Dev = e.Args.Any(a => a.Equals("--dev", StringComparison.OrdinalIgnoreCase));
         Welcome = e.Args.Any(a => a.Equals("--welcome", StringComparison.OrdinalIgnoreCase));
         Demo = e.Args.Any(a => a.Equals("--demo", StringComparison.OrdinalIgnoreCase));
         var shot = e.Args.Length >= 2 && e.Args[0].Equals("--shot", StringComparison.OrdinalIgnoreCase);
         var check = e.Args.Length >= 2 && e.Args[0].Equals("--check", StringComparison.OrdinalIgnoreCase);
         if (!shot && !check && !Demo)
         {
-            single = new Mutex(true, "Local\\PentecostManager.Single", out var first);
+            single = new Mutex(true, "Local\\PentecostManager.Single" + Tag, out var first);
             if (!first)
             {
-                try { if (EventWaitHandle.TryOpenExisting("Local\\PentecostManager.Wake", out var wake)) { wake.Set(); wake.Dispose(); } } catch { }
+                try { if (EventWaitHandle.TryOpenExisting("Local\\PentecostManager.Wake" + Tag, out var wake)) { wake.Set(); wake.Dispose(); } } catch { }
                 Shutdown();
                 return;
             }
@@ -113,13 +127,14 @@ public partial class App : Application
         TaskScheduler.UnobservedTaskException += (_, a) => { AppLog.Write("task: " + a.Exception); a.SetObserved(); };
         Paths.Load();
         DevInbox.NoteExe();
+        Settings.PurgeLegacyKey();
         if (!shot && !check && !Demo) DiscordPresence.Start();
 
         var window = new MainWindow();
         MainWindow = window;
         if (!shot && !check && !Demo)
         {
-            var signal = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\PentecostManager.Wake");
+            var signal = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\PentecostManager.Wake" + Tag);
             new Thread(() => { while (signal.WaitOne()) window.Dispatcher.BeginInvoke(window.ShowFromTray); }) { IsBackground = true }.Start();
         }
         if (shot || check)

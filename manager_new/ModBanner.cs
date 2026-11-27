@@ -50,7 +50,7 @@ public sealed class ModBanner : FrameworkElement
         {
             byte[] bytes;
             if (File.Exists(source)) bytes = await File.ReadAllBytesAsync(source);
-            else if (Modrinth.SafeImage(source) is { } uri) bytes = await Modrinth.Client.GetByteArrayAsync(uri);
+            else if (CurseForge.SafeImage(source) is { } uri) bytes = await Modrinth.Client.GetByteArrayAsync(uri);
             else return;
             if (bytes.Length > 25 * 1024 * 1024) return;
             var (px, w, h, l, hgh) = await Task.Run(() =>

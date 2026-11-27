@@ -176,7 +176,8 @@ public partial class MainWindow
         if (mod != null) { OpenMod(mod, onInstalled); return; }
         var overview = new StackPanel();
         var facts = Ui.T(author.Length > 0 ? "by " + author : "", 12, "Faint", trim: true);
-        var web = Ui.Btn("Open on Modrinth", "Secondary", (_, _) => OpenPath("https://modrinth.com/" + type + "/" + id));
+        var web = Ui.Btn("Open on the web", "Secondary", null, "");
+        Ui.Menu(web, () => Catalog.WebLinks(id, type).Select(l => ("Open on " + l.Label, (Action)(() => OpenPath(l.Url)), false)));
         var tile = (Border)Ui.Tile(icon, title, 56);
         bannerTile = icon == null ? tile : null;
         var bar = BannerBar(title, tile, facts, id, web);
@@ -191,12 +192,12 @@ public partial class MainWindow
     async Task FillProject(StackPanel body, TextBlock facts, string id, string type, string title, string author, Action onInstalled, ModEntry? mod, StackPanel? side = null)
     {
         side ??= body;
-        var loading = Ui.T("Loading from Modrinth", 12.5, "Muted");
+        var loading = Ui.T("Loading", 12.5, "Muted");
         body.Children.Add(loading);
         try
         {
             var infoTask = Modrinth.Project(id, CancellationToken.None);
-            var versionsTask = Modrinth.Versions(id, null, CancellationToken.None);
+            var versionsTask = Catalog.Versions(id, null, CancellationToken.None, full: true);
             var p = await infoTask;
             currentBanner?.SetImage(p.Gallery.FirstOrDefault() ?? p.IconUrl);
             if (bannerTile != null && p.IconUrl != null)
@@ -290,6 +291,12 @@ public partial class MainWindow
 
             async Task InstallVersionWith(VersionInfo ver, Button btn)
             {
+                if (ver.Url.Length == 0)
+                {
+                    OpenPath(ver.Web);
+                    Toast("The author only allows this file to be downloaded from CurseForge, so its page is open.");
+                    return;
+                }
                 if (!await FeedAllowsInstall(id, title, ver.Number)) return;
                 btn.IsEnabled = false;
                 btn.Content = "Installing";
@@ -305,6 +312,7 @@ public partial class MainWindow
                         return;
                     }
                     var added = await Modrinth.InstallVersion(ver, type, CancellationToken.None);
+                    Catalog.Remember(id, added);
                     btn.Content = "Installed";
                     Toast(added.Count == 0 ? "That version is already there." : "Installed " + title + " " + ver.Number + (added.Count > 1 ? $" and {added.Count - 1} needed mods" : ""));
                     onInstalled();
@@ -327,10 +335,12 @@ public partial class MainWindow
                 get.HorizontalAlignment = HorizontalAlignment.Stretch;
                 get.Padding = new Thickness(16, 11, 16, 11);
                 get.IsEnabled = !have;
+                if (best.Url.Length == 0 && !have) get.Content = "Get on CurseForge";
                 if (Feed.Locked(id, best.Number) is { } why) { get.Content = "Blocked"; get.IsEnabled = false; get.ToolTip = why; ToolTipService.SetShowOnDisabled(get, true); }
                 get.Click += async (_, _) => await InstallVersionWith(best, get);
                 var note = Ui.T((type is "mod" or "modpack" ? string.Join(", ", best.Loaders.Select(Ui.Nice)) + ", " : "") + Ui.Bytes(best.Size)
                     + (best.Channel != "release" ? ", " + best.Channel : "")
+                    + (Catalog.CurseOn ? ", on " + Catalog.SiteName(best.Sites) : "")
                     + (versions.Count > 0 && versions[0].Date.Year > 2000 ? ", updated " + versions[0].Date.ToString("yyyy-MM-dd") : ""), 12, "Faint", trim: true);
                 note.Margin = new Thickness(2, 8, 0, 26);
                 side.Children.Add(get);
@@ -350,10 +360,19 @@ public partial class MainWindow
                     dot.VerticalAlignment = VerticalAlignment.Center;
                     dot.ToolTip = v.Channel;
                     var name = Ui.H(dot, Ui.T(v.Number.Length > 0 ? v.Number : v.Name, 13, bold: true, trim: true).With(new Thickness(8, 0, 0, 0)));
+                    if (Catalog.CurseOn || v.Sites != "M")
+                    {
+                        var site = Ui.Pill(Catalog.Short(v.Sites));
+                        site.ToolTip = "On " + Catalog.SiteName(v.Sites);
+                        site.Margin = new Thickness(8, 0, 0, 0);
+                        site.VerticalAlignment = VerticalAlignment.Center;
+                        name.Children.Add(site);
+                    }
                     var sub = Ui.T((v.Date.Year > 2000 ? v.Date.ToString("yyyy-MM-dd") + "   " : "") + Ui.Bytes(v.Size), 11.5, "Faint", trim: true);
                     sub.Margin = new Thickness(14, 2, 0, 0);
                     var btn = Ui.Btn(here ? "Installed" : "Install", "Ghost");
                     btn.IsEnabled = !here;
+                    if (v.Url.Length == 0 && !here) btn.Content = "Get on CurseForge";
                     btn.Padding = new Thickness(10, 4, 10, 4);
                     btn.FontSize = 12;
                     btn.VerticalAlignment = VerticalAlignment.Center;
@@ -377,7 +396,7 @@ public partial class MainWindow
         catch (Exception ex)
         {
             AppLog.Write("project " + id + ": " + ex.Message);
-            loading.Text = "Modrinth could not be reached: " + ex.Message;
+            loading.Text = "Could not load it: " + ex.Message;
             loading.Foreground = Ui.Br("Warn");
             if (mod != null) FileFacts(body, mod);
         }

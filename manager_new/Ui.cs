@@ -91,7 +91,7 @@ public static class Ui
 
     public static BitmapImage? Picture(string? url, int decodeWidth = 0, int decodeHeight = 0)
     {
-        if (Modrinth.SafeImage(url) is not { } uri) return null;
+        if (CurseForge.SafeImage(url) is not { } uri) return null;
         try
         {
             var bi = new BitmapImage();
@@ -137,7 +137,7 @@ public static class Ui
 
     static async Task FillIcon(Image img, string url, int width)
     {
-        if (Modrinth.SafeImage(url) is not { } uri) return;
+        if (CurseForge.SafeImage(url) is not { } uri) return;
         var key = url + "|" + width;
         BitmapSource? bmp;
         lock (iconCache) iconCache.TryGetValue(key, out bmp);
@@ -181,7 +181,7 @@ public static class Ui
             RenderOptions.SetBitmapScalingMode(img, source.PixelWidth <= 64 ? BitmapScalingMode.NearestNeighbor : BitmapScalingMode.HighQuality);
             grid.Children.Add(img);
         }
-        else if (mod == null && Modrinth.SafeImage(iconUrl) != null)
+        else if (mod == null && CurseForge.SafeImage(iconUrl) != null)
         {
             var img = new Image { Stretch = Stretch.UniformToFill, Opacity = 0 };
             grid.Children.Add(img);

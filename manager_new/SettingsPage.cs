@@ -43,6 +43,8 @@ public partial class MainWindow
                 new[] { ("All", "All"), ("Forge", "Forge"), ("Fabric", "Fabric"), ("Quilt", "Quilt") }, Settings.BrowseLoader, v => Settings.BrowseLoader = v),
             Choice("Sort by", "The order Browse starts with.",
                 new[] { ("Relevance", "relevance"), ("Downloads", "downloads"), ("Follows", "follows"), ("Newest", "newest"), ("Updated", "updated") }, Settings.BrowseSort, v => Settings.BrowseSort = v),
+            Toggle("Also search CurseForge", "Browse merges CurseForge into Modrinth. A mod on both sites shows once, with the versions from both. Uses the Pentecost server, so you need to be signed in to Pentecost online.",
+                Settings.UseCurseForge, v => Settings.UseCurseForge = v),
             Toggle("Modpack details on cards", "Each modpack card reads the pack's list for its mod count, loader, size and the mods you already have. Off saves a little data.",
                 Settings.PackDetails, v => Settings.PackDetails = v)));
 

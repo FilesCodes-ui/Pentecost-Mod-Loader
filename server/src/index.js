@@ -143,11 +143,53 @@ async function devProven(env, b, purpose) {
   return ok && (await hubOf(env).useNonce(`dev:${b.challenge}`, b.ts + CHALLENGE_MS));
 }
 
+// CurseForge goes through here so the API key never leaves the server. Only signed-in players can ask,
+// only these read-only paths are forwarded, and each player gets a per-minute allowance.
+const CF_PATHS = [
+  /^\/v1\/mods\/search$/,
+  /^\/v1\/mods\/\d{1,10}$/,
+  /^\/v1\/mods\/\d{1,10}\/description$/,
+  /^\/v1\/mods\/\d{1,10}\/files$/,
+  /^\/v1\/categories$/,
+  /^\/v1\/games\/432$/,
+];
+const CF_PER_MIN = 240;
+
+async function curse(req, env, url) {
+  const who = await authed(req, env);
+  if (!who) return fail(401, "Sign in again.");
+  const path = url.pathname.slice(3);
+  if (!CF_PATHS.some((p) => p.test(path)) || url.search.length > 1000) return fail(404, "Not found.");
+  if (!env.CF_API_KEY) return fail(503, "CurseForge is not set up on the server.");
+  if (!(await hubOf(env).cfAllow(who.u, CF_PER_MIN))) return fail(429, "Slow down.");
+  let r = null;
+  for (let i = 0; i < 3; i++) {
+    try {
+      r = await fetch("https://api.curseforge.com" + path + url.search, {
+        headers: { "x-api-key": env.CF_API_KEY, accept: "application/json", "user-agent": "Pentecost-Manager-Server" },
+        cf: { cacheTtl: 300, cacheEverything: true },
+      });
+      if (r.status < 500) break;
+    } catch {
+      r = null;
+    }
+    if (i < 2) await new Promise((done) => setTimeout(done, 300 * (i + 1)));
+  }
+  if (!r) return fail(502, "CurseForge could not be reached.");
+  if (r.status === 429) return fail(429, "Slow down.");
+  if (!r.ok) {
+    const why = (await r.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 160);
+    return fail(r.status === 400 || r.status === 404 ? r.status : 502, "CurseForge answered " + r.status + (why ? ": " + why : "."));
+  }
+  return new Response(r.body, { status: 200, headers: { "content-type": "application/json", "cache-control": "no-store" } });
+}
+
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     try {
       const route = `${req.method} ${url.pathname}`;
+      if (req.method === "GET" && url.pathname.startsWith("/cf/")) return curse(req, env, url);
       switch (route) {
         case "GET /auth/challenge":
           return challenge(env);
@@ -234,6 +276,7 @@ export class Hub extends DurableObject {
       CREATE TABLE IF NOT EXISTS mail(id INTEGER PRIMARY KEY AUTOINCREMENT, dst TEXT NOT NULL, src TEXT NOT NULL, kind TEXT NOT NULL, body TEXT NOT NULL, ts INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS mail_dst ON mail(dst);
       CREATE TABLE IF NOT EXISTS crashes(mod TEXT NOT NULL, version TEXT NOT NULL, kind TEXT NOT NULL, n INTEGER NOT NULL, last INTEGER, PRIMARY KEY(mod, version, kind));
+      CREATE TABLE IF NOT EXISTS cf_rl(uuid TEXT PRIMARY KEY, win INTEGER NOT NULL, n INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS crash_rl(uuid TEXT NOT NULL, mod TEXT NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY(uuid, mod));
     `);
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
@@ -272,6 +315,17 @@ export class Hub extends DurableObject {
     this.sql.exec("INSERT INTO crash_rl(uuid, mod, ts) VALUES(?, ?, ?) ON CONFLICT(uuid, mod) DO UPDATE SET ts = excluded.ts", uuid, mod, now);
     this.sql.exec("INSERT INTO crashes(mod, version, kind, n, last) VALUES(?, ?, ?, 1, ?) ON CONFLICT(mod, version, kind) DO UPDATE SET n = n + 1, last = excluded.last", mod, version, kind, now);
     return { ok: true };
+  }
+
+  cfAllow(uuid, max) {
+    const win = Math.floor(Date.now() / 60000);
+    this.sql.exec("DELETE FROM cf_rl WHERE win < ?", win);
+    const r = this.row("SELECT n FROM cf_rl WHERE uuid = ? AND win = ?", uuid, win);
+    if (r && r.n >= max) return false;
+    this.sql.exec(
+      "INSERT INTO cf_rl(uuid, win, n) VALUES(?, ?, 1) ON CONFLICT(uuid) DO UPDATE SET win = excluded.win, n = CASE WHEN cf_rl.win = excluded.win THEN cf_rl.n + 1 ELSE 1 END",
+      uuid, win);
+    return true;
   }
 
   broadcast(msg) {

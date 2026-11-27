@@ -25,7 +25,7 @@ public static class Downloads
         var okType = name.EndsWith(".jar", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
             || name.EndsWith(".mrpack", StringComparison.OrdinalIgnoreCase);
         if (!okType || name != Path.GetFileName(name) || sha1.Length != 40 || (sha512 != null && sha512.Length != 128)
-            || !Uri.TryCreate(link, UriKind.Absolute, out var uri) || uri.Scheme != "https" || !Modrinth.IsModrinthHost(uri.Host))
+            || !Uri.TryCreate(link, UriKind.Absolute, out var uri) || uri.Scheme != "https" || !(Modrinth.IsModrinthHost(uri.Host) || CurseForge.IsCdnHost(uri.Host)))
             throw new IOException($"{name}: the file entry is not one I will download");
 
         var job = new DlJob { Name = name };
@@ -45,7 +45,7 @@ public static class Downloads
                 using (var resp = await Modrinth.Client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct))
                 {
                     resp.EnsureSuccessStatusCode();
-                    if (resp.RequestMessage?.RequestUri is { } landed && (landed.Scheme != "https" || !Modrinth.IsModrinthHost(landed.Host)))
+                    if (resp.RequestMessage?.RequestUri is { } landed && (landed.Scheme != "https" || !(Modrinth.IsModrinthHost(landed.Host) || CurseForge.IsCdnHost(landed.Host))))
                         throw new IOException($"{name}: the download was sent to another site, so it was not used");
                     var total = resp.Content.Headers.ContentLength ?? 0;
                     using var src = await resp.Content.ReadAsStreamAsync(ct);

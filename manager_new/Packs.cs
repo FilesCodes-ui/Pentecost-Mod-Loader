@@ -92,7 +92,7 @@ public static class Packs
 
     public static async Task<PackResult> InstallFromModrinth(string projectId, string? loader, CancellationToken ct)
     {
-        var versions = await Modrinth.Versions(projectId, null, ct);
+        var versions = await Modrinth.VersionsOnly(projectId, null, ct);
         var wanted = loader == null ? versions : versions.Where(v => v.Loaders.Contains(loader)).ToList();
         if (wanted.Count == 0) wanted = versions;
         var pick = wanted.FirstOrDefault(v => v.Channel == "release") ?? wanted.FirstOrDefault()

@@ -18,6 +18,7 @@ public partial class MainWindow
         var cats = new HashSet<string>();
         var hideInstalled = false;
         var hits = new List<Hit>();
+        var shown = new HashSet<string>();
         var cols = 3;
         var offset = 0;
         var total = 0;
@@ -35,7 +36,7 @@ public partial class MainWindow
         var pager = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 8, 0, 4), Visibility = Visibility.Collapsed };
 
         var harbor = new Harbor { Height = 270, Margin = new Thickness(-34, -24, -28, 0) };
-        var headCount = Ui.T("Modrinth, Minecraft 1.20.1", 13, "Soft");
+        var headCount = Ui.T("Modrinth and CurseForge, Minecraft 1.20.1", 13, "Soft");
         headCount.FontFamily = (FontFamily)FindResource("Mono");
         var status = Ui.T("", 12.5, "Muted", trim: true);
         status.VerticalAlignment = VerticalAlignment.Center;
@@ -45,7 +46,7 @@ public partial class MainWindow
         lazy = new LazyList(150, CardRow);
         lazy.View.Margin = new Thickness(0, 10, 0, 0);
 
-        var boxHost = Ui.SearchBox("Search Modrinth", out var box);
+        var boxHost = Ui.SearchBox("Search Modrinth and CurseForge", out var box);
         var typing = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
         typing.Tick += (_, _) => { typing.Stop(); _ = Search(true); };
         box.TextChanged += (_, _) => { typing.Stop(); typing.Start(); };
@@ -231,26 +232,36 @@ public partial class MainWindow
             if (!fresh && busy) return;
             cts?.Cancel();
             var my = cts = new CancellationTokenSource();
-            if (fresh) { if (!keepPage) pageNo = 0; offset = paged ? pageNo * PageSize : 0; total = 0; hits.Clear(); lazy.Reset(); }
+            if (fresh) { if (!keepPage) pageNo = 0; offset = paged ? pageNo * PageSize : 0; total = 0; hits.Clear(); shown.Clear(); lazy.Reset(); }
             busy = true;
             progress.IsIndeterminate = true;
-            status.Text = fresh ? "Searching Modrinth" : "Loading more";
+            status.Text = fresh ? "Searching" : "Loading more";
             try
             {
                 if (fresh) await RefreshInstalled(false);
-                var page = await Modrinth.Search(box.Text.Trim(), type, loader, cats.ToList(), sort, offset, my.Token);
+                var page = await Catalog.Search(box.Text.Trim(), type, loader, cats.ToList(), sort, offset, my.Token);
                 if (my.IsCancellationRequested) return;
                 total = paged ? page.Total : page.Hits.Count == 0 ? offset : page.Total;
-                offset += page.Hits.Count;
+                offset += PageSize;
                 var lastRow = Rows() - 1;
                 foreach (var h in page.Hits.OrderByDescending(x => Feed.Flag(x.ProjectId, "pin")))
-                    if ((!hideInstalled || !installedIds.Contains(h.ProjectId)) && !Feed.Flag(h.ProjectId, "hide")) hits.Add(h);
+                    {
+                    var twin = h.CurseId == null ? null : "cf:" + h.CurseId;
+                    if (!shown.Contains(h.ProjectId) && (twin == null || !shown.Contains(twin))
+                        && (!hideInstalled || !installedIds.Contains(h.ProjectId)) && !Feed.Flag(h.ProjectId, "hide"))
+                    {
+                        hits.Add(h);
+                        shown.Add(h.ProjectId);
+                        if (twin != null) shown.Add(twin);
+                    }
+                }
                 lazy.SetCount(Rows());
                 if (lastRow >= 0) lazy.Invalidate(lastRow);
                 if (fresh)
             {
                 harbor.SetCargo(hits.Take(3).Select(x => (x.ProjectId, x.Title)));
-                headCount.Text = hits.Count == 0 ? "Nothing found on Modrinth" : $"{Ui.Num(total)} on Modrinth for 1.20.1";
+                headCount.Text = (hits.Count == 0 ? "Nothing found" : $"{Ui.Num(total)} for 1.20.1 on " + (Catalog.CurseOn && type != "modpack" ? "Modrinth and CurseForge" : "Modrinth"))
+                    + (page.Note != null ? ", " + page.Note : "");
             }
             status.Text = hits.Count == 0 ? "Nothing found" : paged ? $"Page {pageNo + 1} of {Math.Clamp((total + PageSize - 1) / PageSize, 1, 500)}, {Ui.Num(total)} results" : $"{hits.Count} of {Ui.Num(total)}";
                 DrawPager();
@@ -292,6 +303,12 @@ public partial class MainWindow
                     {
                         if (!map.TryGetValue(m.ProjectId, out var set)) map[m.ProjectId] = set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                         set.Add(Bare(Path.GetFileName(m.File)));
+                    }
+                foreach (var (siteFile, siteId) in Catalog.Installed())
+                    if (FileThere(siteFile))
+                    {
+                        if (!map.TryGetValue(siteId, out var held)) map[siteId] = held = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        held.Add(siteFile);
                     }
                 foreach (var (id, files) in known)
                 {
@@ -363,6 +380,7 @@ public partial class MainWindow
                 var added = h.Type == "mod"
                     ? await Modrinth.Install(h.ProjectId, loaderName, _ => { }, CancellationToken.None)
                     : await Modrinth.InstallOther(h.ProjectId, h.Type, CancellationToken.None);
+                Catalog.Remember(h.ProjectId, added);
                 if (added.Count > 0) installedFiles[h.ProjectId] = new HashSet<string>(new[] { Bare(added[0]) }, StringComparer.OrdinalIgnoreCase);
                 else unknownFiles.Add(h.ProjectId);
                 installedIds.Add(h.ProjectId);
@@ -438,7 +456,14 @@ public partial class MainWindow
             var metaStats = Ui.H(Ui.Glyph("", 10, "Faint"), Ui.T(Ui.Num(h.Downloads), 11.5, "Faint").With(new Thickness(5, 0, 12, 0)),
                 Ui.Glyph("", 10, "Faint"), Ui.T(Ui.Num(h.Follows), 11.5, "Faint").With(new Thickness(5, 0, 0, 0)));
             var meta = Ui.H();
-            foreach (var pill in FeedPills(h.ProjectId).Take(2)) meta.Children.Add(pill);
+            if (Catalog.CurseOn)
+            {
+                var site = Ui.Pill(Catalog.Short(h.Sites));
+                site.ToolTip = "Found on " + Catalog.SiteName(h.Sites);
+                site.Margin = new Thickness(0, 0, 6, 0);
+                meta.Children.Add(site);
+            }
+            foreach (var pill in FeedPills(h.ProjectId).Take(Catalog.CurseOn ? 1 : 2)) meta.Children.Add(pill);
             meta.Children.Add(metaStats);
             if (h.Type == "modpack" && Settings.PackDetails)
             {

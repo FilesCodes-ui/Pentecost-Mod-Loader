@@ -6,12 +6,14 @@ using System.Text.Json.Nodes;
 namespace Pentecost.Manager;
 
 public sealed record Hit(string ProjectId, string Slug, string Title, string Author, string Desc, string? IconUrl,
-    long Downloads, long Follows, string[] Loaders, string[] Categories, string Type, string[] Gallery, DateTime? Updated);
-public sealed record SearchPage(List<Hit> Hits, int Total);
+    long Downloads, long Follows, string[] Loaders, string[] Categories, string Type, string[] Gallery, DateTime? Updated,
+    string Sites = "M", string? CurseId = null);
+public sealed record SearchPage(List<Hit> Hits, int Total, string? Note = null);
 public sealed record Missing(string ProjectId, string Title, string NeededBy, string? IconUrl);
 public sealed record Category(string Name, string Type);
 public sealed record VersionInfo(string Id, string Name, string Number, string Channel, string[] Loaders, DateTime Date,
-    long Downloads, string FileName, string Url, string Sha1, long Size, string[] Requires, string Sha512 = "");
+    long Downloads, string FileName, string Url, string Sha1, long Size, string[] Requires, string Sha512 = "",
+    string Sites = "M", string Web = "");
 public sealed record ProjectInfo(string Id, string Slug, string Title, string Desc, string Body, string? IconUrl, string Type,
     long Downloads, long Follows, string[] Categories, string[] Gallery);
 
@@ -110,7 +112,11 @@ public static class Modrinth
         return categoryCache = list.Where(c => c.Name.Length > 0).ToList();
     }
 
-    public static async Task<ProjectInfo> Project(string id, CancellationToken ct)
+    public static Task<ProjectInfo> Project(string id, CancellationToken ct) => Catalog.Project(id, ct);
+
+    public static Task<List<VersionInfo>> Versions(string id, string? loader, CancellationToken ct) => Catalog.Versions(id, loader, ct);
+
+    public static async Task<ProjectInfo> ProjectOnly(string id, CancellationToken ct)
     {
         var o = await Get($"{Api}/project/{Uri.EscapeDataString(id)}", ct) as JsonObject ?? throw new IOException("Modrinth gave an answer I do not understand");
         var gallery = new List<string>();
@@ -128,7 +134,7 @@ public static class Modrinth
             Long(o["downloads"]), Long(o["followers"]), Strings(o["categories"]), gallery.ToArray());
     }
 
-    public static async Task<List<VersionInfo>> Versions(string id, string? loader, CancellationToken ct)
+    public static async Task<List<VersionInfo>> VersionsOnly(string id, string? loader, CancellationToken ct)
     {
         var url = $"{Api}/project/{Uri.EscapeDataString(id)}/version?game_versions={Game}";
         if (loader != null) url += $"&loaders=%5B%22{loader}%22%5D";
@@ -150,6 +156,37 @@ public static class Modrinth
                 v["version_type"]?.ToString() ?? "release", Strings(v["loaders"]), date, Long(v["downloads"]), name, link, sha1, Long(file["size"]), requires, sha512));
         }
         return list;
+    }
+
+    // Which Modrinth project does each file hash belong to? Used to match a CurseForge mod to its Modrinth twin.
+    public static async Task<Dictionary<string, string>> ProjectsByHashes(IEnumerable<string> sha1s, CancellationToken ct)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var all = sha1s.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        for (var i = 0; i < all.Count; i += 400)
+        {
+            var arr = new JsonArray(all.Skip(i).Take(400).Select(h => (JsonNode)JsonValue.Create(h)!).ToArray());
+            if (await Post(Api + "/version_files", new JsonObject { ["hashes"] = arr, ["algorithm"] = "sha1" }, ct) is JsonObject found)
+                foreach (var (hash, v) in found)
+                    if (v is JsonObject vo && vo["project_id"]?.ToString() is { Length: > 0 } pid) map[hash] = pid;
+        }
+        return map;
+    }
+
+    public static async Task<string[]> TeamNames(string id, CancellationToken ct)
+    {
+        try
+        {
+            var arr = await Get($"{Api}/project/{Uri.EscapeDataString(id)}/members", ct) as JsonArray;
+            return arr?.OfType<JsonObject>().Select(m => m["user"]?["username"]?.ToString() ?? "").Where(x => x.Length > 0).ToArray() ?? Array.Empty<string>();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) { return Array.Empty<string>(); }
+    }
+
+    public static async Task<ProjectInfo?> ProjectOrNull(string slug, CancellationToken ct)
+    {
+        try { return await ProjectOnly(slug, ct); }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
     }
 
     static string[] LoadersFor(ModEntry m) => m.Loader switch
@@ -302,7 +339,9 @@ public static class Modrinth
     public static async Task<List<string>> InstallOther(string project, string type, CancellationToken ct)
     {
         var versions = await Versions(project, null, ct);
-        var v = versions.FirstOrDefault(x => x.Channel == "release") ?? versions.FirstOrDefault()
+        var open = versions.Where(x => x.Url.Length > 0).ToList();
+        if (open.Count == 0 && versions.Count > 0) throw CurseOnly(versions);
+        var v = open.FirstOrDefault(x => x.Channel == "release") ?? open.FirstOrDefault()
             ?? throw new IOException("There is no version for Minecraft 1.20.1");
         return await InstallVersion(v, type, ct);
     }
@@ -329,10 +368,15 @@ public static class Modrinth
         return added;
     }
 
+    static IOException CurseOnly(List<VersionInfo> versions) =>
+        new("The author only allows this to be downloaded from CurseForge. Open " + (versions[0].Web.Length > 0 ? versions[0].Web : "its CurseForge page") + " to get it.");
+
     static async Task<VersionInfo?> Best(string project, string loader, CancellationToken ct)
     {
         var versions = await Versions(project, loader, ct);
-        return versions.FirstOrDefault(v => v.Channel == "release") ?? versions.FirstOrDefault();
+        var open = versions.Where(v => v.Url.Length > 0).ToList();
+        if (open.Count == 0 && versions.Count > 0) throw CurseOnly(versions);
+        return open.FirstOrDefault(v => v.Channel == "release") ?? open.FirstOrDefault();
     }
 
     static async Task One(string project, string loader, HashSet<string> seen, int depth, List<string> added, Action<string> report, CancellationToken ct)
